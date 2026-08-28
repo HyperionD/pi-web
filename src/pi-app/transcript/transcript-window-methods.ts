@@ -69,7 +69,7 @@ export const transcriptWindowMethods = {
     this.term?.addEventListener("pointerdown", () => { this.userGestureScroll = true; });
     this.scrollTerm = ({ force = false } = {}) => {
       if (!force && this.userScrolledAway) return;
-      if (this.scrollFrame) {
+      if (this.scrollFrame !== undefined) {
         if (!force) return;
         window.cancelAnimationFrame?.(this.scrollFrame);
         this.scrollFrame = undefined;
@@ -91,7 +91,7 @@ export const transcriptWindowMethods = {
   },
 
   cancelTranscriptScroll() {
-    if (!this.scrollFrame) return;
+    if (this.scrollFrame === undefined) return;
     window.cancelAnimationFrame?.(this.scrollFrame);
     this.scrollFrame = undefined;
   },
@@ -149,7 +149,8 @@ export const transcriptWindowMethods = {
     this.streamingTail?.replaceChildren();
     this.streamingRows = {};
     this.pendingStreamingRow = undefined;
-    if (this.streamingRenderFrame) {
+    this.piDeltaBuffer = "";
+    if (this.streamingRenderFrame !== undefined) {
       window.cancelAnimationFrame?.(this.streamingRenderFrame);
       this.streamingRenderFrame = undefined;
     }

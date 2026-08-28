@@ -198,6 +198,45 @@ describe("pi-app transcript window", () => {
     expect(app.streamingRenderFrame).toBeUndefined();
   });
 
+  it("clears streaming state and history remains intact on repeated clear", async () => {
+    const cancelAnimationFrame = vi.spyOn(window, "cancelAnimationFrame").mockImplementation(() => undefined);
+    const app = await connectPiApp();
+    const history = document.createElement("div");
+    history.className = "msg";
+    history.textContent = "history";
+    app.termInner.append(history);
+    app.transcriptItems = [app.createTranscriptItem(undefined, { nodes: [history] })];
+    app.scrollFrame = undefined;
+    app.streamingTail.append(document.createElement("div"));
+    app.piDeltaBuffer = "```json";
+    app.streamingRenderFrame = 0;
+
+    app.clearStreamingTail();
+    app.clearStreamingTail();
+
+    expect(cancelAnimationFrame).toHaveBeenCalledWith(0);
+    expect(app.streamingRenderFrame).toBeUndefined();
+    expect(app.scrollFrame).toBeUndefined();
+    expect(app.piDeltaBuffer).toBe("");
+    expect(app.streamingTail.childElementCount).toBe(0);
+    expect(app.transcriptItems).toHaveLength(1);
+    expect(app.termInner.textContent).toContain("history");
+  });
+
+  it("clears both animation frame handles when resetting with zero-valued IDs", async () => {
+    const cancelAnimationFrame = vi.spyOn(window, "cancelAnimationFrame").mockImplementation(() => undefined);
+    const app = await connectPiApp();
+    app.streamingRenderFrame = 0;
+    app.scrollFrame = 0;
+
+    app.resetTranscriptWindow();
+
+    expect(cancelAnimationFrame).toHaveBeenCalledWith(0);
+    expect(cancelAnimationFrame).toHaveBeenCalledTimes(2);
+    expect(app.streamingRenderFrame).toBeUndefined();
+    expect(app.scrollFrame).toBeUndefined();
+  });
+
   it("keeps streamed assistant markup height changes outside the virtual scroller", async () => {
     const frames = [];
     vi.spyOn(window, "requestAnimationFrame").mockImplementation((callback) => {

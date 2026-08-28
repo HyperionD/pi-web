@@ -48,6 +48,8 @@ describe("pi-app core events", () => {
     expect(app.eventSource.close).toHaveBeenCalled();
     expect(backgroundSource.close).toHaveBeenCalled();
     expect(app.uninstallViewportSizing).toHaveBeenCalled();
+    expect(app.streamingRenderFrame).toBeUndefined();
+    expect(app.scrollFrame).toBeUndefined();
     app.eventSource = null;
     app.spinnerTimer = undefined;
     app.runtimeStatusTimer = undefined;
