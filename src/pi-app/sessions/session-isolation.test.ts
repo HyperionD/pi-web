@@ -10,7 +10,7 @@ function appFixture() {
     <pi-app data-tree="on" data-sidebar="open" data-active-workspace-id="w1">
       <span class="statusbtn"></span>
       <span data-active-session-title></span>
-      <main data-main="session"><div class="term-inner"></div></main>
+      <main data-main="session"><div class="term"><div class="term-inner"></div><div class="streaming-tail" data-streaming-tail></div></div></main>
       <main data-main="empty" hidden></main>
       <div class="prompt-region">
         <div class="slash-pop" hidden></div>

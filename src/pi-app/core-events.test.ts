@@ -60,6 +60,23 @@ describe("pi-app core events", () => {
     vi.useRealTimers();
   });
 
+  it("clears streaming lifecycle state through the real disconnect path", async () => {
+    vi.spyOn(window, "requestAnimationFrame").mockImplementation(() => 0);
+    const cancelAnimationFrame = vi.spyOn(window, "cancelAnimationFrame").mockImplementation(() => undefined);
+    const app = await connectPiApp();
+    app.appendDelta({ kind: "pi", delta: "pending" });
+
+    expect(app.querySelector(".streaming-tail .msg.streaming")).not.toBeNull();
+    expect(app.pendingStreamingRow).not.toBeUndefined();
+    app.disconnectedCallback();
+
+    expect(cancelAnimationFrame).toHaveBeenCalledWith(0);
+    expect(app.querySelector(".streaming-tail").childElementCount).toBe(0);
+    expect(app.pendingStreamingRow).toBeUndefined();
+    expect(app.streamingRenderFrame).toBeUndefined();
+    expect(app.scrollFrame).toBeUndefined();
+  });
+
   it("binds DOM and window events to current methods", async () => {
     const app = await connectPiApp();
     const calls = [];

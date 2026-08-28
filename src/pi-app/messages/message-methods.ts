@@ -53,6 +53,7 @@ export const messageMethods = {
     if (!this.termInner || !message) return;
     this.removeWelcomeBanner();
     if (this.isDuplicateMessage(message)) {
+      for (const streamingRow of this.streamingRowsForKind(message.kind)) this.removeStreamingNode(streamingRow);
       if (message.kind !== "user") this.removeLoadingMessage();
       return;
     }
@@ -78,9 +79,11 @@ export const messageMethods = {
   appendDelta(payload) {
     if (!this.termInner || !payload?.delta) return;
     this.removeWelcomeBanner();
-    this.finishRunningTools();
+    this.finishRunningTools({ notifyHeight: false });
     const kind = payload.kind === "think" ? "think" : "pi";
     this.removeLoadingMessage();
+    const streamingRows = this.streamingRowsForKind(kind);
+    for (const duplicateRow of streamingRows.slice(1)) this.removeStreamingNode(duplicateRow);
     let delta = payload.delta;
     if (kind === "pi") {
       const filtered = streamVisibleChoiceText(this.piDeltaBuffer + payload.delta);
@@ -88,15 +91,15 @@ export const messageMethods = {
       delta = filtered.visible;
       if (!delta) return;
     }
-    let messageRow = this.currentStreamingRow(kind);
+    let messageRow = streamingRows[0];
     if (!messageRow) {
       messageRow = this.simpleMessage(`${kind} streaming`, kind === "think" ? "…" : "pi >", "");
       messageRow.classList.add("streaming");
       messageRow.dataset.kind = kind;
-      this.streamingRows = { ...(this.streamingRows || {}), [kind]: messageRow };
       if (kind === "think") this.attachThinkingStream(messageRow);
       this.appendStreamingNode(messageRow);
     }
+    this.streamingRows = { ...(this.streamingRows || {}), [kind]: messageRow };
     const body = messageRow.querySelector("[data-stream-text]") || messageRow.querySelector(".body");
     if (body && kind === "pi") {
       messageRow.dataset.streamText = `${messageRow.dataset.streamText || ""}${delta}`;
@@ -136,12 +139,9 @@ export const messageMethods = {
   },
 
   streamingRowsForKind(kind) {
-    const rows = new Set();
     const selector = `.msg.streaming[data-kind='${kind}']`;
-    const cached = this.streamingRows?.[kind];
-    if (cached?.matches?.(selector) && this.streamingTail?.contains?.(cached)) rows.add(cached);
-    this.streamingTail?.querySelectorAll(selector).forEach((row) => rows.add(row));
-    return [...rows];
+    return [...(this.streamingTail?.querySelectorAll(selector) || [])]
+      .filter((row) => row.isConnected && this.streamingTail.contains(row) && row.matches(selector));
   },
 
   finalizePiStream(text) {
@@ -256,12 +256,12 @@ export const messageMethods = {
     this.pendingStreamingRow = undefined;
   },
 
-  finishRunningTools({ status = "ok", resultMeta = "done" } = {}) {
+  finishRunningTools({ status = "ok", resultMeta = "done", notifyHeight = true } = {}) {
     this.termInner?.querySelectorAll(".tool-card[data-status='running']").forEach((card) => {
       card.dataset.status = status;
       const meta = card.querySelector(".tc-meta");
       if (meta) meta.innerHTML = this.toolStatus({ status, resultMeta });
-      this.notifyTranscriptNodeHeightDidChange(card);
+      if (notifyHeight) this.notifyTranscriptNodeHeightDidChange(card);
     });
   },
 

@@ -257,16 +257,20 @@ describe("pi-app messages", () => {
     expect(glyphs[6].textContent).toBe("●");
   });
 
-  it("marks stale running tools complete when assistant output resumes", async () => {
+  it("marks stale running tools complete when assistant output resumes without height notification", async () => {
     const app = await connectPiApp();
     app.renderMessages([]);
     app.setMode("running");
     app.appendMessage({ kind: "tool", tool: "read", status: "running" });
+    const heightNotification = vi.spyOn(app, "notifyTranscriptNodeHeightDidChange");
+
     app.appendDelta({ kind: "pi", delta: "done" });
+
     const tool = app.querySelector(".tool-card");
     expect(tool.dataset.status).toBe("ok");
     expect(tool.querySelector(".tc-meta").textContent).toContain("done");
     expect(tool.querySelector(".tc-meta .spinner")).toBeNull();
+    expect(heightNotification).not.toHaveBeenCalled();
   });
 
   it("marks stale running tools complete when a session becomes idle", async () => {
@@ -289,6 +293,43 @@ describe("pi-app messages", () => {
     app.flushStreamingRender();
     const bodies = [...app.querySelectorAll(".msg[data-kind='pi'] .body")].map((node) => node.textContent);
     expect(bodies).toEqual(["hello"]);
+  });
+
+  it("removes duplicate tail rows before appending a delta", async () => {
+    const app = await connectPiApp();
+    app.renderMessages([]);
+    const first = app.simpleMessage("pi streaming", "pi >", "first");
+    const duplicate = app.simpleMessage("pi streaming", "pi >", "duplicate");
+    first.classList.add("streaming");
+    duplicate.classList.add("streaming");
+    first.dataset.kind = "pi";
+    first.dataset.streamText = "first";
+    duplicate.dataset.kind = "pi";
+    app.appendStreamingNode(first);
+    app.appendStreamingNode(duplicate);
+
+    app.appendDelta({ kind: "pi", delta: "tail" });
+    app.flushStreamingRender();
+
+    const rows = app.streamingTail.querySelectorAll(".msg.streaming[data-kind='pi']");
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toBe(first);
+    expect(rows[0].querySelector(".body").textContent).toBe("firsttail");
+  });
+
+  it("only returns connected matching rows from the streaming tail", async () => {
+    const app = await connectPiApp();
+    app.renderMessages([]);
+    const row = app.simpleMessage("pi streaming", "pi >", "tail");
+    row.classList.add("streaming");
+    row.dataset.kind = "pi";
+    const detached = app.simpleMessage("pi streaming", "pi >", "detached");
+    detached.classList.add("streaming");
+    detached.dataset.kind = "pi";
+    app.appendStreamingNode(row);
+    app.streamingRows = { pi: detached };
+
+    expect(app.streamingRowsForKind("pi")).toEqual([row]);
   });
 
   it("keeps streaming markdown outside the virtual transcript items", async () => {
@@ -315,6 +356,28 @@ describe("pi-app messages", () => {
     expect(app.querySelectorAll(".term-inner .msg[data-kind='pi']")).toHaveLength(1);
     expect(app.transcriptItems).toHaveLength(1);
     expect(app.querySelector(".term-inner .msg[data-kind='pi']").textContent).toContain("complete");
+  });
+
+  it("cleans a duplicate message's matching streaming tail row", async () => {
+    const app = await connectPiApp();
+    app.renderMessages([{ kind: "pi", text: "answer" }]);
+    app.appendDelta({ kind: "pi", delta: "answer" });
+
+    app.appendMessage({ kind: "pi", text: "answer" });
+
+    expect(app.querySelector(".streaming-tail .msg.streaming[data-kind='pi']")).toBeNull();
+    expect(app.querySelectorAll(".term-inner .msg[data-kind='pi']")).toHaveLength(1);
+    expect(app.transcriptItems).toHaveLength(1);
+  });
+
+  it("does not duplicate history when finalizing the same assistant message twice", async () => {
+    const app = await connectPiApp();
+    app.renderMessages([]);
+    app.finalizePiStream("complete");
+    app.finalizePiStream("complete");
+
+    expect(app.querySelectorAll(".term-inner .msg[data-kind='pi']")).toHaveLength(1);
+    expect(app.transcriptItems).toHaveLength(1);
   });
 
   it("cancels pending streaming render when rendering a new transcript", async () => {
@@ -447,6 +510,18 @@ describe("pi-app messages", () => {
     expect(block).not.toBeNull();
     expect(block.querySelector(".label").textContent).toBe("thinking");
     expect(block.querySelector("[data-stream-text]").textContent).toBe("reason");
+  });
+
+  it("keeps assistant streaming in the tail without height notification", async () => {
+    const app = await connectPiApp();
+    const heightNotification = vi.spyOn(app, "notifyTranscriptNodeHeightDidChange");
+    app.renderMessages([]);
+
+    app.appendDelta({ kind: "pi", delta: "answer" });
+
+    expect(app.querySelector(".streaming-tail .msg.streaming[data-kind='pi']")).not.toBeNull();
+    expect(app.transcriptItems).toHaveLength(0);
+    expect(heightNotification).not.toHaveBeenCalled();
   });
 
   it("batches streaming assistant markdown rendering to an animation frame", async () => {
