@@ -14,16 +14,16 @@ describe("pi-app controls", () => {
     const app = await connectPiApp();
     const selector = app.querySelector("[data-ui-language]");
 
-    selector.value = "ko";
+    selector.value = "zh-CN";
     selector.dispatchEvent(new Event("change"));
 
-    expect(document.documentElement.lang).toBe("ko");
-    expect(app.querySelector("[data-i18n='settingsTitle']").textContent).toBe("pi 설정");
-    expect(localStorage.getItem("pi-web.uiLocale")).toBe("ko");
+    expect(document.documentElement.lang).toBe("zh-CN");
+    expect(app.querySelector("[data-i18n='settingsTitle']").textContent).toBe("pi 设置");
+    expect(localStorage.getItem("pi-web.uiLocale")).toBe("zh-CN");
 
     selector.value = "unsupported";
     selector.dispatchEvent(new Event("change"));
-    expect(localStorage.getItem("pi-web.uiLocale")).toBe("ko");
+    expect(localStorage.getItem("pi-web.uiLocale")).toBe("zh-CN");
   });
 
   it("enables send and shows slash commands as the prompt changes", async () => {
@@ -138,8 +138,8 @@ describe("pi-app controls", () => {
 
     expect(app.showSystemToast).toHaveBeenCalledWith(
       "warning",
-      "음성 입력 보안 컨텍스트 필요",
-      "음성 입력은 HTTPS 또는 localhost 같은 보안 컨텍스트에서만 사용할 수 있습니다.",
+      "语音输入需要安全上下文",
+      "语音输入仅支持 HTTPS 或 localhost 等安全上下文。",
       "speech-input:insecure-context",
     );
   });
@@ -179,8 +179,8 @@ describe("pi-app controls", () => {
     recognition.onerror({});
     expect(app.showSystemToast).toHaveBeenCalledWith(
       "warning",
-      "음성 입력 오류",
-      "음성 입력을 시작하지 못했습니다.",
+      "语音输入错误",
+      "无法启动语音输入。",
       "speech-input:error",
     );
     vi.advanceTimersByTime(2999);
@@ -215,8 +215,8 @@ describe("pi-app controls", () => {
 
     expect(app.showSystemToast).toHaveBeenCalledWith(
       "warning",
-      "음성 입력 미지원",
-      "이 브라우저는 Web Speech API 음성 입력을 지원하지 않습니다. Chrome/Safari에서 사용하세요.",
+      "不支持语音输入",
+      "当前浏览器不支持 Web Speech API 语音输入，请使用 Chrome 或 Safari。",
       "speech-input:unsupported",
     );
   });
@@ -241,7 +241,7 @@ describe("pi-app controls", () => {
 
     expect(app.speechListening).toBe(false);
     expect(app.speechRecognition).toBeNull();
-    expect(app.showSystemToast).toHaveBeenCalledWith("warning", "음성 입력 오류", "blocked", "speech-input:start");
+    expect(app.showSystemToast).toHaveBeenCalledWith("warning", "语音输入错误", "blocked", "speech-input:start");
 
     class StringThrowingSpeechRecognition {
       start() {
@@ -255,7 +255,7 @@ describe("pi-app controls", () => {
     app.startSpeechInput();
     expect(app.showSystemToast).toHaveBeenCalledWith(
       "warning",
-      "음성 입력 오류",
+      "语音输入错误",
       "string blocked",
       "speech-input:start",
     );
@@ -271,8 +271,8 @@ describe("pi-app controls", () => {
     await app.startLocalWhisperInput();
     expect(app.showSystemToast).toHaveBeenCalledWith(
       "warning",
-      "Whisper 녹음 미지원",
-      "이 브라우저는 로컬 녹음을 지원하지 않습니다.",
+      "不支持 Whisper 录音",
+      "当前浏览器不支持本地录音。",
       "speech-input:recorder",
     );
 
@@ -282,13 +282,13 @@ describe("pi-app controls", () => {
       value: { getUserMedia: vi.fn(async () => { throw "denied"; }) },
     });
     await app.startLocalWhisperInput();
-    expect(app.showSystemToast).toHaveBeenCalledWith("warning", "Whisper 녹음 오류", "denied", "speech-input:record");
+    expect(app.showSystemToast).toHaveBeenCalledWith("warning", "Whisper 录音错误", "denied", "speech-input:record");
     Object.defineProperty(navigator, "mediaDevices", {
       configurable: true,
       value: { getUserMedia: vi.fn(async () => { throw new Error("blocked mic"); }) },
     });
     await app.startLocalWhisperInput();
-    expect(app.showSystemToast).toHaveBeenCalledWith("warning", "Whisper 녹음 오류", "blocked mic", "speech-input:record");
+    expect(app.showSystemToast).toHaveBeenCalledWith("warning", "Whisper 录音错误", "blocked mic", "speech-input:record");
   });
 
   it("records local Whisper audio and writes the transcription", async () => {
@@ -471,33 +471,33 @@ describe("pi-app controls", () => {
     app.loadWhisperPipeline = vi.fn(async () => { throw new Error("model failed"); });
 
     await app.downloadWhisperModel();
-    expect(app.showSystemToast).toHaveBeenCalledWith("warning", "Whisper 다운로드 오류", "model failed", "speech-input:download");
+    expect(app.showSystemToast).toHaveBeenCalledWith("warning", "Whisper 下载错误", "model failed", "speech-input:download");
     app.loadWhisperPipeline = vi.fn(async () => { throw "download failed"; });
     await app.downloadWhisperModel();
-    expect(app.showSystemToast).toHaveBeenCalledWith("warning", "Whisper 다운로드 오류", "download failed", "speech-input:download");
+    expect(app.showSystemToast).toHaveBeenCalledWith("warning", "Whisper 下载错误", "download failed", "speech-input:download");
 
     app.loadWhisperPipeline = vi.fn(async () => { throw new Error("failed to call OrtRun(). ERROR_CODE: 1"); });
     await app.transcribeWhisperRecording([new Blob(["x"])]);
     expect(app.showSystemToast).toHaveBeenCalledWith(
       "warning",
-      "Whisper 변환 오류",
-      "이 디바이스에서 사용하기에 너무 큰 Whisper 모델입니다. 더 작은 모델을 선택하세요.",
+      "Whisper 转写错误",
+      "此 Whisper 模型对当前设备过大，请选择更小的模型。",
       "speech-input:whisper",
     );
     app.loadWhisperPipeline = vi.fn(async () => { throw new Error("An error occurred during model execution"); });
     await app.transcribeWhisperRecording([new Blob(["x"])]);
     expect(app.showSystemToast).toHaveBeenCalledWith(
       "warning",
-      "Whisper 변환 오류",
-      "이 디바이스에서 사용하기에 너무 큰 Whisper 모델입니다. 더 작은 모델을 선택하세요.",
+      "Whisper 转写错误",
+      "此 Whisper 模型对当前设备过大，请选择更小的模型。",
       "speech-input:whisper",
     );
     app.loadWhisperPipeline = vi.fn(async () => { throw new Error("model failed"); });
     await app.transcribeWhisperRecording([new Blob(["x"])]);
-    expect(app.showSystemToast).toHaveBeenCalledWith("warning", "Whisper 변환 오류", "model failed", "speech-input:whisper");
+    expect(app.showSystemToast).toHaveBeenCalledWith("warning", "Whisper 转写错误", "model failed", "speech-input:whisper");
     app.loadWhisperPipeline = vi.fn(async () => { throw "transcribe failed"; });
     await app.transcribeWhisperRecording([new Blob(["x"])]);
-    expect(app.showSystemToast).toHaveBeenCalledWith("warning", "Whisper 변환 오류", "transcribe failed", "speech-input:whisper");
+    expect(app.showSystemToast).toHaveBeenCalledWith("warning", "Whisper 转写错误", "transcribe failed", "speech-input:whisper");
     await app.transcribeWhisperRecording([]);
     app.prompt = null;
     await app.transcribeWhisperRecording([new Blob(["x"])]);
@@ -671,10 +671,10 @@ describe("pi-app controls", () => {
     expect(app.querySelector("[data-setting='readResponsesAloud']").type).toBe("checkbox");
     expect(app.querySelector("[data-setting='readResponsesAloud']").checked).toBe(true);
     expect(app.querySelector("[data-setting='voice.engine']")).toBeNull();
-    expect(app.querySelector("[data-setting='voice.language']").value).toBe("한국어(Korean)");
+    expect(app.querySelector("[data-setting='voice.language']").value).toBe("韩语");
     expect(app.querySelector("[data-setting='voice.piperModelPath']")).toBeNull();
     expect(app.querySelector("[data-setting='enableSpeechInput']").checked).toBe(true);
-    expect(app.querySelector("[data-setting='speechInput.language']").value).toBe("한국어(Korean)");
+    expect(app.querySelector("[data-setting='speechInput.language']").value).toBe("韩语");
     expect(app.querySelector("[data-setting='speechInput.useLocalWhisper']").checked).toBe(true);
     expect(app.querySelector("[data-setting='speechInput.whisperModel']").value).toBe("base");
     app.refreshWhisperModelRequirement = vi.fn();

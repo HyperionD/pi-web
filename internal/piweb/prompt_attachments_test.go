@@ -73,4 +73,7 @@ func TestPiRPCArgsUseRPCMode(t *testing.T) {
 	if !strings.Contains(joined, "--session\nsession.jsonl") {
 		t.Fatalf("missing session file: %#v", args)
 	}
+	if !strings.Contains(joined, "选项回复：") {
+		t.Fatalf("missing Chinese choice protocol: %#v", args)
+	}
 }

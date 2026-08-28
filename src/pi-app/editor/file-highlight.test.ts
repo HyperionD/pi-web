@@ -40,7 +40,7 @@ describe("file highlighting", () => {
     await expect(renderHighlightedCode("const x = 1", { path: "main.ts" })).resolves.toBe("<span>ok</span>");
     expect(codeToHtml).toHaveBeenCalledWith("const x = 1", {
       lang: "typescript",
-      theme: "github-dark",
+      theme: "github-light",
       structure: "inline",
     });
   });

@@ -69,7 +69,7 @@ describe("pi-app fallback choices", () => {
     expect(app.querySelector("[data-action='fallback-choice']").disabled).toBe(true);
     expect(input.disabled).toBe(true);
     expect(JSON.parse(globalThis.fetch.mock.calls.at(-1)[1].body)).toEqual({
-      text: "선택지 응답:\nid: runtime\nvalue: custom runtime",
+      text: "选项回复：\nid: runtime\nvalue: custom runtime",
       attachments: [],
     });
   });
@@ -78,7 +78,7 @@ describe("pi-app fallback choices", () => {
     const app = await connectPiApp();
     app.renderMessages([
       { kind: "pi", text: customFallbackChoiceText },
-      { kind: "user", text: "선택지 응답:\nid: runtime\nvalue: go" },
+      { kind: "user", text: "选项回复：\nid: runtime\nvalue: go" },
     ]);
     expect(app.querySelector(".fallback-choice-list").classList.contains("answered")).toBe(true);
     expect(app.querySelector("[data-action='fallback-choice']").disabled).toBe(true);

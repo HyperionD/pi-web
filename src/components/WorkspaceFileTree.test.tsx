@@ -57,6 +57,8 @@ describe("WorkspaceFileTree", () => {
     await updateTree();
 
     const search = host.querySelector<HTMLInputElement>(".tree-search input");
+    expect(host.querySelector(".tree-search span")?.textContent).toBe("搜索");
+    expect(search?.placeholder).toBe("搜索全部内容");
     await act(async () => {
       setInputValue(search!, "new");
       search!.dispatchEvent(new Event("input", { bubbles: true }));

@@ -39,7 +39,7 @@ describe("pi-app toast notifications", () => {
     app.applyEvent({ type: "session.status", payload: { status: "idle" } });
 
     const toast = document.querySelector(".session-toast.success");
-    expect(toast.textContent).toContain("응답 완료");
+    expect(toast.textContent).toContain("回答完成");
     expect(toast.querySelector(".toast-workspace").textContent).toBe("demo");
     expect(toast.querySelector(".toast-session").textContent).toBe("chat");
     expect(toast.querySelector(".toast-prompt").textContent).toBe("explain the failure and suggest a fix");
@@ -53,7 +53,7 @@ describe("pi-app toast notifications", () => {
     app.applyEvent({ type: "error", payload: { error: "boom" } });
     app.applyEvent({ type: "session.status", payload: { status: "idle" } });
 
-    expect(document.querySelector(".session-toast.error").textContent).toContain("응답 실패");
+    expect(document.querySelector(".session-toast.error").textContent).toContain("回答失败");
     expect(document.querySelector(".session-toast.error").querySelector(".toast-prompt").textContent).toBe("explain the failure and suggest a fix");
     expect(document.querySelector(".session-toast.error").querySelector(".toast-workspace").textContent).toBe("demo");
     expect(document.querySelector(".session-toast.success")).toBeNull();
@@ -68,7 +68,7 @@ describe("pi-app toast notifications", () => {
     app.notifyResponseFailure("TypeError: Failed to fetch");
     app.applyEvent({ type: "session.status", payload: { status: "idle" } });
 
-    expect(document.querySelector(".session-toast.connection").textContent).toContain("백엔드 연결 끊김");
+    expect(document.querySelector(".session-toast.connection").textContent).toContain("后端连接已断开");
     expect(document.querySelector(".session-toast.error")).toBeNull();
     expect(document.querySelector(".session-toast.success")).toBeNull();
     expect(app.setConnection).toHaveBeenCalledWith("err");
@@ -84,13 +84,13 @@ describe("pi-app toast notifications", () => {
 
     const warnings = [...document.querySelectorAll(".session-toast.warning")];
     expect(warnings).toHaveLength(3);
-    expect(warnings[0].textContent).toContain("pi-web 업데이트 가능");
+    expect(warnings[0].textContent).toContain("pi-web 有可用更新");
     expect(warnings[0].textContent).toContain("pi-web update");
-    expect(warnings[1].textContent).toContain("pi 업데이트 가능");
+    expect(warnings[1].textContent).toContain("pi 有可用更新");
     expect(warnings[1].textContent).toContain("pi update");
     expect(warnings[1].textContent).toContain("security fix");
-    expect(warnings[2].textContent).toContain("인증 경고");
-    expect(warnings[2].textContent).toContain("Settings에서 다시 로그인");
+    expect(warnings[2].textContent).toContain("身份验证警告");
+    expect(warnings[2].textContent).toContain("请在设置中重新登录");
   });
 
   it("shows auth warnings instead of generic response errors for credential failures", async () => {
@@ -101,7 +101,7 @@ describe("pi-app toast notifications", () => {
     app.notifyResponseFailure({ message: "No API key found for provider github-copilot" });
     app.applyEvent({ type: "session.status", payload: { status: "idle" } });
 
-    expect(document.querySelector(".session-toast.warning").textContent).toContain("인증 경고");
+    expect(document.querySelector(".session-toast.warning").textContent).toContain("身份验证警告");
     expect(document.querySelector(".session-toast.error")).toBeNull();
     expect(document.querySelector(".session-toast.success")).toBeNull();
   });
@@ -127,7 +127,7 @@ describe("pi-app toast notifications", () => {
     app.appendMessage({ kind: "pi", text: fallbackChoiceJson });
     app.notifySessionCompleted();
 
-    expect(document.querySelector(".session-toast.choice").textContent).toContain("선택지 요청");
+    expect(document.querySelector(".session-toast.choice").textContent).toContain("需要选择");
     expect(document.querySelector(".toast-dismiss-all").hidden).toBe(false);
     const visibleToasts = [...document.querySelectorAll(".notyf__toast:not(.notyf__toast--disappear)")];
     expect(visibleToasts.map((toast) => toast.style.getPropertyValue("--toast-stack-index"))).toEqual(["0", "1"]);
@@ -172,7 +172,7 @@ describe("pi-app toast notifications", () => {
 
     const toast = document.querySelector(".session-toast.success");
     const toastText = toast.textContent;
-    expect(toastText).toContain("응답 완료");
+    expect(toastText).toContain("回答完成");
     expect(toast.querySelector(".toast-workspace").textContent).toBe("other");
     expect(toast.querySelector(".toast-session").textContent).toBe("background");
     expect(toast.querySelector(".toast-prompt").textContent).toBe("finish the background task");

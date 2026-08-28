@@ -235,9 +235,9 @@ function imagePreviewNode(file) {
 
 function fallbackMessage(file) {
   if (file.previewKind === "error") return file.content;
-  if (file.truncated) return "파일이 너무 커서 편집할 수 없습니다.";
-  if (file.previewKind === "image") return "이미지는 미리보기만 지원합니다.";
-  return "미리보기를 지원하지 않습니다.";
+  if (file.truncated) return "文件过大，无法编辑。";
+  if (file.previewKind === "image") return "图片仅支持预览。";
+  return "不支持预览此文件。";
 }
 
 function errorMessage(error) {

@@ -50,7 +50,7 @@
 .file-preview-modal .fp-codemirror-editor .cm-searchMatch { background-color: rgba(255, 214, 77, 0.42); }
 .file-preview-modal .fp-codemirror-editor .cm-searchMatch-selected { background-color: rgba(255, 214, 77, 0.72); }
 .file-preview-modal .fp-codemirror-editor .cm-editor.cm-focused {
-  outline: 1px solid color-mix(in srgb, var(--accent) 45%, transparent);
+  outline: 1px solid rgba(37, 99, 235, 0.45);
 }
 .file-preview-modal .fp-codemirror-editor .cm-scroller::-webkit-scrollbar { width: 10px; height: 10px; }
 .file-preview-modal .fp-codemirror-editor .cm-scroller::-webkit-scrollbar-thumb {
@@ -293,7 +293,7 @@
   border-color: var(--accent);
 }
 .mic-btn.listening {
-  box-shadow: 0 0 0 1px var(--accent), 0 0 12px color-mix(in srgb, var(--accent) 35%, transparent);
+  box-shadow: 0 0 0 1px var(--accent), 0 0 12px rgba(37, 99, 235, 0.35);
 }
 .send-btn:hover,
 .stop-btn:hover,

@@ -76,8 +76,7 @@ export function installPiAppFixture() {
       <div class="settings-modal" data-settings-modal hidden>
         <form data-settings-form>
           <select name="uiLanguage" data-ui-language>
-            <option value="en">English</option>
-            <option value="ko">한국어</option>
+            <option value="zh-CN">简体中文</option>
           </select>
           <strong data-i18n="settingsTitle">pi settings</strong>
           <select name="scope" data-settings-scope>
@@ -145,7 +144,7 @@ function settingsField(tag, name) {
 function settingsLanguageInput(name, secure = false) {
   const id = `language-options-${name.replace(/[^a-z0-9_-]/gi, "-")}`;
   const secureOnly = secure ? " data-secure-context-only=\"https\" hidden" : "";
-  return `<label class="settings-field"${secureOnly}><input data-setting="${name}" list="${id}" /><datalist id="${id}"><option value="System default" label="system" data-language-value="system"></option><option value="English" label="en" data-language-value="en"></option><option value="한국어(Korean)" label="ko" data-language-value="ko"></option><option value="日本語(Japanese)" label="ja" data-language-value="ja"></option><option value="中文(Chinese)" label="zh" data-language-value="zh"></option></datalist><small></small></label>`;
+  return `<label class="settings-field"${secureOnly}><input data-setting="${name}" list="${id}" /><datalist id="${id}"><option value="System default" label="system" data-language-value="system"></option><option value="English" label="en" data-language-value="en"></option><option value="韩语" label="ko" data-language-value="ko"></option><option value="日本語(Japanese)" label="ja" data-language-value="ja"></option><option value="中文(Chinese)" label="zh" data-language-value="zh"></option></datalist><small></small></label>`;
 }
 
 function settingsSelect(name, values, custom = false, secure = false) {

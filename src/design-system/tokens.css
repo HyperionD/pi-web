@@ -23,32 +23,32 @@
 }
 
 :root {
-  --bg-0: #000000;          --bg-1: #0a0a0a;          --bg-2: #111111;          --bg-3: #1a1a1a;          --bg-4: #232323;          --border-dim: #1f1f1f;    --border:     #2a2a2a;    --border-hi:  #3a3a3a;    --border-focus: #00ff88;  --fg-0:  #f5f5f5;         --fg-1:  #d4d4d4;         --fg-2:  #a3a3a3;         --fg-3:  #8b8b8b;         --fg-4:  #5a5a5a;         --ansi-black:    #1a1a1a;
-  --ansi-red:      #ff6b6b;
-  --ansi-green:    #00ff88;   --ansi-yellow:   #fae870;
-  --ansi-blue:     #82aaff;
-  --ansi-magenta:  #ff79c6;
-  --ansi-cyan:     #5af2ff;
-  --ansi-white:    #e6e6e6;
+  --bg-0: #ffffff;          --bg-1: #f8fafc;          --bg-2: #f1f5f9;          --bg-3: #e2e8f0;          --bg-4: #dbeafe;          --border-dim: #e2e8f0;    --border:     #cbd5e1;    --border-hi:  #94a3b8;    --border-focus: #2563eb;  --fg-0:  #0f172a;         --fg-1:  #1e293b;         --fg-2:  #475569;         --fg-3:  #64748b;         --fg-4:  #94a3b8;         --ansi-black:    #0f172a;
+  --ansi-red:      #dc2626;
+  --ansi-green:    #15803d;   --ansi-yellow:   #a16207;
+  --ansi-blue:     #2563eb;
+  --ansi-magenta:  #a21caf;
+  --ansi-cyan:     #0e7490;
+  --ansi-white:    #f8fafc;
 
-  --ansi-bright-black:   #8b8b8b;
-  --ansi-bright-red:     #ff8b8b;
-  --ansi-bright-green:   #5cffaf;
-  --ansi-bright-yellow:  #fff09a;
-  --ansi-bright-blue:    #a5bfff;
-  --ansi-bright-magenta: #ff9ed5;
-  --ansi-bright-cyan:    #8af6ff;
+  --ansi-bright-black:   #475569;
+  --ansi-bright-red:     #ef4444;
+  --ansi-bright-green:   #16a34a;
+  --ansi-bright-yellow:  #ca8a04;
+  --ansi-bright-blue:    #3b82f6;
+  --ansi-bright-magenta: #c026d3;
+  --ansi-bright-cyan:    #0891b2;
   --ansi-bright-white:   #ffffff;
 
-  --accent:        var(--ansi-green);     --accent-dim:    #00b864;               --accent-bg:     rgba(0, 255, 136, 0.08);
+  --accent:        #2563eb;                 --accent-dim:    #1d4ed8;               --accent-bg:     rgba(37, 99, 235, 0.10);
   --warn:          var(--ansi-yellow);
-  --warn-bg:       rgba(250, 232, 112, 0.07);
+  --warn-bg:       rgba(161, 98, 7, 0.10);
   --danger:        var(--ansi-red);
-  --danger-bg:     rgba(255, 107, 107, 0.08);
-  --info:          var(--ansi-cyan);
-  --tool-call:     #ffb86c;               --tool-call-bg:  rgba(255, 184, 108, 0.07);
-  --user-msg:      #82aaff;               --thinking:      #ff79c6;               --selection-bg: rgba(0, 255, 136, 0.22);
-  --selection-fg: #ffffff;
+  --danger-bg:     rgba(220, 38, 38, 0.09);
+  --info:          #0369a1;
+  --tool-call:     #b45309;                 --tool-call-bg:  rgba(180, 83, 9, 0.09);
+  --user-msg:      #1d4ed8;                 --thinking:      #7e22ce;               --selection-bg: rgba(37, 99, 235, 0.20);
+  --selection-fg: #0f172a;
 
   --font-mono: "Fira Code", "JetBrains Mono", "Monaspace Neon", "SF Mono",
                "Cascadia Code", "Menlo", "Consolas",
@@ -71,9 +71,9 @@
   --radius-0:  0;      --radius-1:  2px;    --radius-2:  4px;    --radius-3:  6px;    --radius-full: 9999px;
 
   --shadow-0: none;
-  --shadow-glow: 0 0 0 1px var(--accent), 0 0 12px rgba(0, 255, 136, 0.25);
-  --shadow-drawer: 0 0 0 1px var(--border), -8px 0 32px rgba(0, 0, 0, 0.6);
-  --shadow-modal:  0 0 0 1px var(--border), 0 16px 48px rgba(0, 0, 0, 0.8);
+  --shadow-glow: 0 0 0 1px var(--accent), 0 0 12px rgba(37, 99, 235, 0.18);
+  --shadow-drawer: 0 0 0 1px var(--border), -8px 0 32px rgba(15, 23, 42, 0.14);
+  --shadow-modal:  0 0 0 1px var(--border), 0 16px 48px rgba(15, 23, 42, 0.18);
 
   --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
   --ease-in-out: cubic-bezier(0.4, 0, 0.2, 1);
@@ -183,7 +183,7 @@ a {
   color: var(--accent);
   text-decoration: underline;
   text-underline-offset: 2px;
-  text-decoration-color: rgba(0, 255, 136, 0.4);
+  text-decoration-color: rgba(37, 99, 235, 0.4);
 }
 a:hover {
   text-decoration-color: var(--accent);

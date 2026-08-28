@@ -1,6 +1,5 @@
 export const UI_LOCALES = [
   { code: "en", label: "English", htmlLang: "en" },
-  { code: "ko", label: "한국어", htmlLang: "ko" },
   { code: "zh-CN", label: "简体中文", htmlLang: "zh-CN" },
   { code: "ja", label: "日本語", htmlLang: "ja" },
   { code: "es", label: "Español", htmlLang: "es" },
@@ -12,7 +11,7 @@ export const UI_LOCALES = [
 
 export type UiLocale = (typeof UI_LOCALES)[number]["code"];
 
-export const DEFAULT_UI_LOCALE: UiLocale = "en";
+export const DEFAULT_UI_LOCALE: UiLocale = "zh-CN";
 export const UI_LOCALE_STORAGE_KEY = "pi-web.uiLocale";
 
 const localeCodes = new Set<string>(UI_LOCALES.map((locale) => locale.code));

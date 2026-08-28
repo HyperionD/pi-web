@@ -110,11 +110,11 @@ export default function WorkspaceFileTree({ initialFiles = [], initialStatusMap 
   return (
     <TreeContext.Provider value={contextValue}>
       <div className="tree-arborist" data-testid="workspace-file-tree" onContextMenu={onEmptyContextMenu}>
-        <label className="tree-search" aria-label="search all files">
-          <span>검색</span>
+        <label className="tree-search" aria-label="搜索全部文件">
+          <span>搜索</span>
           <input
             type="search"
-            placeholder="전체 검색"
+            placeholder="搜索全部内容"
             value={searchTerm}
             onChange={(event) => setSearchTerm(event.currentTarget.value)}
           />
@@ -151,7 +151,7 @@ export default function WorkspaceFileTree({ initialFiles = [], initialStatusMap 
               {FileTreeRow}
             </Tree>
           ) : (
-            <div className="tree-empty">검색 결과가 없습니다.</div>
+            <div className="tree-empty">没有搜索结果。</div>
           )}
         </div>
         <input

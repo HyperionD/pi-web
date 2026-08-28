@@ -1,24 +1,26 @@
 import { describe, expect, it, vi } from "vitest";
 import { applyUiLocale, currentUiLocale, saveUiLocale, setUiLocale } from "./client";
-import { UI_LOCALE_STORAGE_KEY, browserUiLocale, normalizeUiLocale } from "./locales";
+import { UI_LOCALES, UI_LOCALE_STORAGE_KEY, browserUiLocale, normalizeUiLocale } from "./locales";
 import { UI_MESSAGES, uiMessage } from "./ui";
 
 describe("ui locales", () => {
-  it("normalizes exact, case-insensitive, and base language matches", () => {
+  it("normalizes supported locales and excludes Korean from the UI", () => {
     expect(normalizeUiLocale("pt-br")).toBe("pt-BR");
     expect(normalizeUiLocale("zh-Hans-CN")).toBe("zh-CN");
     expect(normalizeUiLocale("de-DE")).toBe("de");
+    expect(normalizeUiLocale("ko-KR")).toBeUndefined();
+    expect(UI_LOCALES.some((locale) => locale.code === ("ko" as never))).toBe(false);
   });
 
-  it("detects the first supported browser locale", () => {
+  it("detects the first supported browser locale and defaults to Simplified Chinese", () => {
     expect(browserUiLocale(["it-IT", "ja-JP", "en-US"])).toBe("ja");
-    expect(browserUiLocale(["it-IT"])).toBe("en");
+    expect(browserUiLocale(["it-IT"])).toBe("zh-CN");
     expect(normalizeUiLocale(null)).toBeUndefined();
   });
 
-  it("returns localized settings messages", () => {
+  it("returns Chinese settings messages without a Korean UI dictionary", () => {
     expect(uiMessage("zh-CN", "settingsTitle")).toBe("pi 设置");
-    expect(uiMessage("ko", "settingsTitle")).toBe("pi 설정");
+    expect("ko" in UI_MESSAGES).toBe(false);
     expect(UI_MESSAGES.en.settingsTitle).toBe("pi settings");
   });
 
@@ -31,9 +33,9 @@ describe("ui locales", () => {
       </main>
     `;
 
-    applyUiLocale("ko", document);
+    applyUiLocale("zh-CN", document);
 
-    expect(document.querySelector("[data-i18n='settingsTitle']")?.textContent).toBe("pi 설정");
+    expect(document.querySelector("[data-i18n='settingsTitle']")?.textContent).toBe("pi 设置");
     expect(document.querySelector("[data-settings-status]")?.textContent).toBe("saved");
     expect(document.querySelector("main small:last-child")?.textContent).toBe("effective: claude/sonnet");
   });
@@ -58,9 +60,9 @@ describe("ui locales", () => {
     expect(document.querySelector("button")?.getAttribute("title")).toBe("Einstellungen schließen");
 
     applyUiLocale("unsupported" as never, document);
-    expect(document.documentElement.lang).toBe("en");
+    expect(document.documentElement.lang).toBe("zh-CN");
     setUiLocale("unsupported" as never, document);
-    expect(localStorage.getItem(UI_LOCALE_STORAGE_KEY)).toBe("en");
+    expect(localStorage.getItem(UI_LOCALE_STORAGE_KEY)).toBe("zh-CN");
   });
 
   it("falls back when storage is unavailable", () => {
@@ -83,15 +85,15 @@ describe("ui locales", () => {
     const originalNavigator = globalThis.navigator;
     Object.defineProperty(globalThis, "navigator", { configurable: true, value: undefined });
     localStorage.removeItem(UI_LOCALE_STORAGE_KEY);
-    expect(currentUiLocale()).toBe("en");
+    expect(currentUiLocale()).toBe("zh-CN");
     Object.defineProperty(globalThis, "navigator", { configurable: true, value: originalNavigator });
   });
 
-  it("falls back to English messages for missing localized keys", () => {
-    const koMessages = UI_MESSAGES.ko as Record<string, string | undefined>;
-    const previous = koMessages.save;
-    delete koMessages.save;
-    expect(uiMessage("ko", "save")).toBe("save");
-    koMessages.save = previous;
+  it("falls back to Chinese messages for missing localized keys", () => {
+    const jaMessages = UI_MESSAGES.ja as Record<string, string | undefined>;
+    const previous = jaMessages.save;
+    delete jaMessages.save;
+    expect(uiMessage("ja", "save")).toBe("保存");
+    jaMessages.save = previous;
   });
 });

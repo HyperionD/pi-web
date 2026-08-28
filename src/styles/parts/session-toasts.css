@@ -22,7 +22,7 @@
   padding: 5px 9px;
   border: 1px solid var(--border-hi);
   border-radius: var(--radius-1);
-  background: color-mix(in srgb, var(--bg-2) 94%, transparent);
+  background: rgba(241, 245, 249, 0.94);
   color: var(--fg-2);
   font-family: var(--font-mono);
   font-size: 11px;
@@ -46,7 +46,7 @@
   padding: 10px 12px;
   border: 1px solid var(--border-hi);
   border-radius: var(--radius-2);
-  background: color-mix(in srgb, var(--bg-2) 92%, transparent) !important;
+  background: rgba(241, 245, 249, 0.92) !important;
   color: var(--fg-1);
   box-shadow: 0 14px 36px rgb(0 0 0 / 0.42);
   font-family: var(--font-mono);
@@ -117,11 +117,11 @@
   color: var(--fg-2);
   font-size: var(--text-xs);
 }
-.session-toast.success { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 64%, var(--border)); }
-.session-toast.choice { color: var(--ansi-blue); border-color: color-mix(in srgb, var(--ansi-blue) 64%, var(--border)); }
-.session-toast.warning { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 64%, var(--border)); }
-.session-toast.connection { color: var(--fg-3); border-color: color-mix(in srgb, var(--fg-3) 64%, var(--border)); }
-.session-toast.error { color: var(--danger); border-color: color-mix(in srgb, var(--danger) 64%, var(--border)); }
+.session-toast.success { color: var(--accent); border-color: #618ce7; }
+.session-toast.choice { color: var(--ansi-blue); border-color: #618ce7; }
+.session-toast.warning { color: var(--warn); border-color: #b08b55; }
+.session-toast.connection { color: var(--fg-3); border-color: #8997aa; }
+.session-toast.error { color: var(--danger); border-color: #d66569; }
 
 @media (max-width: 880px) {
   .notyf {

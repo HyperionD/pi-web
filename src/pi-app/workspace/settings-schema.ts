@@ -7,7 +7,7 @@ export const SPEECH_LANGUAGE_OPTIONS = [
   { value: "de", label: "Deutsch(German)" },
   { value: "es", label: "Español(Spanish)" },
   { value: "ru", label: "Русский(Russian)" },
-  { value: "ko", label: "한국어(Korean)" },
+  { value: "ko", label: "韩语" },
   { value: "fr", label: "Français(French)" },
   { value: "ja", label: "日本語(Japanese)" },
   { value: "pt", label: "Português(Portuguese)" },

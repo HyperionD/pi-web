@@ -86,6 +86,8 @@ describe("file preview CodeMirror editor", () => {
     app.renderFilePreview({ path: "demo.txt", mime: "text/plain", previewKind: "text", content: "alpha beta alpha" });
 
     const input = app.querySelector<HTMLInputElement>(".fp-editor-search input");
+    expect(app.querySelector(".fp-editor-search span")?.textContent).toBe("搜索");
+    expect(input?.placeholder).toBe("搜索文件内容");
     input!.value = "alpha";
     input!.dispatchEvent(new Event("input", { bubbles: true }));
     app.querySelector<HTMLButtonElement>("[aria-label='next search match']")!.click();
@@ -234,7 +236,7 @@ describe("file preview CodeMirror editor", () => {
     expect(app.querySelector("[data-action='save-file-preview']").hidden).toBe(true);
 
     app.renderFilePreview({ path: "app.bin", mime: "application/octet-stream", previewKind: "unsupported" });
-    expect(app.querySelector(".fp-body").textContent).toContain("미리보기를 지원하지 않습니다");
+    expect(app.querySelector(".fp-body").textContent).toContain("不支持预览此文件");
   });
 
   it("clears discarded dirty state when closing preview", () => {

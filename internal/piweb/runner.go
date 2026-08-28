@@ -17,7 +17,7 @@ const fallbackChoiceSystemPrompt = `Pi Web UI fallback choice protocol:
   output a fenced json block with top-level type "piweb_choice".
 - Stop after emitting the fallback block and wait for the user's follow-up.
 - When the user later sends:
-  선택지 응답:
+  选项回复：
   id: <id>
   value: <value>
   continue using that id/value as the selected answer.

@@ -1,7 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { SETTINGS_FIELDS, parseSettingsPatch, parseWorkspaceSettings } from "./settings-schema";
+import { SETTINGS_FIELDS, SPEECH_LANGUAGE_OPTIONS, parseSettingsPatch, parseWorkspaceSettings } from "./settings-schema";
 
 describe("settings schema", () => {
+  it("presents the Korean speech option with a Chinese label", () => {
+    expect(SPEECH_LANGUAGE_OPTIONS.find((option) => option.value === "ko")?.label).toBe("韩语");
+  });
+
   it("shows only settings relevant to pi-web", () => {
     const paths = SETTINGS_FIELDS.map((field) => field.path);
 

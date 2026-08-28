@@ -34,12 +34,12 @@ export function stripFallbackChoices(text = "") {
 
 export function fallbackChoicePrompt(id, value) {
   if (!id || !String(value).trim()) return "";
-  return `선택지 응답:\nid: ${id}\nvalue: ${value}`;
+  return `选项回复：\nid: ${id}\nvalue: ${value}`;
 }
 
 export function parseFallbackChoiceAnswer(text = "") {
   const id = text.match(/^id:\s*(.+)$/m)?.[1]?.trim();
-  if (!text.startsWith("선택지 응답:") || !id) return undefined;
+  if (!text.startsWith("选项回复：") || !id) return undefined;
   return id.slice(0, 120);
 }
 

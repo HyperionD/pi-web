@@ -1,6 +1,6 @@
 import { escapeHtml } from "../../lib/renderers";
 
-const SHIKI_THEME = "github-dark";
+const SHIKI_THEME = "github-light";
 
 const EXTENSION_LANGUAGE = {
   astro: "astro",

@@ -118,12 +118,12 @@ export class CodeMirrorFileEditor {
     toolbar.setAttribute("role", "search");
 
     const label = document.createElement("span");
-    label.textContent = "검색";
+    label.textContent = "搜索";
 
     const input = document.createElement("input");
     input.type = "search";
-    input.placeholder = "파일 검색";
-    input.setAttribute("aria-label", "search file content");
+    input.placeholder = "搜索文件内容";
+    input.setAttribute("aria-label", "搜索文件内容");
 
     const previous = document.createElement("button");
     previous.type = "button";

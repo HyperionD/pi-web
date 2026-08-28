@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"strings"
 	"time"
+	"unicode/utf8"
 )
 
 var discordAPIBaseURL = "https://discord.com/api/v10"
@@ -127,19 +128,22 @@ func sendTelegramMessage(settings telegramNotificationSettings, content string) 
 }
 
 func discordCompletionMessage(session Session, question string) string {
-	content := completionMessage(session, question)
-	if len(content) > 1900 {
-		content = content[:1900]
-	}
-	return content
+	return truncateUTF8Bytes(completionMessage(session, question), 1900)
 }
 
 func telegramCompletionMessage(session Session, question string) string {
-	content := completionMessage(session, question)
-	if len(content) > 3900 {
-		content = content[:3900]
+	return truncateUTF8Bytes(completionMessage(session, question), 3900)
+}
+
+func truncateUTF8Bytes(value string, maxBytes int) string {
+	if len(value) <= maxBytes {
+		return value
 	}
-	return content
+	value = value[:maxBytes]
+	for len(value) > 0 && !utf8.ValidString(value) {
+		value = value[:len(value)-1]
+	}
+	return value
 }
 
 func completionMessage(session Session, question string) string {
@@ -147,9 +151,9 @@ func completionMessage(session Session, question string) string {
 	if title == "" {
 		title = session.ID
 	}
-	content := "✅ 답변 완료: " + truncateDiscordSessionTitle(sanitizeDiscordContent(title))
+	content := "✅ 回答完成：" + truncateDiscordSessionTitle(sanitizeDiscordContent(title))
 	if question = sanitizeDiscordContent(question); question != "" {
-		content += "\n질문: " + question
+		content += "\n问题：" + question
 	}
 	return content
 }

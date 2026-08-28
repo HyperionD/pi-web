@@ -5,24 +5,24 @@ import { parseFallbackChoices } from "../input/fallback-choices";
 
 const TOAST_MESSAGES = {
   success: {
-    title: "응답 완료",
-    detail: "세션 응답이 완료되었습니다.",
+    title: "回答完成",
+    detail: "会话回答已完成。"
   },
   choice: {
-    title: "선택지 요청",
-    detail: "세션에서 선택지 질문을 요청했습니다.",
+    title: "需要选择",
+    detail: "会话请求你选择一个选项。"
   },
   warning: {
-    title: "경고",
-    detail: "확인이 필요합니다.",
+    title: "警告",
+    detail: "需要检查。"
   },
   error: {
-    title: "응답 실패",
-    detail: "답변을 받는데 실패했습니다.",
+    title: "回答失败",
+    detail: "获取回答失败。"
   },
   connection: {
-    title: "백엔드 연결 끊김",
-    detail: "프론트엔드와 백엔드 연결이 끊겼습니다. 재연결 중입니다.",
+    title: "后端连接已断开",
+    detail: "前端与后端的连接已断开，正在重新连接。"
   },
 };
 
@@ -69,8 +69,8 @@ function isAuthCredentialError(detail) {
 function authWarningDetail(detail) {
   const message = detailMessage(detail).trim();
   return message
-    ? `OAuth/API 키 인증이 끊겼을 수 있습니다. Settings에서 다시 로그인하세요. (${message})`
-    : "OAuth/API 키 인증이 끊겼을 수 있습니다. Settings에서 다시 로그인하세요.";
+    ? `OAuth/API 密钥身份验证可能已断开。请在设置中重新登录。 (${message})`
+    : "OAuth/API 密钥身份验证可能已断开。请在设置中重新登录。";
 }
 
 function toastText(kind, detail, context) {
@@ -103,13 +103,13 @@ function systemToastHtml(title, detail) {
 }
 
 function toastContextWorkspace(context) {
-  if (!context || typeof context === "string") return context || "워크스페이스 없음";
-  return context.workspaceName || context.workspace || context.label || "워크스페이스 없음";
+  if (!context || typeof context === "string") return context || "无工作区";
+  return context.workspaceName || context.workspace || context.label || "无工作区";
 }
 
 function toastContextSession(context) {
-  if (!context || typeof context === "string") return "세션 없음";
-  return context.sessionName || context.session || context.sessionId || "세션 없음";
+  if (!context || typeof context === "string") return "无会话";
+  return context.sessionName || context.session || context.sessionId || "无会话";
 }
 
 function toastContextPrompt(context) {
@@ -125,7 +125,7 @@ function toastContextSessionId(context) {
 function displayName(name, id) {
   const label = String(name || "").trim();
   const value = String(id || "").trim();
-  return label || value || "알 수 없음";
+  return label || value || "未知";
 }
 
 export const toastMethods = {
@@ -187,8 +187,8 @@ export const toastMethods = {
     const latest = status?.latestVersion || "latest";
     this.showSystemToast(
       "warning",
-      "pi-web 업데이트 가능",
-      `현재 ${current}, 최신 ${latest}. pi-web update 실행 후 pi-web을 재시작하세요.`,
+      "pi-web 有可用更新",
+      `当前 ${current}，最新 ${latest}。运行 pi-web update，然后重启 pi-web。`,
       `piweb-update:${current}:${latest}`,
     );
   },
@@ -199,15 +199,15 @@ export const toastMethods = {
     const note = status?.note ? ` ${status.note}` : "";
     this.showSystemToast(
       "warning",
-      "pi 업데이트 가능",
-      `현재 ${current}, 최신 ${latest}. pi update 실행 후 pi를 재시작하세요.${note}`,
+      "pi 有可用更新",
+      `当前 ${current}，最新 ${latest}。运行 pi update，然后重启 pi。${note}`,
       `pi-update:${current}:${latest}`,
     );
   },
 
   notifyRuntimeWarning(detail) {
     const message = authWarningDetail(detail);
-    this.showSystemToast("warning", "인증 경고", message, `auth:${message}`);
+    this.showSystemToast("warning", "身份验证警告", message, `auth:${message}`);
   },
 
   dismissToast(toast) {
@@ -228,7 +228,7 @@ export const toastMethods = {
       button = document.createElement("button");
       button.type = "button";
       button.className = "toast-dismiss-all";
-      button.textContent = "전체 닫기";
+      button.textContent = "关闭全部";
       button.addEventListener("click", (event) => {
         event.stopPropagation();
         this.dismissAllToasts();

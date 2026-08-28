@@ -8,7 +8,18 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"unicode/utf8"
 )
+
+func TestDiscordCompletionMessageTruncatesAtValidUTF8Boundary(t *testing.T) {
+	content := discordCompletionMessage(Session{ID: "session", Title: "会话"}, strings.Repeat("回答", 1000))
+	if !utf8.ValidString(content) {
+		t.Fatal("completion message contains invalid UTF-8")
+	}
+	if len(content) > 1900 {
+		t.Fatalf("completion message exceeds Discord limit: %d bytes", len(content))
+	}
+}
 
 func TestNotifyDiscordResponseCompletedSendsConfiguredMessage(t *testing.T) {
 	home := t.TempDir()
@@ -52,10 +63,10 @@ func TestNotifyDiscordResponseCompletedSendsConfiguredMessage(t *testing.T) {
 		t.Fatalf("unexpected auth %q", gotAuth)
 	}
 	content := gotBody["content"]
-	if !strings.Contains(content, "답변 완료: done @\u200be...") {
+	if !strings.Contains(content, "回答完成：done @\u200be...") {
 		t.Fatalf("unexpected title content %q", content)
 	}
-	if !strings.Contains(content, "질문: latest @\u200bhere question") {
+	if !strings.Contains(content, "问题：latest @\u200bhere question") {
 		t.Fatalf("unexpected question content %q", content)
 	}
 }
@@ -99,10 +110,10 @@ func TestNotifyTelegramResponseCompletedSendsConfiguredMessage(t *testing.T) {
 		t.Fatalf("unexpected chat_id %q", gotBody["chat_id"])
 	}
 	content := gotBody["text"]
-	if !strings.Contains(content, "답변 완료: done @\u200be...") {
+	if !strings.Contains(content, "回答完成：done @\u200be...") {
 		t.Fatalf("unexpected title content %q", content)
 	}
-	if !strings.Contains(content, "질문: latest @\u200bhere question") {
+	if !strings.Contains(content, "问题：latest @\u200bhere question") {
 		t.Fatalf("unexpected question content %q", content)
 	}
 }

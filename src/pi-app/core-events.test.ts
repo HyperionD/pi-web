@@ -212,7 +212,7 @@ describe("pi-app core events", () => {
     await Promise.resolve();
 
     expect(app.querySelector("[data-prompt-meta]").textContent).toContain("M");
-    expect(document.querySelector(".session-toast.warning").textContent).toContain("인증 경고");
+    expect(document.querySelector(".session-toast.warning").textContent).toContain("身份验证警告");
   });
 
   it("updates connection, mode, and prompt metadata branches", async () => {
