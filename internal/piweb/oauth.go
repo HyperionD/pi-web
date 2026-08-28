@@ -305,7 +305,7 @@ func runOAuthListHelper() ([]OAuthProviderStatus, error) {
 	if err != nil {
 		return nil, err
 	}
-	script := `import { pathToFileURL } from 'node:url'; const m = await import(pathToFileURL(process.env.PI_AI_OAUTH_INDEX).href); console.log(JSON.stringify(m.getOAuthProviders().map((p) => ({ id: p.id, name: p.name }))));`
+	script := `import { pathToFileURL } from 'node:url'; const m = await import(pathToFileURL(process.env.PI_AI_OAUTH_INDEX).href); const providers = typeof m.builtinProviders === 'function' ? m.builtinProviders().filter((p) => p.auth?.oauth) : m.getOAuthProviders(); console.log(JSON.stringify(providers.map((p) => ({ id: p.id, name: p.name }))));`
 	cmd := exec.Command("node", "--input-type=module", "-e", script)
 	cmd.Env = append(os.Environ(), "PI_AI_OAUTH_INDEX="+oauthIndex)
 	out, err := cmd.Output()
@@ -320,9 +320,29 @@ func runOAuthListHelper() ([]OAuthProviderStatus, error) {
 }
 
 func piAIOAuthIndexPath() (string, error) {
-	candidates := []string{
-		filepath.Join(os.Getenv("HOME"), ".npm-global", "lib", "node_modules", "@earendil-works", "pi-coding-agent", "node_modules", "@earendil-works", "pi-ai", "dist", "utils", "oauth", "index.js"),
-		"/usr/local/lib/node_modules/@earendil-works/pi-coding-agent/node_modules/@earendil-works/pi-ai/dist/utils/oauth/index.js",
+	const moduleRoot = "node_modules/@earendil-works/pi-ai"
+	modulePaths := []string{"dist/providers/all.js", "dist/utils/oauth/index.js"}
+	candidates := []string{}
+	if configured := os.Getenv("PI_AI_OAUTH_INDEX"); configured != "" {
+		candidates = append(candidates, configured)
+	}
+	if piPath, err := exec.LookPath("pi"); err == nil {
+		if resolved, err := filepath.EvalSymlinks(piPath); err == nil {
+			for directory := filepath.Dir(resolved); directory != filepath.Dir(directory); directory = filepath.Dir(directory) {
+				for _, relativePath := range modulePaths {
+					candidates = append(candidates, filepath.Join(directory, moduleRoot, relativePath))
+				}
+			}
+		}
+	}
+	globalRoots := []string{
+		filepath.Join(os.Getenv("HOME"), ".npm-global", "lib", "node_modules", "@earendil-works", "pi-coding-agent"),
+		"/usr/local/lib/node_modules/@earendil-works/pi-coding-agent",
+	}
+	for _, root := range globalRoots {
+		for _, relativePath := range modulePaths {
+			candidates = append(candidates, filepath.Join(root, "node_modules", "@earendil-works", "pi-ai", relativePath))
+		}
 	}
 	for _, candidate := range candidates {
 		if _, err := os.Stat(candidate); err == nil {
