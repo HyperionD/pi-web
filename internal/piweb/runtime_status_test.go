@@ -28,6 +28,55 @@ func TestParseStateModelRPCLineUsesDisplayName(t *testing.T) {
 	}
 }
 
+func TestParseSessionStatsRPCLine(t *testing.T) {
+	line := `{"id":"context","type":"response","command":"get_session_stats","success":true,"data":{"contextUsage":{"tokens":60000,"contextWindow":200000,"percent":30}}}`
+	usage, matched, err := parseSessionStatsRPCLine(line)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !matched || usage == nil || usage.Tokens == nil || *usage.Tokens != 60000 || usage.ContextWindow != 200000 || usage.Percent == nil || *usage.Percent != 30 {
+		t.Fatalf("unexpected context usage: matched=%v usage=%+v", matched, usage)
+	}
+	nullLine := `{"id":"context","type":"response","command":"get_session_stats","success":true,"data":{"contextUsage":{"tokens":null,"contextWindow":200000,"percent":null}}}`
+	usage, matched, err = parseSessionStatsRPCLine(nullLine)
+	if err != nil || !matched || usage == nil || usage.Tokens != nil || usage.Percent != nil {
+		t.Fatalf("expected nullable usage fields, matched=%v usage=%+v err=%v", matched, usage, err)
+	}
+}
+
+func TestCurrentPiContextUsageQueriesRequestedSession(t *testing.T) {
+	binDir := t.TempDir()
+	sessionFile := filepath.Join(t.TempDir(), "session.jsonl")
+	if err := os.WriteFile(sessionFile, []byte(`{"type":"session","id":"s1"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	script := `#!/bin/sh
+found=0
+previous=""
+for argument in "$@"; do
+  if [ "$previous" = "--session" ] && [ "$argument" = "$EXPECTED_SESSION" ]; then found=1; fi
+  previous="$argument"
+done
+[ "$found" = "1" ] || exit 3
+read command
+case "$command" in
+  *get_session_stats*) echo '{"id":"context","type":"response","command":"get_session_stats","success":true,"data":{"contextUsage":{"tokens":64000,"contextWindow":128000,"percent":50}}}' ;;
+  *) exit 4 ;;
+esac
+`
+	piPath := filepath.Join(binDir, "pi")
+	if err := os.WriteFile(piPath, []byte(script), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	t.Setenv("EXPECTED_SESSION", sessionFile)
+
+	usage, err := CurrentPiContextUsage(context.Background(), sessionFile, t.TempDir())
+	if err != nil || usage == nil || usage.Tokens == nil || *usage.Tokens != 64000 || usage.ContextWindow != 128000 {
+		t.Fatalf("unexpected usage=%+v err=%v", usage, err)
+	}
+}
+
 func TestQuotaMappersReturnRemainingPercent(t *testing.T) {
 	primary := &quotaUsageWindow{UsedPercent: float64(16)}
 	if got := remainingFromWindow(primary); got == nil || *got != 84 {

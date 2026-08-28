@@ -12,6 +12,7 @@ import {
   getGitStatus,
   getPiVersionStatus,
   getSession,
+  getSessionContextUsage,
   getVersionStatus,
   getWorkspaceCommands,
   getWorkspaceFile,
@@ -85,6 +86,11 @@ describe("api adapter", () => {
   it("escapes session ids in paths and supports message paging", async () => {
     const result = await getSession("a/b", { limit: 25, before: "123" });
     expect(result.url).toBe("http://backend.test/api/sessions/a%2Fb?limit=25&before=123");
+  });
+
+  it("fetches context usage for an escaped session id", async () => {
+    const result = await getSessionContextUsage("a/b");
+    expect(result.url).toBe("http://backend.test/api/sessions/a%2Fb/context-usage");
   });
 
   it("lists folders from the backend browser", async () => {

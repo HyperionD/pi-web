@@ -13,6 +13,70 @@ import (
 	"time"
 )
 
+func CurrentPiContextUsage(ctx context.Context, sessionFile string, cwd string) (*ContextUsage, error) {
+	if strings.TrimSpace(sessionFile) == "" {
+		return nil, fmt.Errorf("session file is required")
+	}
+	executable, err := exec.LookPath("pi")
+	if err != nil {
+		return nil, fmt.Errorf("pi executable not found: %w", err)
+	}
+	queryCtx, cancel := context.WithTimeout(ctx, 8*time.Second)
+	defer cancel()
+	command := exec.CommandContext(queryCtx, executable, "--mode", "rpc", "--session", sessionFile, "--no-extensions")
+	if cwd != "" {
+		command.Dir = cwd
+	}
+	stdin, err := command.StdinPipe()
+	if err != nil {
+		return nil, err
+	}
+	stdout, err := command.StdoutPipe()
+	if err != nil {
+		return nil, err
+	}
+	if err := command.Start(); err != nil {
+		return nil, err
+	}
+	_, writeErr := fmt.Fprintln(stdin, `{"id":"context","type":"get_session_stats"}`)
+	closeErr := stdin.Close()
+	usage, readErr := readContextUsageResponse(stdout)
+	waitErr := command.Wait()
+	if err := firstPiRPCError(queryCtx, writeErr, closeErr, readErr, waitErr); err != nil {
+		return nil, err
+	}
+	return usage, nil
+}
+
+func readContextUsageResponse(reader io.Reader) (*ContextUsage, error) {
+	scanner := bufio.NewScanner(reader)
+	for scanner.Scan() {
+		usage, matched, err := parseSessionStatsRPCLine(scanner.Text())
+		if err != nil {
+			return nil, err
+		}
+		if matched {
+			return usage, nil
+		}
+	}
+	if err := scanner.Err(); err != nil {
+		return nil, err
+	}
+	return nil, fmt.Errorf("pi get_session_stats returned no response")
+}
+
+func firstPiRPCError(ctx context.Context, errors ...error) error {
+	if ctx.Err() != nil {
+		return fmt.Errorf("pi RPC timed out: %w", ctx.Err())
+	}
+	for _, err := range errors {
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func CurrentPiModel(ctx context.Context, cwd string) (string, error) {
 	status, err := CurrentPiModelStatus(ctx, cwd)
 	return status.Model, err
@@ -79,6 +143,32 @@ func CurrentPiModelStatus(ctx context.Context, cwd string) (RuntimeStatus, error
 func parseStateModelRPCLine(line string) (string, bool, error) {
 	status, matched, err := parseStateModelStatusRPCLine(line)
 	return status.Model, matched, err
+}
+
+func parseSessionStatsRPCLine(line string) (*ContextUsage, bool, error) {
+	var response struct {
+		ID      string `json:"id"`
+		Type    string `json:"type"`
+		Command string `json:"command"`
+		Success bool   `json:"success"`
+		Error   string `json:"error"`
+		Data    struct {
+			ContextUsage *ContextUsage `json:"contextUsage"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal([]byte(line), &response); err != nil {
+		return nil, false, nil
+	}
+	if response.ID != "context" || response.Type != "response" || response.Command != "get_session_stats" {
+		return nil, false, nil
+	}
+	if !response.Success {
+		if response.Error == "" {
+			response.Error = "pi get_session_stats failed"
+		}
+		return nil, true, fmt.Errorf("%s", response.Error)
+	}
+	return response.Data.ContextUsage, true, nil
 }
 
 func parseStateModelStatusRPCLine(line string) (RuntimeStatus, bool, error) {

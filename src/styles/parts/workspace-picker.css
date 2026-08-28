@@ -24,6 +24,9 @@
 .prompt-meta-battery-medium { color: var(--warn); }
 .prompt-meta-battery-low { color: var(--danger); }
 .prompt-meta-branch { color: var(--fg-2); }
+.prompt-meta-context-safe { color: var(--accent); }
+.prompt-meta-context-warning { color: var(--warn); }
+.prompt-meta-context-danger { color: var(--danger); }
 
 .picker-shell {
   flex: 1;

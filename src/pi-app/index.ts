@@ -420,9 +420,11 @@ class PiApp extends HTMLElement {
     const parts = [model];
     const fiveHour = this.quotaLabel("5h", this.runtimeStatus.fiveHourQuota);
     const weekly = this.quotaLabel("Week", this.runtimeStatus.weeklyQuota);
+    const contextUsage = this.contextUsageLabel(this.runtimeStatus.contextUsage);
     if (fiveHour) parts.push(fiveHour);
     if (weekly) parts.push(weekly);
     parts.push(this.branchLabel(currentBranch));
+    if (contextUsage) parts.push(contextUsage);
     meta.innerHTML = parts.join(" | ");
   }
 
@@ -440,6 +442,28 @@ class PiApp extends HTMLElement {
     const percent = Math.max(0, Math.min(100, Math.round(quota)));
     const level = percent >= 70 ? "full" : percent >= 30 ? "medium" : "low";
     return `<span class="prompt-meta-item prompt-meta-battery prompt-meta-battery-${level}">${escapeHtml(label)} ${this.promptMetaIcon(`battery-${level}`)}(${percent}%)</span>`;
+  }
+
+  contextUsageLabel(usage) {
+    const contextWindow = Number(usage?.contextWindow);
+    if (!Number.isFinite(contextWindow) || contextWindow <= 0) return undefined;
+    const rawTokens = usage?.tokens == null ? null : Number(usage.tokens);
+    const used = Number.isFinite(rawTokens) && rawTokens >= 0 ? this.formatContextTokens(rawTokens) : "—";
+    const rawPercent = usage?.percent == null ? null : Number(usage.percent);
+    let percent = null;
+    if (Number.isFinite(rawPercent)) {
+      percent = Math.max(0, Math.min(100, Math.round(rawPercent)));
+    }
+    const level = percent == null || percent < 70 ? "safe" : percent < 90 ? "warning" : "danger";
+    const percentText = percent == null ? "" : ` (${percent}%)`;
+    const text = `Ctx ${used} / ${this.formatContextTokens(contextWindow)}${percentText}`;
+    return `<span class="prompt-meta-item prompt-meta-context-${level}">${escapeHtml(text)}</span>`;
+  }
+
+  formatContextTokens(value) {
+    if (value >= 1_000_000) return `${Number((value / 1_000_000).toFixed(1))}M`;
+    if (value >= 1_000) return `${Number((value / 1_000).toFixed(1))}K`;
+    return String(Math.round(value));
   }
 
   promptMetaIcon(name) {

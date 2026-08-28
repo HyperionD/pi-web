@@ -213,6 +213,10 @@ export function runShellCommand(workspaceId, command) {
   });
 }
 
+export function getSessionContextUsage(sessionId: string) {
+  return request(`/api/sessions/${encodeURIComponent(sessionId)}/context-usage`);
+}
+
 export function getSession(sessionId, options: { limit?: number; before?: string } = {}) {
   const params = new URLSearchParams();
   if (options.limit) params.set("limit", String(options.limit));

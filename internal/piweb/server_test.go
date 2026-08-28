@@ -433,6 +433,20 @@ func TestWorkspaceRuntimeSplitEndpointsUseMockStatusWhenPiDisabled(t *testing.T)
 	}
 }
 
+func TestSessionContextUsageEndpointUsesMockWhenPiDisabled(t *testing.T) {
+	server := NewServer(Config{EnablePiExecution: false}, NewMockStore(), NewBroker())
+	req := httptest.NewRequest(http.MethodGet, "/api/sessions/8e7c-44ff/context-usage", nil)
+	res := httptest.NewRecorder()
+	server.Handler().ServeHTTP(res, req)
+	if res.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", res.Code, res.Body.String())
+	}
+	body := res.Body.String()
+	if !strings.Contains(body, `"tokens":60000`) || !strings.Contains(body, `"contextWindow":200000`) || !strings.Contains(body, `"percent":30`) {
+		t.Fatalf("unexpected context usage response: %s", body)
+	}
+}
+
 func TestCreateSessionEndpoint(t *testing.T) {
 	t.Setenv("PI_CODING_AGENT_SESSION_DIR", t.TempDir())
 	store := NewMockStore()

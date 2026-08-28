@@ -5,6 +5,12 @@ import (
 	"strings"
 )
 
+type ContextUsage struct {
+	Tokens        *int     `json:"tokens"`
+	ContextWindow int      `json:"contextWindow"`
+	Percent       *float64 `json:"percent"`
+}
+
 type RuntimeStatus struct {
 	Model         string `json:"model,omitempty"`
 	ModelProvider string `json:"modelProvider,omitempty"`
@@ -13,6 +19,12 @@ type RuntimeStatus struct {
 	WeeklyQuota   *int   `json:"weeklyQuota,omitempty"`
 	CurrentBranch string `json:"currentBranch,omitempty"`
 	Warning       string `json:"warning,omitempty"`
+}
+
+func MockContextUsage() *ContextUsage {
+	tokens := 60000
+	percent := float64(30)
+	return &ContextUsage{Tokens: &tokens, ContextWindow: 200000, Percent: &percent}
 }
 
 func MockRuntimeStatus() RuntimeStatus {

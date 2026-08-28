@@ -1,8 +1,14 @@
-import { getWorkspaceRuntimeModel, getWorkspaceRuntimeQuota, getWorkspaceRuntimeStatus } from "../../lib/api";
+import {
+  getSessionContextUsage,
+  getWorkspaceRuntimeModel,
+  getWorkspaceRuntimeQuota,
+  getWorkspaceRuntimeStatus,
+} from "../../lib/api";
 
 export const runtimeStatusMethods = {
   async loadRuntimeStatus(workspaceId = this.dataset.activeWorkspaceId) {
     if (!workspaceId || !this.apiConnected) return;
+    const contextUsagePromise = this.loadContextUsage();
     try {
       const { status } = await getWorkspaceRuntimeModel(workspaceId);
       this.applyRuntimeStatus(status);
@@ -13,6 +19,21 @@ export const runtimeStatusMethods = {
         this.applyRuntimeStatus(status);
       } catch {}
     }
+    await contextUsagePromise;
+  },
+
+  async loadContextUsage(sessionId = this.dataset.activeSessionId) {
+    if (!this.apiConnected) return;
+    if (!sessionId) {
+      this.applyRuntimeStatus({ contextUsage: null });
+      return;
+    }
+    try {
+      const { contextUsage } = await getSessionContextUsage(sessionId);
+      if (this.dataset.activeSessionId === sessionId) {
+        this.applyRuntimeStatus({ contextUsage: contextUsage || null });
+      }
+    } catch {}
   },
 
   async loadRuntimeQuota(workspaceId = this.dataset.activeWorkspaceId, model = this.runtimeStatus?.model) {
