@@ -11,6 +11,7 @@ import (
 type jsonStreamState struct {
 	streamedText     bool
 	streamedThinking bool
+	errorReported    bool
 }
 
 func handlePiJSONEvent(line string, broker *Broker, store *Store, sessionID string, state *jsonStreamState) bool {
@@ -37,6 +38,9 @@ func handlePiJSONEvent(line string, broker *Broker, store *Store, sessionID stri
 	switch event.Type {
 	case "session", "agent_start", "turn_start", "queue_update":
 		return true
+	case "message_start":
+		reportAssistantError(event.Message, broker, sessionID, state)
+		return true
 	case "response":
 		if !event.Success && event.Error != "" {
 			broker.Publish(sessionID, "error", map[string]string{"error": event.Error, "command": event.Command})
@@ -62,6 +66,7 @@ func handlePiJSONEvent(line string, broker *Broker, store *Store, sessionID stri
 		}
 		return true
 	case "message_end":
+		reportAssistantError(event.Message, broker, sessionID, state)
 		for _, msg := range convertAgentMessages(event.Message) {
 			if msg.Kind == "user" {
 				continue
@@ -95,11 +100,38 @@ func handlePiJSONEvent(line string, broker *Broker, store *Store, sessionID stri
 		broker.Publish(sessionID, "tool.finished", msg)
 		return true
 	case "agent_end", "turn_end":
+		if event.Type == "turn_end" {
+			reportAssistantError(event.Message, broker, sessionID, state)
+		}
 		return true
 	default:
 		return true
 	}
 }
+func reportAssistantError(raw json.RawMessage, broker *Broker, sessionID string, state *jsonStreamState) {
+	message := assistantErrorMessage(raw)
+	if message == "" || state.errorReported {
+		return
+	}
+	state.errorReported = true
+	broker.Publish(sessionID, "error", map[string]string{"error": message})
+}
+
+func assistantErrorMessage(raw json.RawMessage) string {
+	var msg struct {
+		Role         string `json:"role"`
+		StopReason   string `json:"stopReason"`
+		ErrorMessage string `json:"errorMessage"`
+	}
+	if err := json.Unmarshal(raw, &msg); err != nil || msg.Role != "assistant" {
+		return ""
+	}
+	if msg.StopReason != "error" || msg.ErrorMessage == "" {
+		return ""
+	}
+	return msg.ErrorMessage
+}
+
 func containsFallbackChoice(text string) bool {
 	return strings.Contains(text, "piweb_choice")
 }

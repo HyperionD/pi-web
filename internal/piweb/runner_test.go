@@ -6,6 +6,42 @@ import (
 	"testing"
 )
 
+func TestHandlePiJSONEventPublishesAssistantErrorMessage(t *testing.T) {
+	broker := NewBroker()
+	store := NewMockStore()
+	state := &jsonStreamState{}
+	errEvent := `{"type":"message_end","message":{"role":"assistant","content":[],"stopReason":"error","errorMessage":"403 {\"error\":{\"type\":\"forbidden\",\"message\":\"Request not allowed\"}}"}}`
+	handlePiJSONEvent(errEvent, broker, store, "8e7c-44ff", state)
+	replay := broker.Replay("8e7c-44ff", 0)
+	if len(replay) != 1 || replay[0].Type != "error" || !strings.Contains(replay[0].Payload.(map[string]string)["error"], "Request not allowed") {
+		t.Fatalf("expected error event with message: %#v", replay)
+	}
+}
+
+func TestHandlePiJSONEventReportsModelErrorOncePerPrompt(t *testing.T) {
+	broker := NewBroker()
+	store := NewMockStore()
+	state := &jsonStreamState{}
+	errMsg := `{"role":"assistant","content":[],"stopReason":"error","errorMessage":"429 rate limit"}`
+	for _, raw := range []string{
+		`{"type":"message_start","message":` + errMsg + `}`,
+		`{"type":"message_end","message":` + errMsg + `}`,
+		`{"type":"turn_end","message":` + errMsg + `}`,
+	} {
+		handlePiJSONEvent(raw, broker, store, "8e7c-44ff", state)
+	}
+	replay := broker.Replay("8e7c-44ff", 0)
+	errors := 0
+	for _, event := range replay {
+		if event.Type == "error" {
+			errors++
+		}
+	}
+	if errors != 1 || !strings.Contains(replay[0].Payload.(map[string]string)["error"], "429 rate limit") {
+		t.Fatalf("expected exactly one error event: %#v", replay)
+	}
+}
+
 func TestStreamPipeHandlesLargeJSONLines(t *testing.T) {
 	line := strings.Repeat("x", 1024*1024+1)
 	done := make(chan struct{})
