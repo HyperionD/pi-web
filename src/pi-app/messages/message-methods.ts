@@ -175,13 +175,32 @@ export const messageMethods = {
     this.removeLoadingMessage();
     this.finishRunningTools();
     this.clearStreamingState("pi");
-    const finalNode = this.messageNode(message);
-    const replaced = streamingRows[0] && this.replaceTranscriptNode(streamingRows[0], finalNode);
-    for (const row of streamingRows.slice(replaced ? 1 : 0)) this.removeTranscriptNode(row);
-    if (!replaced) this.appendTranscriptNode(finalNode, { stickToBottom: true });
+    const liveRow = streamingRows.find((row) => this.termInner?.contains(row));
+    if (liveRow) {
+      this.finalizeStreamingRow(liveRow, text);
+      for (const row of streamingRows.filter((row) => row !== liveRow)) this.removeTranscriptNode(row);
+    } else {
+      const finalNode = this.messageNode(message);
+      const replaced = streamingRows[0] && this.replaceTranscriptNode(streamingRows[0], finalNode);
+      for (const row of streamingRows.slice(replaced ? 1 : 0)) this.removeTranscriptNode(row);
+      if (!replaced) this.appendTranscriptNode(finalNode, { stickToBottom: true });
+    }
     this.notifyPiMessageCommitted(message);
     this.syncLoadingMessage();
     this.scrollTerm();
+  },
+
+  finalizeStreamingRow(row, text) {
+    const choices = parseFallbackChoices(text);
+    row.classList.remove("streaming");
+    delete row.dataset.streamText;
+    row.dataset.rawText = text;
+    const body = row.querySelector(".body");
+    if (body) {
+      body.classList.add("markdown-body");
+      body.innerHTML = renderPiBody(choices.length ? stripFallbackChoices(text) : text);
+      this.notifyTranscriptNodeHeightDidChange(row);
+    }
   },
 
   clearStreamingState(kind) {

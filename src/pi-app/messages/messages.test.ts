@@ -359,6 +359,25 @@ describe("pi-app messages", () => {
     expect(app.pendingStreamingRow).toBeUndefined();
   });
 
+  it("finalizes the streamed row in place without replacing the node", async () => {
+    const app = await connectPiApp();
+    app.renderMessages([]);
+    app.appendDelta({ kind: "pi", delta: "hello " });
+    const streaming = app.querySelector(".msg.streaming[data-kind='pi']");
+    expect(streaming).not.toBeNull();
+
+    app.finalizePiStream("hello world");
+
+    const final = app.querySelector(".msg[data-kind='pi']");
+    expect(final).toBe(streaming);
+    expect(app.querySelector(".msg.streaming")).toBeNull();
+    expect(final.dataset.rawText).toBe("hello world");
+    expect(app.transcriptItems).toHaveLength(1);
+    expect(app.transcriptItems[0].nodes).toEqual([final]);
+    expect(app.streamingRows?.pi).toBeUndefined();
+    expect(app.pendingStreamingRow).toBeUndefined();
+  });
+
   it("does not show loading after a final assistant message while waiting for idle status", async () => {
     const app = await connectPiApp();
     app.renderMessages([]);
