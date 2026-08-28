@@ -180,24 +180,24 @@ describe("pi-app transcript window", () => {
     expect(scrollTop).toBe(1200);
   });
 
-  it("clears streaming tail and pending render on transcript reset", async () => {
-    const frames = [];
-    vi.spyOn(window, "requestAnimationFrame").mockImplementation((callback) => {
-      frames.push(callback);
-      return frames.length;
-    });
+  it("clears streaming tail and cancels pending render on transcript reset", async () => {
+    let nextFrameId = 0;
+    vi.spyOn(window, "requestAnimationFrame").mockImplementation(() => ++nextFrameId);
+    const cancelAnimationFrame = vi.spyOn(window, "cancelAnimationFrame").mockImplementation(() => undefined);
     const app = await connectPiApp();
     app.appendDelta({ kind: "pi", delta: "pending" });
+    const pendingFrame = app.streamingRenderFrame;
 
+    expect(pendingFrame).toBeDefined();
     app.resetTranscriptWindow();
 
+    expect(cancelAnimationFrame).toHaveBeenCalledWith(pendingFrame);
     expect(app.querySelector(".streaming-tail").childElementCount).toBe(0);
     expect(app.pendingStreamingRow).toBeUndefined();
     expect(app.streamingRenderFrame).toBeUndefined();
-    expect(frames.length).toBeGreaterThan(0);
   });
 
-  it("notifies the virtual scroller after streamed assistant markup changes height", async () => {
+  it("keeps streamed assistant markup height changes outside the virtual scroller", async () => {
     const frames = [];
     vi.spyOn(window, "requestAnimationFrame").mockImplementation((callback) => {
       frames.push(callback);
@@ -220,7 +220,7 @@ describe("pi-app transcript window", () => {
     frames.splice(0).forEach((callback) => callback(0));
 
     expect(app.querySelector(".streaming-tail .msg.streaming .markdown-body").innerHTML).toContain("<br>");
-    expect(heightChanged).toHaveBeenCalled();
+    expect(heightChanged).not.toHaveBeenCalled();
   });
 
   it("syncs rendered item heights before updating virtual-scroller items", async () => {

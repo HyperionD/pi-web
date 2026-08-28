@@ -317,6 +317,25 @@ describe("pi-app messages", () => {
     expect(app.querySelector(".term-inner .msg[data-kind='pi']").textContent).toContain("complete");
   });
 
+  it("cancels pending streaming render when rendering a new transcript", async () => {
+    let nextFrameId = 0;
+    vi.spyOn(window, "requestAnimationFrame").mockImplementation(() => ++nextFrameId);
+    const cancelAnimationFrame = vi.spyOn(window, "cancelAnimationFrame").mockImplementation(() => undefined);
+    const app = await connectPiApp();
+    app.renderMessages([]);
+    app.appendDelta({ kind: "pi", delta: "pending" });
+    const pendingFrame = app.streamingRenderFrame;
+
+    expect(pendingFrame).toBeDefined();
+    app.renderMessages([{ kind: "pi", text: "history" }]);
+
+    expect(cancelAnimationFrame).toHaveBeenCalledWith(pendingFrame);
+    expect(app.streamingRenderFrame).toBeUndefined();
+    expect(app.pendingStreamingRow).toBeUndefined();
+    expect(app.querySelector(".streaming-tail").childElementCount).toBe(0);
+    expect(app.transcriptItems).toHaveLength(1);
+  });
+
   it("renders streaming assistant markdown", async () => {
     const app = await connectPiApp();
     app.renderMessages([]);
@@ -420,6 +439,7 @@ describe("pi-app messages", () => {
     app.appendDelta({ kind: "think", delta: "son" });
     const block = app.querySelector(".streaming-tail .msg.streaming[data-kind='think'] .thinking-block");
     expect(app.querySelector(".msg.loading .spinner")).not.toBeNull();
+    expect(app.transcriptItems).toHaveLength(0);
     expect(block).not.toBeNull();
     expect(block.querySelector(".label").textContent).toBe("thinking");
     expect(block.querySelector("[data-stream-text]").textContent).toBe("reason");
@@ -462,21 +482,21 @@ describe("pi-app messages", () => {
     expect(frames).toHaveLength(1);
   });
 
-  it("removes virtualized loading messages from transcript state", async () => {
+  it("keeps transient loading messages out of transcript state", async () => {
     const app = await connectPiApp();
     app.renderMessages([]);
     app.appendLoadingMessage();
-    app.termInner.replaceChildren();
 
-    app.appendLoadingMessage();
-    expect(app.transcriptItems.filter((item) => item.nodes?.some((node) => node.matches?.(".msg.loading")))).toHaveLength(1);
+    expect(app.querySelector(".msg.loading")).not.toBeNull();
+    expect(app.transcriptItems).toHaveLength(0);
 
     app.removeLoadingMessage();
-    expect(app.transcriptItems.some((item) => item.nodes?.some((node) => node.matches?.(".msg.loading")))).toBe(false);
+
+    expect(app.transcriptItems).toHaveLength(0);
     expect(app.querySelector(".msg.loading")).toBeNull();
   });
 
-  it("recreates a streamed row that the virtual scroller unmounted", async () => {
+  it("restores a removed streaming tail row from cached text", async () => {
     const frames = [];
     vi.spyOn(window, "requestAnimationFrame").mockImplementation((callback) => {
       frames.push(callback);
@@ -489,7 +509,6 @@ describe("pi-app messages", () => {
     const firstRow = app.querySelector(".streaming-tail .msg.streaming");
     expect(firstRow).not.toBeNull();
 
-    // virtual scroller unmounts the streaming row (scroll window moved away)
     firstRow.remove();
 
     app.appendDelta({ kind: "pi", delta: " part2" });
@@ -498,9 +517,7 @@ describe("pi-app messages", () => {
     expect(rows).toHaveLength(1);
     const row = app.querySelector(".streaming-tail .msg.streaming");
     expect(row).not.toBeNull();
-    expect(row.dataset.streamText).toContain("part1");
-    expect(row.dataset.streamText).toContain("part2");
-    expect(app.querySelector(".streaming-tail").textContent).toContain("part2");
+    expect(row.dataset.streamText).toBe("part1 part2");
   });
 
   it("keeps following the bottom when the virtual scroller scrolls programmatically", async () => {
