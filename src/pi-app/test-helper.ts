@@ -59,7 +59,7 @@ export function installPiAppFixture() {
           </div>
           </aside>
         </div>
-        <main data-main="session"><div class="term"><div class="term-inner"></div></div></main>
+        <main data-main="session"><div class="term"><div class="term-inner"></div><div class="streaming-tail" data-streaming-tail></div></div></main>
         <div class="file-preview-panel" data-file-preview hidden>
           <div class="fp-dialog">
             <div class="fp-head"><strong class="fp-path">file</strong><small></small><div class="fp-actions"><button type="button" data-action="save-file-preview" hidden>save</button><button type="button" data-action="toggle-file-preview-mode" hidden>text</button><button type="button" data-action="close-file-preview">×</button></div></div>
@@ -175,7 +175,7 @@ export function installEmptySessionFixture() {
   vi.stubGlobal("localStorage", memoryStorage());
   document.body.innerHTML = `
     <pi-app data-active-session-id="s1" data-session="empty">
-      <main data-main="session" hidden><div class="term"><div class="term-inner"></div></div></main>
+      <main data-main="session" hidden><div class="term"><div class="term-inner"></div><div class="streaming-tail" data-streaming-tail></div></div></main>
       <main data-main="empty"><div class="empty-shell">new session</div></main>
       <div class="prompt-region">
         <div class="slash-pop" hidden></div>

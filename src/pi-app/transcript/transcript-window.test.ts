@@ -189,6 +189,7 @@ describe("pi-app transcript window", () => {
     const pendingFrame = app.streamingRenderFrame;
 
     expect(pendingFrame).toBeDefined();
+    expect(app.querySelector(".streaming-tail .msg.streaming")).not.toBeNull();
     app.resetTranscriptWindow();
 
     expect(cancelAnimationFrame).toHaveBeenCalledWith(pendingFrame);
@@ -211,7 +212,7 @@ describe("pi-app transcript window", () => {
     });
     const app = await connectPiApp();
     Object.defineProperty(app.term, "clientHeight", { configurable: true, value: 600 });
-    app.renderMessages([]);
+    app.renderMessages([{ kind: "pi", text: "history" }]);
     app.appendDelta({ kind: "pi", delta: "start" });
     const heightChanged = vi.spyOn(app.transcriptVirtualScroller, "onItemHeightDidChange");
 

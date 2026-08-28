@@ -327,6 +327,7 @@ describe("pi-app messages", () => {
     const pendingFrame = app.streamingRenderFrame;
 
     expect(pendingFrame).toBeDefined();
+    expect(app.querySelector(".streaming-tail .msg.streaming")).not.toBeNull();
     app.renderMessages([{ kind: "pi", text: "history" }]);
 
     expect(cancelAnimationFrame).toHaveBeenCalledWith(pendingFrame);
@@ -404,7 +405,7 @@ describe("pi-app messages", () => {
     expect(app.pendingStreamingRow).toBeUndefined();
   });
 
-  it("finalizes the streamed row in place without replacing the node", async () => {
+  it("removes the streamed tail row before adding the final assistant message to history", async () => {
     const app = await connectPiApp();
     app.renderMessages([]);
     app.appendDelta({ kind: "pi", delta: "hello " });
@@ -413,9 +414,10 @@ describe("pi-app messages", () => {
 
     app.finalizePiStream("hello world");
 
-    const final = app.querySelector(".msg[data-kind='pi']");
-    expect(final).toBe(streaming);
+    const final = app.querySelector(".term-inner .msg[data-kind='pi']");
     expect(app.querySelector(".streaming-tail .msg.streaming")).toBeNull();
+    expect(final).not.toBeNull();
+    expect(final).not.toBe(streaming);
     expect(final.dataset.rawText).toBe("hello world");
     expect(app.transcriptItems).toHaveLength(1);
     expect(app.transcriptItems[0].nodes).toEqual([final]);
@@ -434,12 +436,14 @@ describe("pi-app messages", () => {
   it("wraps streaming thinking deltas while keeping response loading visible", async () => {
     const app = await connectPiApp();
     app.renderMessages([]);
+    const heightNotification = vi.spyOn(app, "notifyTranscriptNodeHeightDidChange");
     app.setMode("running");
     app.appendDelta({ kind: "think", delta: "rea" });
     app.appendDelta({ kind: "think", delta: "son" });
     const block = app.querySelector(".streaming-tail .msg.streaming[data-kind='think'] .thinking-block");
     expect(app.querySelector(".msg.loading .spinner")).not.toBeNull();
     expect(app.transcriptItems).toHaveLength(0);
+    expect(heightNotification).not.toHaveBeenCalled();
     expect(block).not.toBeNull();
     expect(block.querySelector(".label").textContent).toBe("thinking");
     expect(block.querySelector("[data-stream-text]").textContent).toBe("reason");
@@ -482,42 +486,39 @@ describe("pi-app messages", () => {
     expect(frames).toHaveLength(1);
   });
 
-  it("keeps transient loading messages out of transcript state", async () => {
+  it("keeps transient loading messages out of transcript state without height notifications", async () => {
     const app = await connectPiApp();
     app.renderMessages([]);
+    const heightNotification = vi.spyOn(app, "notifyTranscriptNodeHeightDidChange");
     app.appendLoadingMessage();
 
     expect(app.querySelector(".msg.loading")).not.toBeNull();
     expect(app.transcriptItems).toHaveLength(0);
+    expect(heightNotification).not.toHaveBeenCalled();
 
     app.removeLoadingMessage();
 
     expect(app.transcriptItems).toHaveLength(0);
     expect(app.querySelector(".msg.loading")).toBeNull();
+    expect(heightNotification).not.toHaveBeenCalled();
   });
 
-  it("restores a removed streaming tail row from cached text", async () => {
-    const frames = [];
-    vi.spyOn(window, "requestAnimationFrame").mockImplementation((callback) => {
-      frames.push(callback);
-      return frames.length;
-    });
+  it("keeps continuous streaming deltas in one tail row outside transcript state", async () => {
     const app = await connectPiApp();
-    app.renderMessages([]);
+    app.renderMessages([{ kind: "pi", text: "history" }]);
     app.appendDelta({ kind: "pi", delta: "part1" });
-    frames.splice(0).forEach((callback) => callback(0));
+    app.flushStreamingRender();
     const firstRow = app.querySelector(".streaming-tail .msg.streaming");
     expect(firstRow).not.toBeNull();
 
-    firstRow.remove();
-
     app.appendDelta({ kind: "pi", delta: " part2" });
-    frames.splice(0).forEach((callback) => callback(0));
+    app.flushStreamingRender();
+
     const rows = app.querySelectorAll(".streaming-tail .msg.streaming");
     expect(rows).toHaveLength(1);
-    const row = app.querySelector(".streaming-tail .msg.streaming");
-    expect(row).not.toBeNull();
-    expect(row.dataset.streamText).toBe("part1 part2");
+    expect(rows[0]).toBe(firstRow);
+    expect(rows[0].dataset.streamText).toBe("part1 part2");
+    expect(app.transcriptItems).toHaveLength(1);
   });
 
   it("keeps following the bottom when the virtual scroller scrolls programmatically", async () => {
