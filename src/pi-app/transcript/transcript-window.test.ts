@@ -362,6 +362,68 @@ describe("pi-app transcript window", () => {
     expect(app.term.style.scrollBehavior).toBe("smooth");
   });
 
+  it("does not let a queued trailing scroll override a user scroll-away", async () => {
+    const frames = [];
+    const cancelled = new Set();
+    vi.spyOn(window, "requestAnimationFrame").mockImplementation((callback) => {
+      const frame = { id: frames.length + 1, callback };
+      frames.push(frame);
+      return frame.id;
+    });
+    const cancelAnimationFrame = vi.spyOn(window, "cancelAnimationFrame").mockImplementation((id) => {
+      cancelled.add(id);
+    });
+
+    const app = await connectPiApp();
+    frames.length = 0;
+    app.scrollFrame = undefined;
+    let scrollTop = 900;
+    Object.defineProperty(app.term, "clientHeight", { configurable: true, value: 100 });
+    Object.defineProperty(app.term, "scrollHeight", { configurable: true, value: 1000 });
+    Object.defineProperty(app.term, "scrollTop", {
+      configurable: true,
+      get: () => scrollTop,
+      set: (value) => { scrollTop = value; },
+    });
+
+    app.scrollTerm();
+    frames.shift().callback(0);
+    scrollTop = 100;
+    app.term.dispatchEvent(new WheelEvent("wheel", { deltaY: -100 }));
+    app.term.dispatchEvent(new Event("scroll"));
+    frames.splice(0).forEach(({ id, callback }) => {
+      if (!cancelled.has(id)) callback(0);
+    });
+
+    expect(cancelAnimationFrame).toHaveBeenCalledWith(expect.any(Number));
+    expect(scrollTop).toBe(100);
+  });
+
+  it("cancels pending transcript scrolling when the window resets", async () => {
+    const requestAnimationFrame = vi.spyOn(window, "requestAnimationFrame").mockReturnValue(42);
+    const cancelAnimationFrame = vi.spyOn(window, "cancelAnimationFrame").mockImplementation(() => undefined);
+    const app = await connectPiApp();
+    app.scrollFrame = undefined;
+
+    app.scrollTerm();
+    app.resetTranscriptWindow();
+
+    expect(requestAnimationFrame).toHaveBeenCalled();
+    expect(cancelAnimationFrame).toHaveBeenCalledWith(42);
+    expect(app.scrollFrame).toBeUndefined();
+  });
+
+  it("resumes streaming bottom follow after returning with the bottom button", async () => {
+    const app = await connectPiApp();
+    app.userScrolledAway = true;
+    app.transcriptFollowBottom = false;
+
+    app.scrollTranscriptToBottom();
+
+    expect(app.userScrolledAway).toBe(false);
+    expect(app.transcriptFollowBottom).toBe(true);
+  });
+
   it("stops following when the user scrolls up and resumes only from the bottom button", async () => {
     const frames = [];
     vi.spyOn(window, "requestAnimationFrame").mockImplementation((callback) => {

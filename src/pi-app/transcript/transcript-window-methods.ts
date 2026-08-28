@@ -75,15 +75,25 @@ export const transcriptWindowMethods = {
         this.scrollFrame = undefined;
       }
       const scroll = () => {
+        if (this.userScrolledAway) return;
         this.scrollTermToBottomImmediately();
         this.updateTranscriptScrollButton();
       };
       this.scrollFrame = window.requestAnimationFrame(() => {
         this.scrollFrame = undefined;
         scroll();
-        window.requestAnimationFrame(scroll);
+        this.scrollFrame = window.requestAnimationFrame(() => {
+          this.scrollFrame = undefined;
+          scroll();
+        });
       });
     };
+  },
+
+  cancelTranscriptScroll() {
+    if (!this.scrollFrame) return;
+    window.cancelAnimationFrame?.(this.scrollFrame);
+    this.scrollFrame = undefined;
   },
 
   scrollTermToBottomImmediately() {
@@ -99,6 +109,7 @@ export const transcriptWindowMethods = {
     const userDriven = this.userGestureScroll === true;
     this.userGestureScroll = false;
     if (userDriven) {
+      this.cancelTranscriptScroll();
       this.transcriptFollowBottom = this.isTermPinnedToBottom();
       this.userScrolledAway = !this.transcriptFollowBottom;
     }
@@ -114,6 +125,7 @@ export const transcriptWindowMethods = {
 
   scrollTranscriptToBottom() {
     this.transcriptFollowBottom = true;
+    this.userScrolledAway = false;
     this.renderTranscriptWindow({ stickToBottom: true });
     this.scrollTerm({ force: true });
     this.updateTranscriptScrollButton();
@@ -134,6 +146,7 @@ export const transcriptWindowMethods = {
   },
 
   resetTranscriptWindow() {
+    this.cancelTranscriptScroll();
     this.destroyTranscriptVirtualScroller();
     this.transcriptItems = [];
     this.transcriptVisibleStart = 0;
