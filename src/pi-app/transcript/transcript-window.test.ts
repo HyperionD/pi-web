@@ -419,6 +419,28 @@ describe("pi-app transcript window", () => {
     expect(app.term.style.scrollBehavior).toBe("smooth");
   });
 
+  it("treats null animation-frame sentinels as available", async () => {
+    const requestAnimationFrame = vi.spyOn(window, "requestAnimationFrame").mockReturnValue(7);
+    const cancelAnimationFrame = vi.spyOn(window, "cancelAnimationFrame").mockImplementation(() => undefined);
+    const app = await connectPiApp();
+    app.streamingRenderFrame = null;
+    app.scrollFrame = null;
+
+    app.scheduleStreamingRender(document.createElement("div"));
+    app.scrollTerm();
+
+    expect(requestAnimationFrame).toHaveBeenCalledTimes(2);
+    expect(app.streamingRenderFrame).toBe(7);
+    expect(app.scrollFrame).toBe(7);
+
+    app.streamingRenderFrame = null;
+    app.scrollFrame = null;
+    app.clearStreamingTail();
+    app.cancelTranscriptScroll();
+
+    expect(cancelAnimationFrame).not.toHaveBeenCalled();
+  });
+
   it("does not let a queued trailing scroll override a user scroll-away", async () => {
     const frames = [];
     const cancelled = new Set();

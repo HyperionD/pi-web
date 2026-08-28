@@ -53,6 +53,7 @@ export const messageMethods = {
     if (!this.termInner || !message) return;
     this.removeWelcomeBanner();
     if (this.isDuplicateMessage(message)) {
+      if (message.kind === "pi") this.clearStreamingState("pi");
       for (const streamingRow of this.streamingRowsForKind(message.kind)) this.removeStreamingNode(streamingRow);
       if (message.kind !== "user") this.removeLoadingMessage();
       return;
@@ -113,7 +114,7 @@ export const messageMethods = {
   },
 
   flushStreamingRender() {
-    if (this.streamingRenderFrame !== undefined) {
+    if (this.streamingRenderFrame != null) {
       window.cancelAnimationFrame(this.streamingRenderFrame);
       this.streamingRenderFrame = undefined;
     }
@@ -127,7 +128,7 @@ export const messageMethods = {
 
   scheduleStreamingRender(row) {
     this.pendingStreamingRow = row;
-    if (this.streamingRenderFrame !== undefined) return;
+    if (this.streamingRenderFrame != null) return;
     this.streamingRenderFrame = window.requestAnimationFrame(() => {
       this.streamingRenderFrame = undefined;
       this.flushStreamingRender();

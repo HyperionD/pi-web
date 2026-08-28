@@ -380,6 +380,25 @@ describe("pi-app messages", () => {
     expect(app.transcriptItems).toHaveLength(1);
   });
 
+  it("clears duplicate assistant streaming state before returning", async () => {
+    let nextFrameId = 0;
+    vi.spyOn(window, "requestAnimationFrame").mockImplementation(() => ++nextFrameId);
+    const cancelAnimationFrame = vi.spyOn(window, "cancelAnimationFrame").mockImplementation(() => undefined);
+    const app = await connectPiApp();
+    app.renderMessages([{ kind: "pi", text: "answer" }]);
+    app.appendDelta({ kind: "pi", delta: "answer" });
+    app.appendDelta({ kind: "pi", delta: "```j" });
+    const pendingFrame = app.streamingRenderFrame;
+
+    app.appendMessage({ kind: "pi", text: "answer" });
+
+    expect(cancelAnimationFrame).toHaveBeenCalledWith(pendingFrame);
+    expect(app.querySelector(".streaming-tail .msg.streaming[data-kind='pi']")).toBeNull();
+    expect(app.piDeltaBuffer).toBe("");
+    expect(app.streamingRenderFrame).toBeUndefined();
+    expect(app.pendingStreamingRow).toBeUndefined();
+  });
+
   it("cancels pending streaming render when rendering a new transcript", async () => {
     let nextFrameId = 0;
     vi.spyOn(window, "requestAnimationFrame").mockImplementation(() => ++nextFrameId);
