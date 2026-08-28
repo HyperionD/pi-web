@@ -123,36 +123,39 @@ export const gitHistoryMethods = {
   },
 
   async selectGitCommit(hash) {
-    if (!hash || !this.dataset.activeWorkspaceId) return;
+    const workspaceId = this.dataset.activeWorkspaceId;
+    if (!hash || !workspaceId || !this.confirmCleanFilePreview?.()) return;
+    this.closeFilePreview?.(true);
+    const inspectorRequestId = this.beginInspectorRequest?.();
     this.querySelectorAll(".git-commit-row").forEach((row) => row.classList.toggle("selected", row.dataset.hash === hash));
     const detail = this.ensureGitDetail();
     detail.innerHTML = `<div class="git-empty">loading commit…</div>`;
     try {
-      const response = await getGitCommit(this.dataset.activeWorkspaceId, hash);
+      const response = await getGitCommit(workspaceId, hash);
+      if (!this.inspectorRequestIsCurrent?.(inspectorRequestId, workspaceId)) return;
       this.renderGitCommitDetail(response);
     } catch (error) {
+      if (!this.inspectorRequestIsCurrent?.(inspectorRequestId, workspaceId)) return;
       detail.innerHTML = `<div class="git-empty err">${escapeHtml(error?.message || "commit unavailable")}</div>`;
     }
   },
 
   ensureGitDetail() {
-    let detail = this.querySelector("[data-git-detail]");
-    if (detail) {
-      this.querySelector("[data-git-history-grid]")?.classList.add("detail-open");
-      return detail;
-    }
+    const panel = this.querySelector("[data-git-detail-panel]");
+    let detail = panel?.querySelector("[data-git-detail]");
+    if (detail) return detail;
     detail = document.createElement("div");
     detail.className = "git-detail";
     detail.dataset.gitDetail = "";
-    const grid = this.querySelector("[data-git-history-grid]");
-    grid?.append(detail);
-    grid?.classList.add("detail-open");
+    panel?.append(detail);
+    this.toggleGitDetailPanel?.(true);
     return detail;
   },
 
-  closeGitDetail() {
-    this.querySelector("[data-git-detail]")?.remove();
-    this.querySelector("[data-git-history-grid]")?.classList.remove("detail-open");
+  closeGitDetail(invalidateRequest = true) {
+    if (invalidateRequest) this.beginInspectorRequest?.();
+    this.querySelector("[data-git-detail-panel] [data-git-detail]")?.remove();
+    this.toggleGitDetailPanel?.(false);
     this.querySelectorAll(".git-commit-row").forEach((row) => row.classList.remove("selected"));
   },
 

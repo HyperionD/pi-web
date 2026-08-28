@@ -66,6 +66,7 @@ export function installPiAppFixture() {
             <div class="fp-body"></div>
           </div>
         </div>
+        <div class="git-detail-panel" data-git-detail-panel hidden></div>
         <div class="scrim" data-action="close-drawer"></div>
       </section>
       <button class="sb-expand-btn"></button>

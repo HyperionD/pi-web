@@ -892,6 +892,19 @@ describe("pi-app controls", () => {
     expect(body.style.gridTemplateColumns).toBe("280px 1fr");
   });
 
+  it("places the right inspector after the content when the sidebar collapses", async () => {
+    const app = await connectPiApp();
+    const body = app.querySelector(".app-body");
+
+    app.toggleGitDetailPanel(true);
+    expect(body.style.gridTemplateColumns).toBe("280px 1fr 420px");
+    expect(body.style.getPropertyValue("--inspector-column")).toBe("3");
+
+    app.collapseSidebar(true);
+    expect(body.style.gridTemplateColumns).toBe("1fr 420px");
+    expect(body.style.getPropertyValue("--inspector-column")).toBe("2");
+  });
+
   it("refreshes workspaces from the sidebar refresh button", async () => {
     globalThis.PI_WEB_API_BASE = "http://backend.test";
     globalThis.fetch = vi.fn(async () => ({

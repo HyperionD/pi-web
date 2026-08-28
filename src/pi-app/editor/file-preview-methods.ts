@@ -9,6 +9,7 @@ export const filePreviewMethods = {
   async openFilePath(path, button = undefined) {
     const workspaceId = this.dataset.activeWorkspaceId;
     if (!path || !workspaceId || !this.apiConnected || !this.confirmCleanFilePreview?.()) return;
+    const inspectorRequestId = this.beginInspectorRequest?.();
     try {
       this.querySelectorAll(".tree-node.selected").forEach((node) => node.classList.remove("selected"));
       button?.classList.add("selected");
@@ -17,9 +18,10 @@ export const filePreviewMethods = {
       }));
       this.renderFilePreview({ path, previewKind: "loading" });
       const file = await getWorkspaceFile(workspaceId, path);
-      if (this.dataset.activeWorkspaceId !== workspaceId) return;
+      if (!this.inspectorRequestIsCurrent?.(inspectorRequestId, workspaceId)) return;
       this.renderFilePreview(file);
     } catch (error) {
+      if (!this.inspectorRequestIsCurrent?.(inspectorRequestId, workspaceId)) return;
       this.renderFilePreview({ path, previewKind: "error", content: errorMessage(error) });
       this.setConnection("err");
     }
@@ -29,6 +31,7 @@ export const filePreviewMethods = {
     const preview = this.querySelector("[data-file-preview]");
     const body = preview?.querySelector(".fp-body");
     if (!preview || !body) return;
+    this.closeGitDetail?.(false);
     this.destroyFilePreviewEditor?.();
     preview.hidden = false;
     this.toggleFilePreviewPanel?.(true);
@@ -71,8 +74,9 @@ export const filePreviewMethods = {
     body.textContent = fallbackMessage(file);
   },
 
-  closeFilePreview() {
-    if (!this.confirmCleanFilePreview?.()) return;
+  closeFilePreview(skipConfirmation = false) {
+    if (!skipConfirmation && !this.confirmCleanFilePreview?.()) return;
+    this.beginInspectorRequest?.();
     this.destroyFilePreviewEditor?.();
     this.filePreview = undefined;
     this.toggleFilePreviewPanel?.(false);

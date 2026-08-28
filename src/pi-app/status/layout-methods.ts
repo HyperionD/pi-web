@@ -43,11 +43,28 @@ export const layoutMethods = {
     tree?.toggleAttribute("hidden", !treeEnabled);
   },
 
+  beginInspectorRequest() {
+    this.inspectorRequestId = (this.inspectorRequestId || 0) + 1;
+    return this.inspectorRequestId;
+  },
+
+  inspectorRequestIsCurrent(requestId, workspaceId) {
+    return this.inspectorRequestId === requestId && this.dataset.activeWorkspaceId === workspaceId;
+  },
+
   toggleFilePreviewPanel(forceOpen) {
     const panel = this.querySelector("[data-file-preview]");
     const previewEnabled = forceOpen ?? this.dataset.preview !== "on";
     this.dataset.preview = previewEnabled ? "on" : "off";
     panel?.toggleAttribute("hidden", !previewEnabled);
+    this.applyGrid();
+  },
+
+  toggleGitDetailPanel(forceOpen) {
+    const panel = this.querySelector("[data-git-detail-panel]");
+    const detailEnabled = forceOpen ?? this.dataset.gitDetail !== "on";
+    this.dataset.gitDetail = detailEnabled ? "on" : "off";
+    panel?.toggleAttribute("hidden", !detailEnabled);
     this.applyGrid();
   },
 
@@ -83,11 +100,12 @@ export const layoutMethods = {
   applyGrid(width = Number(this.dataset.sidebarWidth || 280)) {
     const body = this.querySelector(".app-body");
     if (!body) return;
-    const preview = this.dataset.preview === "on";
+    const inspectorOpen = this.dataset.preview === "on" || this.dataset.gitDetail === "on";
     const collapsed = this.dataset.sidebar === "collapsed";
-    const previewWidth = 420;
-    const expandedColumns = preview ? `${width}px 1fr ${previewWidth}px` : `${width}px 1fr`;
-    const collapsedColumns = preview ? `1fr ${previewWidth}px` : "1fr";
+    body.style.setProperty("--inspector-column", collapsed ? "2" : "3");
+    const inspectorWidth = 420;
+    const expandedColumns = inspectorOpen ? `${width}px 1fr ${inspectorWidth}px` : `${width}px 1fr`;
+    const collapsedColumns = inspectorOpen ? `1fr ${inspectorWidth}px` : "1fr";
     body.style.gridTemplateColumns = collapsed ? collapsedColumns : expandedColumns;
   },
 

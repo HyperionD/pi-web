@@ -1,6 +1,9 @@
 
 @media (max-width: 880px) {
-  .app-body { grid-template-columns: 1fr !important; }
+  .app-body {
+    --inspector-column: 1 !important;
+    grid-template-columns: 1fr !important;
+  }
   .main, .prompt-region { grid-column: 1 !important; }
   .sb-resizer,
   .sb-collapse { display: none; }

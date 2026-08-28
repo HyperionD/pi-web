@@ -279,12 +279,14 @@ describe("workspace folder/render/bootstrap coverage", () => {
     expect(panel.querySelector(".git-commit-row")?.textContent).toContain("initial");
   });
 
-  it("opens and closes git commit detail on demand", async () => {
+  it("opens and closes git commit detail in the right panel", async () => {
     const app = await connectPiApp();
-    const panel = document.createElement("div");
-    panel.dataset.gitPanel = "";
+    const historyPanel = document.createElement("div");
+    const detailPanel = app.querySelector("[data-git-detail-panel]");
+    const body = app.querySelector(".app-body");
+    historyPanel.dataset.gitPanel = "";
     app.dataset.activeWorkspaceId = "w1";
-    app.append(panel);
+    app.append(historyPanel);
     app.renderGitHistory([
       {
         hash: "abc123",
@@ -303,13 +305,194 @@ describe("workspace folder/render/bootstrap coverage", () => {
 
     await app.selectGitCommit("abc123");
 
-    expect(panel.querySelector("[data-git-history-grid]").classList.contains("detail-open")).toBe(true);
-    expect(panel.querySelector("[data-git-detail]")?.textContent).toContain("initial");
-    expect(panel.querySelector("[data-action='close-git-detail']")).not.toBeNull();
+    expect(historyPanel.querySelector("[data-git-detail]")).toBeNull();
+    expect(detailPanel.hidden).toBe(false);
+    expect(detailPanel.querySelector("[data-git-detail]")?.textContent).toContain("initial");
+    expect(detailPanel.querySelector("[data-action='close-git-detail']")).not.toBeNull();
+    expect(body.style.gridTemplateColumns).toBe("280px 1fr 420px");
 
     app.closeGitDetail();
-    expect(panel.querySelector("[data-git-detail]")).toBeNull();
-    expect(panel.querySelector(".git-commit-row")?.classList.contains("selected")).toBe(false);
+    expect(detailPanel.hidden).toBe(true);
+    expect(body.style.gridTemplateColumns).toBe("280px 1fr");
+    expect(historyPanel.querySelector(".git-commit-row")?.classList.contains("selected")).toBe(false);
+  });
+
+  it("switches the right panel between file and git details", async () => {
+    const app = await connectPiApp();
+    const historyPanel = document.createElement("div");
+    const filePanel = app.querySelector("[data-file-preview]");
+    const gitPanel = app.querySelector("[data-git-detail-panel]");
+    historyPanel.dataset.gitPanel = "";
+    app.dataset.activeWorkspaceId = "w1";
+    app.append(historyPanel);
+    app.renderGitHistory([{
+      hash: "abc123",
+      shortHash: "abc123",
+      subject: "initial",
+      authorName: "pi",
+      date: "2026-01-01T00:00:00Z",
+      files: [],
+    }]);
+    app.renderFilePreview({ path: "README.md", previewKind: "unsupported" });
+    globalThis.fetch = vi.fn(async () => okJson({
+      commit: { shortHash: "abc123", subject: "initial", authorName: "pi", date: "2026-01-01T00:00:00Z", files: [] },
+      body: "body",
+      diff: "diff",
+    }));
+
+    await app.selectGitCommit("abc123");
+
+    expect(filePanel.hidden).toBe(true);
+    expect(gitPanel.hidden).toBe(false);
+
+    app.renderFilePreview({ path: "src/main.ts", previewKind: "unsupported" });
+
+    expect(filePanel.hidden).toBe(false);
+    expect(gitPanel.hidden).toBe(true);
+    expect(historyPanel.querySelector(".git-commit-row")?.classList.contains("selected")).toBe(false);
+  });
+
+  it("keeps an unsaved file open when switching to git detail is canceled", async () => {
+    const app = await connectPiApp();
+    const historyPanel = document.createElement("div");
+    const filePanel = app.querySelector("[data-file-preview]");
+    const gitPanel = app.querySelector("[data-git-detail-panel]");
+    historyPanel.dataset.gitPanel = "";
+    app.dataset.activeWorkspaceId = "w1";
+    app.append(historyPanel);
+    app.renderGitHistory([{
+      hash: "abc123",
+      shortHash: "abc123",
+      subject: "initial",
+      authorName: "pi",
+      date: "2026-01-01T00:00:00Z",
+      files: [],
+    }]);
+    app.renderFilePreview({ path: "README.md", mime: "text/markdown", previewKind: "text", content: "saved" });
+    app.filePreview.editor.view.dispatch({ changes: { from: 0, to: 5, insert: "changed" } });
+    vi.spyOn(window, "confirm").mockReturnValue(false);
+    globalThis.fetch = vi.fn(async () => okJson({
+      commit: { shortHash: "abc123", subject: "initial", authorName: "pi", date: "2026-01-01T00:00:00Z", files: [] },
+      body: "body",
+      diff: "diff",
+    }));
+
+    await app.selectGitCommit("abc123");
+
+    expect(window.confirm).toHaveBeenCalledWith("Discard unsaved file changes?");
+    expect(filePanel.hidden).toBe(false);
+    expect(gitPanel.hidden).toBe(true);
+    expect(historyPanel.querySelector(".git-commit-row")?.classList.contains("selected")).toBe(false);
+    expect(globalThis.fetch).not.toHaveBeenCalled();
+  });
+
+  it("ignores a stale git response after a file opens", async () => {
+    const app = await connectPiApp();
+    const historyPanel = document.createElement("div");
+    const filePanel = app.querySelector("[data-file-preview]");
+    const gitPanel = app.querySelector("[data-git-detail-panel]");
+    let resolveGitResponse;
+    const gitResponse = new Promise((resolve) => { resolveGitResponse = resolve; });
+    historyPanel.dataset.gitPanel = "";
+    app.apiConnected = true;
+    app.dataset.activeWorkspaceId = "w1";
+    app.append(historyPanel);
+    app.renderGitHistory([{
+      hash: "abc123",
+      shortHash: "abc123",
+      subject: "initial",
+      authorName: "pi",
+      date: "2026-01-01T00:00:00Z",
+      files: [],
+    }]);
+    globalThis.fetch = vi.fn(async (url) => {
+      if (String(url).includes("/git/commit")) return gitResponse;
+      return okJson({ path: "README.md", mime: "text/markdown", previewKind: "text", content: "file" });
+    });
+
+    const selecting = app.selectGitCommit("abc123");
+    await app.openFilePath("README.md");
+    resolveGitResponse(okJson({
+      commit: { shortHash: "abc123", subject: "initial", authorName: "pi", date: "2026-01-01T00:00:00Z", files: [] },
+      body: "body",
+      diff: "diff",
+    }));
+    await selecting;
+
+    expect(filePanel.hidden).toBe(false);
+    expect(gitPanel.hidden).toBe(true);
+    expect(historyPanel.querySelector(".git-commit-row")?.classList.contains("selected")).toBe(false);
+  });
+
+  it("ignores a stale file response after git detail opens", async () => {
+    const app = await connectPiApp();
+    const historyPanel = document.createElement("div");
+    const filePanel = app.querySelector("[data-file-preview]");
+    const gitPanel = app.querySelector("[data-git-detail-panel]");
+    let resolveFileResponse;
+    const fileResponse = new Promise((resolve) => { resolveFileResponse = resolve; });
+    historyPanel.dataset.gitPanel = "";
+    app.apiConnected = true;
+    app.dataset.activeWorkspaceId = "w1";
+    app.append(historyPanel);
+    app.renderGitHistory([{
+      hash: "abc123",
+      shortHash: "abc123",
+      subject: "initial",
+      authorName: "pi",
+      date: "2026-01-01T00:00:00Z",
+      files: [],
+    }]);
+    globalThis.fetch = vi.fn(async (url) => {
+      if (String(url).includes("/files/read")) return fileResponse;
+      return okJson({
+        commit: { shortHash: "abc123", subject: "initial", authorName: "pi", date: "2026-01-01T00:00:00Z", files: [] },
+        body: "body",
+        diff: "diff",
+      });
+    });
+
+    const openingFile = app.openFilePath("README.md");
+    await app.selectGitCommit("abc123");
+    resolveFileResponse(okJson({ path: "README.md", mime: "text/markdown", previewKind: "text", content: "file" }));
+    await openingFile;
+
+    expect(filePanel.hidden).toBe(true);
+    expect(gitPanel.hidden).toBe(false);
+    expect(gitPanel.querySelector("[data-git-detail]")?.textContent).toContain("initial");
+  });
+
+  it("invalidates pending inspector requests when the workspace changes", async () => {
+    const app = await connectPiApp();
+    const historyPanel = document.createElement("div");
+    const gitPanel = app.querySelector("[data-git-detail-panel]");
+    let resolveGitResponse;
+    const gitResponse = new Promise((resolve) => { resolveGitResponse = resolve; });
+    historyPanel.dataset.gitPanel = "";
+    app.dataset.activeWorkspaceId = "w1";
+    app.append(historyPanel);
+    app.renderGitHistory([{
+      hash: "abc123",
+      shortHash: "abc123",
+      subject: "initial",
+      authorName: "pi",
+      date: "2026-01-01T00:00:00Z",
+      files: [],
+    }]);
+    globalThis.fetch = vi.fn(async () => gitResponse);
+
+    const selecting = app.selectGitCommit("abc123");
+    app.activateWorkspaceForSession("w2");
+    app.activateWorkspaceForSession("w1");
+    resolveGitResponse(okJson({
+      commit: { shortHash: "abc123", subject: "initial", authorName: "pi", date: "2026-01-01T00:00:00Z", files: [] },
+      body: "body",
+      diff: "diff",
+    }));
+    await selecting;
+
+    expect(gitPanel.hidden).toBe(true);
+    expect(gitPanel.querySelector("[data-git-detail]")).toBeNull();
   });
 
   it("loads git history in 30 commit pages", async () => {

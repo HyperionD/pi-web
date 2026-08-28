@@ -222,6 +222,11 @@ export const workspaceBootstrapMethods = {
 
   activateWorkspaceForSession(workspaceId, { loadContext = false, forceLoadContext = false } = {}) {
     const changed = this.dataset.activeWorkspaceId !== workspaceId;
+    if (changed) {
+      this.beginInspectorRequest?.();
+      this.closeGitDetail?.(false);
+      if (!this.hasDirtyFilePreview?.()) this.closeFilePreview?.(true);
+    }
     this.dataset.activeWorkspaceId = workspaceId;
     this.openActiveWorkspaceGroup(workspaceId);
     this.updateActiveWorkspaceLabel(workspaceId);
