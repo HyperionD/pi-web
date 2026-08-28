@@ -219,10 +219,6 @@ export const sessionMethods = {
     const countLabel = group.querySelector(".ws-count") || group.querySelector(".ws-meta");
     if (countLabel) countLabel.textContent = String(count);
     sessions?.querySelector("[data-action='delete-workspace-sessions']")?.remove();
-    const newSessionRow = sessions?.querySelector(".new-session-row");
-    if (sessions && newSessionRow && count > 0) {
-      sessions.insertBefore(this.createDeleteWorkspaceSessionsRow(workspaceId), newSessionRow);
-    }
   },
 
   countWorkspaceSessions(workspaceId) {

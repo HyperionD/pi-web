@@ -309,7 +309,7 @@ describe("workspace folder/render/bootstrap coverage", () => {
     expect(detailPanel.hidden).toBe(false);
     expect(detailPanel.querySelector("[data-git-detail]")?.textContent).toContain("initial");
     expect(detailPanel.querySelector("[data-action='close-git-detail']")).not.toBeNull();
-    expect(body.style.gridTemplateColumns).toBe("280px 1fr 420px");
+    expect(body.style.gridTemplateColumns).toBe("280px 1fr 560px");
 
     app.closeGitDetail();
     expect(detailPanel.hidden).toBe(true);

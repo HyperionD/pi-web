@@ -1,8 +1,7 @@
 import { escapeHtml } from "../../lib/renderers";
 import { appendGroupedSessionRows } from "../sessions/session-hierarchy";
 
-const LUCIDE_PLUS_ICON = `<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14"></path><path d="M12 5v14"></path></svg>`;
-const LUCIDE_TRASH_ICON = `<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 11v6"></path><path d="M14 11v6"></path><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"></path><path d="M3 6h18"></path><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>`;
+const LUCIDE_PLUS_ICON = `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14"></path><path d="M12 5v14"></path></svg>`;
 const LUCIDE_X_ICON = `<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18"></path><path d="m6 6 12 12"></path></svg>`;
 const LUCIDE_CORNER_DOWN_LEFT_ICON = `<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 4v7a4 4 0 0 1-4 4H4"></path><path d="m9 10-5 5 5 5"></path></svg>`;
 const LUCIDE_CHEVRON_RIGHT_ICON = `<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 18 6-6-6-6"></path></svg>`;
@@ -107,18 +106,7 @@ export const workspaceRenderMethods = {
     );
     const sessions = group.querySelector(".sessions");
     appendGroupedSessionRows(sessions, workspace.id, workspace.sessions, this.createSessionRow.bind(this));
-    if ((workspace.sessions || []).length > 0) sessions.append(this.createDeleteWorkspaceSessionsRow(workspace.id));
     sessions.append(this.createNewSessionRow(workspace.id));
-  },
-
-  createDeleteWorkspaceSessionsRow(workspaceId) {
-    const row = document.createElement("button");
-    row.type = "button";
-    row.className = "session-row clear-sessions-row";
-    row.dataset.action = "delete-workspace-sessions";
-    row.dataset.workspace = workspaceId;
-    row.innerHTML = `<span class="title">${LUCIDE_TRASH_ICON} delete all sessions</span>`;
-    return row;
   },
 
   createNewSessionRow(workspaceId) {
@@ -127,7 +115,9 @@ export const workspaceRenderMethods = {
     row.className = "session-row new-session-row";
     row.dataset.action = "new-session";
     row.dataset.workspace = workspaceId;
-    row.innerHTML = `<span class="title">${LUCIDE_PLUS_ICON} new session</span>`;
+    row.setAttribute("aria-label", "new session");
+    row.title = "new session";
+    row.innerHTML = LUCIDE_PLUS_ICON;
     return row;
   },
 

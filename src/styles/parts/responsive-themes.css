@@ -2,6 +2,7 @@
 @media (max-width: 880px) {
   .app-body {
     --inspector-column: 1 !important;
+    --new-session-size: var(--hit-min);
     grid-template-columns: 1fr !important;
   }
   .main, .prompt-region { grid-column: 1 !important; }

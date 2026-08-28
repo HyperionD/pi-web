@@ -103,7 +103,7 @@ export const layoutMethods = {
     const inspectorOpen = this.dataset.preview === "on" || this.dataset.gitDetail === "on";
     const collapsed = this.dataset.sidebar === "collapsed";
     body.style.setProperty("--inspector-column", collapsed ? "2" : "3");
-    const inspectorWidth = 420;
+    const inspectorWidth = 560;
     const expandedColumns = inspectorOpen ? `${width}px 1fr ${inspectorWidth}px` : `${width}px 1fr`;
     const collapsedColumns = inspectorOpen ? `1fr ${inspectorWidth}px` : "1fr";
     body.style.gridTemplateColumns = collapsed ? collapsedColumns : expandedColumns;

@@ -29,10 +29,14 @@ describe("pi-app sessions", () => {
     const rows = [...app.querySelectorAll("[data-workspace-group='w1'] .sessions > .session-row")];
     expect(rows.map((row) => row.dataset.session || row.dataset.action)).toEqual([
       "s1",
-      "delete-workspace-sessions",
       "new-session",
     ]);
-    expect(rows.at(-1).classList.contains("new-session-row")).toBe(true);
+    const newSession = rows.at(-1);
+    expect(newSession.classList.contains("new-session-row")).toBe(true);
+    expect(newSession.getAttribute("aria-label")).toBe("new session");
+    expect(newSession.getAttribute("title")).toBe("new session");
+    expect(newSession.textContent.trim()).toBe("");
+    expect(newSession.querySelector("svg")).not.toBeNull();
   });
 
   it("groups child agent sessions below their parent with kind markers", async () => {

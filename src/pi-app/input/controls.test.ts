@@ -884,7 +884,7 @@ describe("pi-app controls", () => {
     app.renderFilePreview({ path: "README.md", previewKind: "loading" });
     expect(preview.hidden).toBe(false);
     expect(app.dataset.preview).toBe("on");
-    expect(body.style.gridTemplateColumns).toBe("280px 1fr 420px");
+    expect(body.style.gridTemplateColumns).toBe("280px 1fr 560px");
 
     app.closeFilePreview();
     expect(preview.hidden).toBe(true);
@@ -897,11 +897,11 @@ describe("pi-app controls", () => {
     const body = app.querySelector(".app-body");
 
     app.toggleGitDetailPanel(true);
-    expect(body.style.gridTemplateColumns).toBe("280px 1fr 420px");
+    expect(body.style.gridTemplateColumns).toBe("280px 1fr 560px");
     expect(body.style.getPropertyValue("--inspector-column")).toBe("3");
 
     app.collapseSidebar(true);
-    expect(body.style.gridTemplateColumns).toBe("1fr 420px");
+    expect(body.style.gridTemplateColumns).toBe("1fr 560px");
     expect(body.style.getPropertyValue("--inspector-column")).toBe("2");
   });
 

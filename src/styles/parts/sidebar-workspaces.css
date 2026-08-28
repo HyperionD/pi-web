@@ -278,61 +278,37 @@ button.session-row:not(.new-session-row) {
 .row-action:hover { color: var(--accent); border-color: var(--accent); }
 .row-action.danger:hover { color: var(--danger); border-color: var(--danger); }
 
-button.session-row.clear-sessions-row,
-.clear-sessions-row,
 button.session-row.new-session-row,
 .new-session-row {
   display: flex;
+  align-items: center;
   justify-content: center;
-  width: calc(100% - 16px);
-  margin: 8px;
-  min-height: 34px;
-  padding: 7px var(--space-3);
-  border: 1px solid var(--border-hi);
+  width: var(--new-session-size, 32px);
+  min-width: var(--new-session-size, 32px);
+  height: var(--new-session-size, 32px);
+  min-height: var(--new-session-size, 32px);
+  margin: 4px 8px 4px auto;
+  padding: 0;
+  border: 1px solid var(--accent);
   border-radius: var(--radius-1);
-  background: var(--bg-3);
-  text-align: center;
-  box-shadow: inset 0 0 0 1px rgba(255,255,255,0.04), 0 0 0 1px rgba(0,0,0,0.22);
-}
-button.session-row.new-session-row,
-.new-session-row {
-  border-color: var(--accent);
   background: #cfdbf0;
+  color: var(--accent);
+  cursor: pointer;
 }
 button.session-row.new-session-row:hover,
 .new-session-row:hover {
   border-color: var(--accent);
-  background: #cfdbf0;
+  background: var(--bg-3);
+  color: var(--accent);
 }
-button.session-row.clear-sessions-row,
-.clear-sessions-row {
-  color: var(--danger);
-  border-color: var(--danger);
-  background: #e1d5dc;
-  margin-bottom: 0;
-}
-button.session-row.clear-sessions-row:hover,
-.clear-sessions-row:hover {
-  border-color: var(--danger);
-  background: #e1d5dc;
-}
-button.session-row.new-session-row .title,
-.new-session-row .title,
-button.session-row.clear-sessions-row .title,
-.clear-sessions-row .title {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-}
-button.session-row.clear-sessions-row .title,
-.clear-sessions-row .title {
-  color: var(--danger);
+button.session-row.new-session-row:focus-visible,
+.new-session-row:focus-visible {
+  border-color: var(--border-focus);
+  box-shadow: 0 0 0 2px var(--border-focus);
+  outline: none;
 }
 button.session-row.new-session-row svg,
-.new-session-row svg,
-button.session-row.clear-sessions-row svg,
-.clear-sessions-row svg {
+.new-session-row svg {
   display: block;
   flex: 0 0 auto;
 }
