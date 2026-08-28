@@ -291,13 +291,39 @@ describe("pi-app messages", () => {
     expect(bodies).toEqual(["hello"]);
   });
 
+  it("keeps streaming markdown outside the virtual transcript items", async () => {
+    const app = await connectPiApp();
+    app.renderMessages([{ kind: "pi", text: "history" }]);
+
+    app.appendDelta({ kind: "pi", delta: "**live**" });
+    app.flushStreamingRender();
+
+    expect(app.transcriptItems).toHaveLength(1);
+    expect(app.querySelectorAll(".term-inner .msg.streaming")).toHaveLength(0);
+    expect(app.querySelectorAll(".streaming-tail .msg.streaming")).toHaveLength(1);
+    expect(app.querySelector(".streaming-tail .body").innerHTML).toContain("<strong>live</strong>");
+  });
+
+  it("moves the final assistant message from streaming tail into history once", async () => {
+    const app = await connectPiApp();
+    app.renderMessages([]);
+    app.appendDelta({ kind: "pi", delta: "partial" });
+
+    app.finalizePiStream("complete");
+
+    expect(app.querySelectorAll(".streaming-tail .msg.streaming")).toHaveLength(0);
+    expect(app.querySelectorAll(".term-inner .msg[data-kind='pi']")).toHaveLength(1);
+    expect(app.transcriptItems).toHaveLength(1);
+    expect(app.querySelector(".term-inner .msg[data-kind='pi']").textContent).toContain("complete");
+  });
+
   it("renders streaming assistant markdown", async () => {
     const app = await connectPiApp();
     app.renderMessages([]);
     app.appendDelta({ kind: "pi", delta: "**bo" });
     app.appendDelta({ kind: "pi", delta: "ld**" });
     app.flushStreamingRender();
-    const body = app.querySelector(".msg.streaming .body");
+    const body = app.querySelector(".streaming-tail .msg.streaming .body");
     expect(body.classList.contains("markdown-body")).toBe(true);
     expect(body.innerHTML).toContain("<strong>bold</strong>");
   });
@@ -310,7 +336,7 @@ describe("pi-app messages", () => {
     app.appendDelta({ kind: "pi", delta: "lo" });
     app.flushStreamingRender();
     expect(app.querySelector(".msg.loading")).toBeNull();
-    expect(app.querySelector(".msg.streaming .body").textContent).toBe("hello");
+    expect(app.querySelector(".streaming-tail .msg.streaming .body").textContent).toBe("hello");
   });
 
   it("replaces streamed AG-UI text with one final assistant message", async () => {
@@ -334,7 +360,7 @@ describe("pi-app messages", () => {
 
     const messages = [...app.querySelectorAll(".msg[data-kind='pi']")];
     expect(messages).toHaveLength(1);
-    expect(app.querySelector(".msg.streaming")).toBeNull();
+    expect(app.querySelector(".streaming-tail .msg.streaming")).toBeNull();
     expect(messages[0].dataset.rawText).toBe(text);
     expect(messages[0].textContent).toContain("계획:");
     expect(messages[0].textContent).not.toContain("계획계획");
@@ -345,7 +371,7 @@ describe("pi-app messages", () => {
     const app = await connectPiApp();
     app.renderMessages([]);
     app.appendDelta({ kind: "pi", delta: "계획: `.pi/tasks/example.md`" });
-    const streaming = app.querySelector(".msg.streaming[data-kind='pi']");
+    const streaming = app.querySelector(".streaming-tail .msg.streaming[data-kind='pi']");
     app.termInner.replaceChildren();
 
     app.finalizePiStream("계획: `.pi/tasks/example.md`");
@@ -363,14 +389,14 @@ describe("pi-app messages", () => {
     const app = await connectPiApp();
     app.renderMessages([]);
     app.appendDelta({ kind: "pi", delta: "hello " });
-    const streaming = app.querySelector(".msg.streaming[data-kind='pi']");
+    const streaming = app.querySelector(".streaming-tail .msg.streaming[data-kind='pi']");
     expect(streaming).not.toBeNull();
 
     app.finalizePiStream("hello world");
 
     const final = app.querySelector(".msg[data-kind='pi']");
     expect(final).toBe(streaming);
-    expect(app.querySelector(".msg.streaming")).toBeNull();
+    expect(app.querySelector(".streaming-tail .msg.streaming")).toBeNull();
     expect(final.dataset.rawText).toBe("hello world");
     expect(app.transcriptItems).toHaveLength(1);
     expect(app.transcriptItems[0].nodes).toEqual([final]);
@@ -392,7 +418,7 @@ describe("pi-app messages", () => {
     app.setMode("running");
     app.appendDelta({ kind: "think", delta: "rea" });
     app.appendDelta({ kind: "think", delta: "son" });
-    const block = app.querySelector(".msg.streaming[data-kind='think'] .thinking-block");
+    const block = app.querySelector(".streaming-tail .msg.streaming[data-kind='think'] .thinking-block");
     expect(app.querySelector(".msg.loading .spinner")).not.toBeNull();
     expect(block).not.toBeNull();
     expect(block.querySelector(".label").textContent).toBe("thinking");
@@ -412,7 +438,7 @@ describe("pi-app messages", () => {
     app.appendDelta({ kind: "pi", delta: "**bo" });
     app.appendDelta({ kind: "pi", delta: "ld**" });
 
-    const body = app.querySelector(".msg.streaming .body");
+    const body = app.querySelector(".streaming-tail .msg.streaming .body");
     expect(body.textContent).toBe("");
 
     frames.splice(0).forEach((callback) => callback(0));
@@ -460,7 +486,7 @@ describe("pi-app messages", () => {
     app.renderMessages([]);
     app.appendDelta({ kind: "pi", delta: "part1" });
     frames.splice(0).forEach((callback) => callback(0));
-    const firstRow = app.querySelector(".msg.streaming");
+    const firstRow = app.querySelector(".streaming-tail .msg.streaming");
     expect(firstRow).not.toBeNull();
 
     // virtual scroller unmounts the streaming row (scroll window moved away)
@@ -468,13 +494,13 @@ describe("pi-app messages", () => {
 
     app.appendDelta({ kind: "pi", delta: " part2" });
     frames.splice(0).forEach((callback) => callback(0));
-    const rows = app.querySelectorAll(".msg.streaming");
+    const rows = app.querySelectorAll(".streaming-tail .msg.streaming");
     expect(rows).toHaveLength(1);
-    const row = app.querySelector(".msg.streaming");
+    const row = app.querySelector(".streaming-tail .msg.streaming");
     expect(row).not.toBeNull();
     expect(row.dataset.streamText).toContain("part1");
     expect(row.dataset.streamText).toContain("part2");
-    expect(app.querySelector(".term-inner").textContent).toContain("part2");
+    expect(app.querySelector(".streaming-tail").textContent).toContain("part2");
   });
 
   it("keeps following the bottom when the virtual scroller scrolls programmatically", async () => {

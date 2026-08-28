@@ -180,6 +180,23 @@ describe("pi-app transcript window", () => {
     expect(scrollTop).toBe(1200);
   });
 
+  it("clears streaming tail and pending render on transcript reset", async () => {
+    const frames = [];
+    vi.spyOn(window, "requestAnimationFrame").mockImplementation((callback) => {
+      frames.push(callback);
+      return frames.length;
+    });
+    const app = await connectPiApp();
+    app.appendDelta({ kind: "pi", delta: "pending" });
+
+    app.resetTranscriptWindow();
+
+    expect(app.querySelector(".streaming-tail").childElementCount).toBe(0);
+    expect(app.pendingStreamingRow).toBeUndefined();
+    expect(app.streamingRenderFrame).toBeUndefined();
+    expect(frames.length).toBeGreaterThan(0);
+  });
+
   it("notifies the virtual scroller after streamed assistant markup changes height", async () => {
     const frames = [];
     vi.spyOn(window, "requestAnimationFrame").mockImplementation((callback) => {
@@ -202,7 +219,7 @@ describe("pi-app transcript window", () => {
     app.appendDelta({ kind: "pi", delta: "\nsecond line" });
     frames.splice(0).forEach((callback) => callback(0));
 
-    expect(app.querySelector(".msg.streaming .markdown-body").innerHTML).toContain("<br>");
+    expect(app.querySelector(".streaming-tail .msg.streaming .markdown-body").innerHTML).toContain("<br>");
     expect(heightChanged).toHaveBeenCalled();
   });
 
