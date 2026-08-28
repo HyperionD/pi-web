@@ -34,7 +34,7 @@ describe("pi-app core events coverage", () => {
     app.sendButton.click();
     app.prompt.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", ctrlKey: true }));
     app.prompt.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter" }));
-    expect(app.submitPrompt).toHaveBeenCalledTimes(2);
+    expect(app.submitPrompt).toHaveBeenCalledTimes(1);
     expect(app.pickSlash).toHaveBeenCalledWith("/model");
   });
 

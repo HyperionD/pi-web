@@ -6,6 +6,30 @@ describe("settings schema", () => {
     expect(SPEECH_LANGUAGE_OPTIONS.find((option) => option.value === "ko")?.label).toBe("韩语");
   });
 
+  it("provides Simplified Chinese labels and hints for every settings field", () => {
+    expect(SETTINGS_FIELDS).toEqual(expect.arrayContaining([
+      { path: "defaultProvider", label: "默认提供商", type: "providerSelect", hint: "提供商 ID" },
+      { path: "defaultModel", label: "默认模型", type: "modelSelect", hint: "模型 ID 或提供商/模型" },
+      { path: "defaultThinkingLevel", label: "思考级别", type: "select", values: ["off", "minimal", "low", "medium", "high", "xhigh"] },
+      { path: "compaction.enabled", label: "自动压缩", type: "boolean" },
+      { path: "enableSkillCommands", label: "技能命令", type: "boolean" },
+      { path: "steeringMode", label: "引导模式", type: "select", values: ["one-at-a-time", "all"] },
+      { path: "followUpMode", label: "后续模式", type: "select", values: ["one-at-a-time", "all"] },
+      { path: "hideThinkingBlock", label: "隐藏思考内容", type: "boolean" },
+      { path: "readResponsesAloud", label: "朗读回答", type: "checkbox" },
+      { path: "voice.language", label: "朗读语言", type: "speechLanguage" },
+      { path: "enableSpeechInput", label: "语音输入", type: "checkbox" },
+      { path: "speechInput.language", label: "语音语言", type: "speechLanguage" },
+      { path: "remoteNotifications.discord.enabled", label: "启用 Discord", type: "checkbox" },
+      { path: "remoteNotifications.discord.token", label: "Discord 令牌", type: "password", hint: "机器人令牌" },
+      { path: "remoteNotifications.discord.channelId", label: "Discord 频道 ID", type: "text", hint: "频道 ID" },
+      { path: "remoteNotifications.telegram.enabled", label: "启用 Telegram", type: "checkbox" },
+      { path: "remoteNotifications.telegram.token", label: "Telegram 机器人令牌", type: "password", hint: "BotFather 令牌" },
+      { path: "remoteNotifications.telegram.chatId", label: "Telegram 聊天 ID", type: "text", hint: "chat_id" },
+      { path: "warnings.anthropicExtraUsage", label: "Anthropic 额外用量警告", type: "boolean" },
+    ]));
+  });
+
   it("shows only settings relevant to pi-web", () => {
     const paths = SETTINGS_FIELDS.map((field) => field.path);
 

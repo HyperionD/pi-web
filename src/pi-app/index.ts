@@ -163,12 +163,24 @@ class PiApp extends HTMLElement {
     this.prompt?.addEventListener("input", () => this.updatePrompt());
     this.prompt?.addEventListener("paste", (event) => void this.handlePromptPaste(event));
     this.prompt?.addEventListener("keydown", (event) => {
-      if ((event.metaKey || event.ctrlKey) && event.key === "Enter") this.submitPrompt();
+      const isEnter = event.key === "Enter";
       const shouldNavigateSlashCommands = this.slashPopover
         && !this.slashPopover.hidden
+        && !event.shiftKey
+        && !event.isComposing
         && ["ArrowDown", "ArrowUp", "Enter"].includes(event.key);
       if (shouldNavigateSlashCommands) {
         this.navigateList(event, ".slash-item", (item) => this.pickSlash(item.dataset.slash));
+        return;
+      }
+      if (isEnter && !event.shiftKey && !event.isComposing) {
+        event.preventDefault();
+        void this.submitPrompt();
+        return;
+      }
+      if ((event.metaKey || event.ctrlKey) && isEnter) {
+        event.preventDefault();
+        void this.submitPrompt();
       }
     });
     this.attachButton?.addEventListener("click", () => this.fileInput?.click());

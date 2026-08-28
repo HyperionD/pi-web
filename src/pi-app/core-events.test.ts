@@ -140,6 +140,28 @@ describe("pi-app core events", () => {
     expect(app.querySelector("[data-settings-status]").textContent).toBe("signal: killed");
   });
 
+  it("sends on plain Enter while preserving Shift+Enter and slash choices", async () => {
+    const app = await connectPiApp();
+    app.submitPrompt = vi.fn();
+    app.navigateList = vi.fn();
+
+    const enter = new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true });
+    app.prompt.dispatchEvent(enter);
+    expect(enter.defaultPrevented).toBe(true);
+    expect(app.submitPrompt).toHaveBeenCalledTimes(1);
+
+    const shiftEnter = new KeyboardEvent("keydown", { key: "Enter", shiftKey: true, bubbles: true, cancelable: true });
+    app.prompt.dispatchEvent(shiftEnter);
+    expect(shiftEnter.defaultPrevented).toBe(false);
+    expect(app.submitPrompt).toHaveBeenCalledTimes(1);
+
+    app.slashPopover.hidden = false;
+    const slashEnter = new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true });
+    app.prompt.dispatchEvent(slashEnter);
+    expect(app.navigateList).toHaveBeenCalledWith(slashEnter, ".slash-item", expect.any(Function));
+    expect(app.submitPrompt).toHaveBeenCalledTimes(1);
+  });
+
   it("connects event streams and applies every event branch", async () => {
     const listeners = {};
     class FakeEventSource {
