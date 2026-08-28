@@ -13,6 +13,7 @@ import {
   getPiVersionStatus,
   getSession,
   getSessionContextUsage,
+  setSessionModel,
   getVersionStatus,
   getWorkspaceCommands,
   getWorkspaceFile,
@@ -91,6 +92,13 @@ describe("api adapter", () => {
   it("fetches context usage for an escaped session id", async () => {
     const result = await getSessionContextUsage("a/b");
     expect(result.url).toBe("http://backend.test/api/sessions/a%2Fb/context-usage");
+  });
+
+  it("sets the active session model", async () => {
+    const result = await setSessionModel("s1", "openai-codex", "gpt-5.6-luna");
+    expect(result.url).toBe("http://backend.test/api/sessions/s1/model");
+    expect(result.options.method).toBe("POST");
+    expect(JSON.parse(result.options.body)).toEqual({ provider: "openai-codex", model: "gpt-5.6-luna" });
   });
 
   it("lists folders from the backend browser", async () => {

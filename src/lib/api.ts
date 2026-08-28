@@ -217,6 +217,13 @@ export function getSessionContextUsage(sessionId: string) {
   return request(`/api/sessions/${encodeURIComponent(sessionId)}/context-usage`);
 }
 
+export function setSessionModel(sessionId: string, provider: string, model: string) {
+  return request(`/api/sessions/${encodeURIComponent(sessionId)}/model`, {
+    method: "POST",
+    body: JSON.stringify({ provider, model }),
+  });
+}
+
 export function getSession(sessionId, options: { limit?: number; before?: string } = {}) {
   const params = new URLSearchParams();
   if (options.limit) params.set("limit", String(options.limit));

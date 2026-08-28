@@ -99,6 +99,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("POST /api/workspaces/{workspaceID}/shell", s.shellCommand)
 	s.mux.HandleFunc("GET /api/sessions/{sessionID}", s.session)
 	s.mux.HandleFunc("GET /api/sessions/{sessionID}/context-usage", s.handleSessionContextUsage)
+	s.mux.HandleFunc("POST /api/sessions/{sessionID}/model", s.handleSessionSetModel)
 	s.mux.HandleFunc("PATCH /api/sessions/{sessionID}", s.renameSession)
 	s.mux.HandleFunc("DELETE /api/sessions/{sessionID}", s.deleteSession)
 	s.mux.HandleFunc("POST /api/sessions/{sessionID}/prompt", s.prompt)

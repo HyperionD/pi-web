@@ -6,6 +6,7 @@ import {
   logoutProvider,
   saveAPIKey,
   saveWorkspaceSettings,
+  setSessionModel,
 } from "../../lib/api";
 import {
   SETTINGS_FIELDS,
@@ -479,9 +480,29 @@ export const settingsMethods = {
       this.syncSettingsStateToApp();
       this.setSettingsStatus("saved");
       void this.loadRuntimeStatus?.(workspaceId);
+      if ("defaultProvider" in patch || "defaultModel" in patch) void this.applyEffectiveModelToActiveSession();
     } catch (error) {
       this.setSettingsStatus(error instanceof Error ? error.message : String(error), true);
       this.setConnection("err");
+    }
+  },
+
+  async applyEffectiveModelToActiveSession() {
+    const sessionId = this.dataset.activeSessionId;
+    if (!sessionId) return;
+    const effective = this.settingsState?.effective || {};
+    const provider = typeof effective.defaultProvider === "string" && effective.defaultProvider !== "inherit"
+      ? effective.defaultProvider
+      : "";
+    const model = typeof effective.defaultModel === "string" && effective.defaultModel !== "inherit"
+      ? effective.defaultModel
+      : "";
+    if (!provider || !model) return;
+    try {
+      await setSessionModel(sessionId, provider, model);
+      void this.loadRuntimeStatus?.();
+    } catch {
+      this.setSettingsStatus("模型已保存，但当前会话切换失败：模型不可用", true);
     }
   },
 

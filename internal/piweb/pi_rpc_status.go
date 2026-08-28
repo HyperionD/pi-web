@@ -48,6 +48,78 @@ func CurrentPiContextUsage(ctx context.Context, sessionFile string, cwd string) 
 	return usage, nil
 }
 
+func CurrentPiSetModel(ctx context.Context, sessionFile string, cwd string, provider string, modelID string) error {
+	if strings.TrimSpace(sessionFile) == "" {
+		return fmt.Errorf("session file is required")
+	}
+	if strings.TrimSpace(provider) == "" || strings.TrimSpace(modelID) == "" {
+		return fmt.Errorf("provider and model are required")
+	}
+	executable, err := exec.LookPath("pi")
+	if err != nil {
+		return fmt.Errorf("pi executable not found: %w", err)
+	}
+	commandJSON, err := json.Marshal(map[string]string{"id": "model", "type": "set_model", "provider": provider, "modelId": modelID})
+	if err != nil {
+		return err
+	}
+	queryCtx, cancel := context.WithTimeout(ctx, 12*time.Second)
+	defer cancel()
+	command := exec.CommandContext(queryCtx, executable, "--mode", "rpc", "--session", sessionFile, "--no-extensions")
+	if cwd != "" {
+		command.Dir = cwd
+	}
+	stdin, err := command.StdinPipe()
+	if err != nil {
+		return err
+	}
+	stdout, err := command.StdoutPipe()
+	if err != nil {
+		return err
+	}
+	if err := command.Start(); err != nil {
+		return err
+	}
+	_, writeErr := fmt.Fprintln(stdin, string(commandJSON))
+	closeErr := stdin.Close()
+	setErr := readSetModelResponse(stdout)
+	waitErr := command.Wait()
+	if err := firstPiRPCError(queryCtx, writeErr, closeErr, setErr, waitErr); err != nil {
+		return err
+	}
+	return nil
+}
+
+func readSetModelResponse(reader io.Reader) error {
+	scanner := bufio.NewScanner(reader)
+	for scanner.Scan() {
+		var response struct {
+			ID      string `json:"id"`
+			Type    string `json:"type"`
+			Command string `json:"command"`
+			Success bool   `json:"success"`
+			Error   string `json:"error"`
+		}
+		if err := json.Unmarshal([]byte(scanner.Text()), &response); err != nil {
+			continue
+		}
+		if response.ID != "model" || response.Type != "response" || response.Command != "set_model" {
+			continue
+		}
+		if !response.Success {
+			if response.Error == "" {
+				response.Error = "pi set_model failed"
+			}
+			return fmt.Errorf("%s", response.Error)
+		}
+		return nil
+	}
+	if err := scanner.Err(); err != nil {
+		return err
+	}
+	return fmt.Errorf("pi set_model returned no response")
+}
+
 func readContextUsageResponse(reader io.Reader) (*ContextUsage, error) {
 	scanner := bufio.NewScanner(reader)
 	for scanner.Scan() {

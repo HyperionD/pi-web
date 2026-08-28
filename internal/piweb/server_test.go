@@ -447,6 +447,17 @@ func TestSessionContextUsageEndpointUsesMockWhenPiDisabled(t *testing.T) {
 	}
 }
 
+func TestSessionSetModelEndpointRejectsWhenPiDisabled(t *testing.T) {
+	server := NewServer(Config{EnablePiExecution: false}, NewMockStore(), NewBroker())
+	req := httptest.NewRequest(http.MethodPost, "/api/sessions/8e7c-44ff/model",
+		strings.NewReader(`{"provider":"openai-codex","model":"gpt-5.6-luna"}`))
+	res := httptest.NewRecorder()
+	server.Handler().ServeHTTP(res, req)
+	if res.Code != http.StatusNotImplemented {
+		t.Fatalf("expected 501, got %d: %s", res.Code, res.Body.String())
+	}
+}
+
 func TestCreateSessionEndpoint(t *testing.T) {
 	t.Setenv("PI_CODING_AGENT_SESSION_DIR", t.TempDir())
 	store := NewMockStore()

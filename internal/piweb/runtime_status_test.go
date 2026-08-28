@@ -77,6 +77,39 @@ esac
 	}
 }
 
+func TestCurrentPiSetModelSendsCommandAndParsesResponse(t *testing.T) {
+	binDir := t.TempDir()
+	sessionFile := filepath.Join(t.TempDir(), "session.jsonl")
+	if err := os.WriteFile(sessionFile, []byte(`{"type":"session","id":"s1"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	script := `#!/bin/sh
+found_provider=0
+found_model=0
+previous=""
+for argument in "$@"; do
+  if [ "$previous" = "--session" ] && [ "$argument" = "$EXPECTED_SESSION" ]; then found_session=1; fi
+  previous="$argument"
+done
+[ "$found_session" = "1" ] || exit 3
+read command
+case "$command" in
+  *set_model*) echo '{"id":"model","type":"response","command":"set_model","success":true,"data":{"provider":"openai-codex","id":"gpt-5.6-luna"}}' ;;
+  *) exit 4 ;;
+esac
+`
+	piPath := filepath.Join(binDir, "pi")
+	if err := os.WriteFile(piPath, []byte(script), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	t.Setenv("EXPECTED_SESSION", sessionFile)
+
+	if err := CurrentPiSetModel(context.Background(), sessionFile, t.TempDir(), "openai-codex", "gpt-5.6-luna"); err != nil {
+		t.Fatalf("set model failed: %v", err)
+	}
+}
+
 func TestQuotaMappersReturnRemainingPercent(t *testing.T) {
 	primary := &quotaUsageWindow{UsedPercent: float64(16)}
 	if got := remainingFromWindow(primary); got == nil || *got != 84 {

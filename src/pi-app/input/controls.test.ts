@@ -923,4 +923,41 @@ describe("pi-app controls", () => {
     expect(globalThis.fetch).toHaveBeenCalledWith("http://backend.test/api/workspaces", expect.any(Object));
     expect(app.querySelector("[data-workspace-group='w1'] .label").textContent).toBe("demo");
   });
+
+  it("switches the active session model after saving model defaults", async () => {
+    globalThis.PI_WEB_API_BASE = "http://backend.test";
+    globalThis.fetch = vi.fn(async (url, options = {}) => {
+      const path = String(url);
+      if (path.endsWith("/models")) {
+        return { ok: true, json: async () => ({ providers: [{ id: "openai-codex", models: [{ id: "gpt-5.6-luna", provider: "openai-codex" }] }] }) };
+      }
+      if (path.endsWith("/settings") && options.method === "PUT") {
+        const body = JSON.parse(options.body);
+        return { ok: true, json: async () => ({ settings: { global: {}, project: body.settings, effective: { ...body.settings }, paths: {} } }) };
+      }
+      if (path.endsWith("/settings")) {
+        return { ok: true, json: async () => ({ settings: { global: {}, project: {}, effective: {}, paths: {} } }) };
+      }
+      if (path.endsWith("/auth/providers")) return { ok: true, json: async () => ({ providers: [] }) };
+      if (path.endsWith("/auth/oauth/providers")) return { ok: true, json: async () => ({ providers: [] }) };
+      return { ok: true, json: async () => ({ workspaces: [] }) };
+    });
+    const app = await connectPiApp();
+    app.apiConnected = true;
+    app.dataset.activeWorkspaceId = "w1";
+    app.dataset.activeSessionId = "s1";
+
+    await app.openSettingsModal();
+    const providerSelect = app.querySelector("[data-setting='defaultProvider']");
+    providerSelect.value = "openai-codex";
+    providerSelect.dispatchEvent(new Event("change"));
+    const modelSelect = app.querySelector("[data-setting='defaultModel']");
+    modelSelect.value = "gpt-5.6-luna";
+    modelSelect.dispatchEvent(new Event("change"));
+    await app.saveSettingsForm(new Event("submit"));
+
+    const modelCall = globalThis.fetch.mock.calls.find(([url, options]) => String(url).endsWith("/model") && options?.method === "POST");
+    expect(modelCall).toBeTruthy();
+    expect(JSON.parse(modelCall[1].body)).toEqual({ provider: "openai-codex", model: "gpt-5.6-luna" });
+  });
 });
