@@ -145,7 +145,18 @@ export const transcriptWindowMethods = {
     this.renderTranscriptWindow({ stickToBottom: true });
   },
 
+  clearStreamingTail() {
+    this.streamingTail?.replaceChildren();
+    this.streamingRows = {};
+    this.pendingStreamingRow = undefined;
+    if (this.streamingRenderFrame) {
+      window.cancelAnimationFrame?.(this.streamingRenderFrame);
+      this.streamingRenderFrame = undefined;
+    }
+  },
+
   resetTranscriptWindow() {
+    this.clearStreamingTail();
     this.cancelTranscriptScroll();
     this.destroyTranscriptVirtualScroller();
     this.transcriptItems = [];

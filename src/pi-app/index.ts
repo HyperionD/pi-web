@@ -54,6 +54,7 @@ class PiApp extends HTMLElement {
     this.slashPopover = this.querySelector(".slash-pop");
     this.settingsModal = this.querySelector("[data-settings-modal]");
     this.termInner = this.querySelector(".term-inner");
+    this.streamingTail = this.querySelector("[data-streaming-tail]");
     this.initTranscriptWindow();
     this.eventSource = null;
     this.apiConnected = false;
@@ -88,7 +89,7 @@ class PiApp extends HTMLElement {
     if (this.updateTipTimer) clearTimeout(this.updateTipTimer);
     if (this.connectionErrorTimer) clearTimeout(this.connectionErrorTimer);
     this.toastDismissObserver?.disconnect?.();
-    if (this.streamingRenderFrame) window.cancelAnimationFrame(this.streamingRenderFrame);
+    this.clearStreamingTail?.();
     if (this.scrollFrame) window.cancelAnimationFrame(this.scrollFrame);
     this.destroyTranscriptVirtualScroller?.();
     this.uninstallViewportSizing?.();
