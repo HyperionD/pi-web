@@ -32,8 +32,19 @@ describe("transcript scrolling styles", () => {
 
   it("keeps streaming tail in the same non-anchored content layer", () => {
     expect(terminalStyles).toContain(".streaming-tail");
-    expect(terminalStyles).toMatch(/\.streaming-tail[^}]*max-width:\s*960px/);
-    expect(terminalStyles).toMatch(/\.streaming-tail[^}]*overflow-anchor:\s*none/);
-    expect(terminalStyles).not.toMatch(/\.streaming-tail[^}]*overflow-y:\s*auto/);
+
+    const streamingTailRule =
+      terminalStyles.match(/(?:^|\n)\s*\.streaming-tail\s*\{([^}]*)\}/)?.[1] ?? "";
+    const declaration = (property: string, value: string) =>
+      new RegExp(`(?:^|;)\\s*${property}\\s*:\\s*${value}\\s*;?`);
+
+    expect(streamingTailRule).toMatch(declaration("position", "relative"));
+    expect(streamingTailRule).toMatch(declaration("z-index", "2"));
+    expect(streamingTailRule).toMatch(declaration("max-width", "960px"));
+    expect(streamingTailRule).toMatch(declaration("min-height", "0"));
+    expect(streamingTailRule).toMatch(declaration("overflow-anchor", "none"));
+    expect(streamingTailRule).not.toMatch(
+      /(?:^|;)\s*(?:overflow|overflow-x|overflow-y|scroll-behavior)\s*:/,
+    );
   });
 });
