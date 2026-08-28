@@ -178,7 +178,7 @@ describe("pi-app messages", () => {
     expect(button.textContent).toBe("copied");
   });
 
-  it("does not append new deltas to an old streaming row", async () => {
+  it("does not append new deltas to a finalized streaming tail row", async () => {
     const app = await connectPiApp();
     app.renderMessages([]);
     app.appendDelta({ kind: "pi", delta: "old" });
@@ -187,7 +187,7 @@ describe("pi-app messages", () => {
     app.appendDelta({ kind: "pi", delta: "new" });
     app.flushStreamingRender();
     const bodies = [...app.querySelectorAll(".msg[data-kind='pi'] .body")].map((node) => node.textContent);
-    expect(bodies).toEqual(["old", "new"]);
+    expect(bodies).toEqual(["new"]);
   });
 
   it("starts a new stream segment after tool cards", async () => {
@@ -197,8 +197,8 @@ describe("pi-app messages", () => {
     app.appendMessage({ kind: "tool", tool: "bash", status: "running" });
     app.appendDelta({ kind: "pi", delta: "after" });
     app.flushStreamingRender();
-    const bodies = [...app.querySelectorAll(".msg[data-kind='pi'] .body")].map((node) => node.textContent);
-    expect(bodies).toEqual(["before", "after"]);
+    const bodies = [...app.querySelectorAll(".streaming-tail .msg[data-kind='pi'] .body")].map((node) => node.textContent);
+    expect(bodies).toEqual(["after"]);
   });
 
   it("covers fallback defaults for images and detached choice lookup", async () => {
@@ -211,14 +211,14 @@ describe("pi-app messages", () => {
     app.termInner = term;
   });
 
-  it("finalizes uncached streaming rows", async () => {
+  it("clears uncached streaming rows from the tail", async () => {
     const app = await connectPiApp();
     app.renderMessages([]);
     const row = app.simpleMessage("pi streaming", "pi >", "stream");
     row.classList.add("streaming");
-    app.termInner.append(row);
+    app.appendStreamingNode(row);
     app.finalizeStreamingMessages();
-    expect(row.classList.contains("streaming")).toBe(false);
+    expect(app.streamingTail.contains(row)).toBe(false);
   });
 
   it("keeps loading visible through tool activity until assistant output arrives", async () => {

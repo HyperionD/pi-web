@@ -60,7 +60,7 @@ export const messageMethods = {
     if (message.kind === "pi" || message.kind === "think") this.finishRunningTools();
     if (message.kind === "pi") this.clearStreamingState("pi");
     if (message.kind === "tool") this.finalizeStreamingMessages();
-    for (const streamingRow of this.streamingRowsForKind(message.kind)) this.removeTranscriptNode(streamingRow);
+    for (const streamingRow of this.streamingRowsForKind(message.kind)) this.removeStreamingNode(streamingRow);
     this.appendTranscriptNode(this.messageNode(message), { stickToBottom: true });
     this.notifyPiMessageCommitted(message);
     if (message.kind === "user") this.disableAnsweredChoice(parseFallbackChoiceAnswer(message.text));
@@ -89,23 +89,13 @@ export const messageMethods = {
       if (!delta) return;
     }
     let messageRow = this.currentStreamingRow(kind);
-    let accumulatedText = "";
-    if (messageRow && !this.termInner?.contains(messageRow)) {
-      // The virtual scroller unmounted the streaming row (scroll window moved away).
-      // Rebuild it in place, carrying over the already streamed text.
-      accumulatedText = messageRow.dataset.streamText || "";
-      for (const stale of this.streamingRowsForKind(kind)) this.removeTranscriptNode(stale);
-      this.streamingRows = { ...(this.streamingRows || {}), [kind]: undefined };
-      messageRow = undefined;
-    }
     if (!messageRow) {
       messageRow = this.simpleMessage(`${kind} streaming`, kind === "think" ? "…" : "pi >", "");
       messageRow.classList.add("streaming");
       messageRow.dataset.kind = kind;
       this.streamingRows = { ...(this.streamingRows || {}), [kind]: messageRow };
       if (kind === "think") this.attachThinkingStream(messageRow);
-      if (accumulatedText) messageRow.dataset.streamText = accumulatedText;
-      this.appendTranscriptNode(messageRow, { stickToBottom: true });
+      this.appendStreamingNode(messageRow);
     }
     const body = messageRow.querySelector("[data-stream-text]") || messageRow.querySelector(".body");
     if (body && kind === "pi") {
@@ -114,14 +104,13 @@ export const messageMethods = {
       this.scheduleStreamingRender(messageRow);
     } else if (body) {
       body.textContent += delta;
-      this.notifyTranscriptNodeHeightDidChange(messageRow);
     }
     if (kind !== "pi") this.syncLoadingMessage();
     this.scrollTerm();
   },
 
   flushStreamingRender() {
-    if (this.streamingRenderFrame) {
+    if (this.streamingRenderFrame !== undefined) {
       window.cancelAnimationFrame(this.streamingRenderFrame);
       this.streamingRenderFrame = undefined;
     }
@@ -129,14 +118,13 @@ export const messageMethods = {
     const body = row?.querySelector("[data-stream-text]") || row?.querySelector(".body");
     if (body && row?.dataset.streamText !== undefined) {
       body.innerHTML = renderPiBody(row.dataset.streamText);
-      this.notifyTranscriptNodeHeightDidChange(row);
     }
     this.pendingStreamingRow = undefined;
   },
 
   scheduleStreamingRender(row) {
     this.pendingStreamingRow = row;
-    if (this.streamingRenderFrame) return;
+    if (this.streamingRenderFrame !== undefined) return;
     this.streamingRenderFrame = window.requestAnimationFrame(() => {
       this.streamingRenderFrame = undefined;
       this.flushStreamingRender();
@@ -151,13 +139,8 @@ export const messageMethods = {
     const rows = new Set();
     const selector = `.msg.streaming[data-kind='${kind}']`;
     const cached = this.streamingRows?.[kind];
-    if (cached?.matches?.(selector)) rows.add(cached);
-    this.termInner?.querySelectorAll(selector).forEach((row) => rows.add(row));
-    for (const item of this.transcriptItems || []) {
-      for (const node of item?.nodes || []) {
-        if (node?.matches?.(selector)) rows.add(node);
-      }
-    }
+    if (cached?.matches?.(selector) && this.streamingTail?.contains?.(cached)) rows.add(cached);
+    this.streamingTail?.querySelectorAll(selector).forEach((row) => rows.add(row));
     return [...rows];
   },
 
@@ -165,42 +148,22 @@ export const messageMethods = {
     if (!this.termInner) return;
     const message = { kind: "pi", text };
     this.removeWelcomeBanner();
-    const streamingRows = this.streamingRowsForKind("pi");
-    if (this.isDuplicateMessage(message)) {
-      this.removeLoadingMessage();
-      this.clearStreamingState("pi");
-      for (const row of streamingRows) this.removeTranscriptNode(row);
-      return;
-    }
+    this.flushStreamingRender();
+    const isDuplicate = this.isDuplicateMessage(message);
     this.removeLoadingMessage();
     this.finishRunningTools();
-    this.clearStreamingState("pi");
-    const liveRow = streamingRows.find((row) => this.termInner?.contains(row));
-    if (liveRow) {
-      this.finalizeStreamingRow(liveRow, text);
-      for (const row of streamingRows.filter((row) => row !== liveRow)) this.removeTranscriptNode(row);
-    } else {
-      const finalNode = this.messageNode(message);
-      const replaced = streamingRows[0] && this.replaceTranscriptNode(streamingRows[0], finalNode);
-      for (const row of streamingRows.slice(replaced ? 1 : 0)) this.removeTranscriptNode(row);
-      if (!replaced) this.appendTranscriptNode(finalNode, { stickToBottom: true });
+    for (const row of this.streamingRowsForKind("pi")) this.removeStreamingNode(row);
+    if (isDuplicate) {
+      this.clearStreamingState("pi");
+      this.syncLoadingMessage();
+      this.scrollTerm();
+      return;
     }
+    this.appendTranscriptNode(this.messageNode(message), { stickToBottom: true });
+    this.clearStreamingState("pi");
     this.notifyPiMessageCommitted(message);
     this.syncLoadingMessage();
     this.scrollTerm();
-  },
-
-  finalizeStreamingRow(row, text) {
-    const choices = parseFallbackChoices(text);
-    row.classList.remove("streaming");
-    delete row.dataset.streamText;
-    row.dataset.rawText = text;
-    const body = row.querySelector(".body");
-    if (body) {
-      body.classList.add("markdown-body");
-      body.innerHTML = renderPiBody(choices.length ? stripFallbackChoices(text) : text);
-      this.notifyTranscriptNodeHeightDidChange(row);
-    }
   },
 
   clearStreamingState(kind) {
@@ -233,7 +196,8 @@ export const messageMethods = {
     row.querySelector(".body").innerHTML = `${TERMINAL_SPINNER_HTML}<span>waiting for response…</span>`;
     row.classList.add("loading");
     row.dataset.kind = "loading";
-    this.appendTranscriptNode(row, { stickToBottom: true });
+    this.loadingMessage = row;
+    this.appendStreamingNode(row);
     this.scrollTerm();
   },
 
@@ -242,24 +206,16 @@ export const messageMethods = {
   },
 
   loadingMessageNodes() {
-    const nodes = new Set(this.termInner?.querySelectorAll(".msg.loading") || []);
-    for (const item of this.transcriptItems || []) {
-      for (const node of item?.nodes || []) {
-        if (node?.matches?.(".msg.loading")) nodes.add(node);
-      }
-    }
+    const nodes = new Set(this.streamingTail?.querySelectorAll(".msg.loading") || []);
+    const cached = this.loadingMessage;
+    if (cached?.matches?.(".msg.loading") && this.streamingTail?.contains?.(cached)) nodes.add(cached);
     return [...nodes];
   },
 
   removeLoadingMessage() {
     const loadingNodes = this.loadingMessageNodes();
-    if (!loadingNodes.length) return;
-    const loadingSet = new Set(loadingNodes);
-    this.transcriptItems = (this.transcriptItems || []).filter(
-      (item) => !(item?.nodes || []).some((node) => loadingSet.has(node)),
-    );
     loadingNodes.forEach((loading) => loading.remove?.());
-    if (!this.deferTranscriptRender) this.renderTranscriptWindow({ stickToBottom: false });
+    this.loadingMessage = undefined;
   },
 
   syncLoadingMessage() {
@@ -278,19 +234,26 @@ export const messageMethods = {
     const last = this.termInner?.lastElementChild?.matches?.(".transcript-item")
       ? this.termInner.lastElementChild.lastElementChild
       : this.termInner?.lastElementChild;
-    return !!last?.matches?.([
+    const historyActive = last?.matches?.([
       ".msg.streaming[data-kind='pi']",
       ".msg[data-kind='pi']",
       ".fallback-choice-list",
     ].join(", "));
+    const tailActive = this.streamingTail?.querySelector?.([
+      ".msg.streaming[data-kind='pi']",
+      ".fallback-choice-list",
+    ].join(", "));
+    return !!(historyActive || tailActive);
   },
 
   finalizeStreamingMessages() {
     this.flushStreamingRender();
     this.piDeltaBuffer = "";
-    Object.values(this.streamingRows || {}).forEach((row: Element) => row?.classList?.remove("streaming"));
+    const streamingRows = new Set(Object.values(this.streamingRows || {}));
+    this.streamingTail?.querySelectorAll(".msg.streaming").forEach((row) => streamingRows.add(row));
+    streamingRows.forEach((row) => this.removeStreamingNode(row));
     this.streamingRows = {};
-    this.termInner?.querySelectorAll(".msg.streaming").forEach((row) => row.classList.remove("streaming"));
+    this.pendingStreamingRow = undefined;
   },
 
   finishRunningTools({ status = "ok", resultMeta = "done" } = {}) {

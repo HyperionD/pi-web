@@ -154,6 +154,7 @@ export const transcriptWindowMethods = {
       window.cancelAnimationFrame?.(this.streamingRenderFrame);
       this.streamingRenderFrame = undefined;
     }
+    this.loadingMessage = undefined;
   },
 
   resetTranscriptWindow() {
@@ -197,6 +198,22 @@ export const transcriptWindowMethods = {
       this.createTranscriptItem(undefined, { nodes }),
     ];
     if (!this.deferTranscriptRender) this.renderTranscriptWindow({ stickToBottom });
+  },
+
+  appendStreamingNode(node) {
+    const nodes = this.transcriptElementNodes(node);
+    if (!nodes.length || !this.streamingTail) return;
+    this.streamingTail.append(...nodes);
+  },
+
+  removeStreamingNode(node) {
+    if (!node) return;
+    node.remove?.();
+    if (this.streamingRows) {
+      for (const [kind, row] of Object.entries(this.streamingRows)) {
+        if (row === node) this.streamingRows = { ...this.streamingRows, [kind]: undefined };
+      }
+    }
   },
 
   removeTranscriptNode(node) {
