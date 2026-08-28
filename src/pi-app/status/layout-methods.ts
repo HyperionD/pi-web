@@ -36,25 +36,19 @@ export const layoutMethods = {
   },
 
   toggleTree(forceOpen) {
-    const body = this.querySelector(".app-body");
     const tree = this.querySelector(".tree");
     const treeEnabled = forceOpen ?? this.dataset.tree !== "on";
     this.dataset.tree = treeEnabled ? "on" : "off";
-    body?.classList.toggle("with-tree", treeEnabled);
-    body?.classList.toggle("tree-open", treeEnabled);
     this.querySelector('[data-action="toggle-tree"]')?.classList.toggle("on", treeEnabled);
     tree?.toggleAttribute("hidden", !treeEnabled);
-    this.applyGrid();
   },
 
-  closeTreeFromOutside(event) {
-    if (this.dataset.tree !== "on") return;
-    const selector = ".tree, [data-action='toggle-tree']";
-    const path = event.composedPath?.() || [];
-    if (path.some((node) => node?.matches?.(selector))) return;
-    const target = event.target;
-    if (target?.closest?.(selector)) return;
-    this.toggleTree(false);
+  toggleFilePreviewPanel(forceOpen) {
+    const panel = this.querySelector("[data-file-preview]");
+    const previewEnabled = forceOpen ?? this.dataset.preview !== "on";
+    this.dataset.preview = previewEnabled ? "on" : "off";
+    panel?.toggleAttribute("hidden", !previewEnabled);
+    this.applyGrid();
   },
 
   toggleDrawer(forceOpen) {
@@ -89,11 +83,11 @@ export const layoutMethods = {
   applyGrid(width = Number(this.dataset.sidebarWidth || 280)) {
     const body = this.querySelector(".app-body");
     if (!body) return;
-    const tree = this.dataset.tree === "on";
+    const preview = this.dataset.preview === "on";
     const collapsed = this.dataset.sidebar === "collapsed";
-    const treeWidth = 320;
-    const expandedColumns = tree ? `${width}px 1fr ${treeWidth}px` : `${width}px 1fr`;
-    const collapsedColumns = tree ? `1fr ${treeWidth}px` : "1fr";
+    const previewWidth = 420;
+    const expandedColumns = preview ? `${width}px 1fr ${previewWidth}px` : `${width}px 1fr`;
+    const collapsedColumns = preview ? `1fr ${previewWidth}px` : "1fr";
     body.style.gridTemplateColumns = collapsed ? collapsedColumns : expandedColumns;
   },
 

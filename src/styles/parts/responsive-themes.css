@@ -1,7 +1,6 @@
 
 @media (max-width: 880px) {
   .app-body { grid-template-columns: 1fr !important; }
-  .app-body.with-tree { grid-template-columns: 1fr !important; }
   .main, .prompt-region { grid-column: 1 !important; }
   .sb-resizer,
   .sb-collapse { display: none; }
@@ -18,18 +17,6 @@
   }
   .app-body.drawer-open .sidebar { transform: translateX(0); }
   .app-body.drawer-open .scrim { display: block; }
-  .tree {
-    position: absolute;
-    right: 0; top: 0; bottom: 0;
-    width: 100vw;
-    max-width: 100vw;
-    transform: translateX(100%);
-    transition: transform var(--dur-base) var(--ease-out);
-    z-index: var(--z-drawer);
-    box-shadow: var(--shadow-drawer);
-  }
-  .app-body.tree-open .tree { transform: translateX(0); }
-  .app-body.tree-open .scrim { display: block; }
   .topbar .hamburger { display: inline-flex; }
   .topbar .brand { display: none; }
   .tree-title { display: none; }

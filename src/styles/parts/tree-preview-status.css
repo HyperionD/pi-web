@@ -180,15 +180,14 @@ pre.ascii-banner .dim { color: var(--fg-3); }
 
 .tree {
   background: var(--bg-2);
-  border-left: 1px solid var(--border);
   display: flex;
+  flex: 0 1 42%;
   flex-direction: column;
-  min-height: 0;
+  min-height: 240px;
   font-size: var(--text-sm);
-  grid-column: 3;
-  grid-row: 1 / 3;
+  border-top: 1px solid var(--border);
 }
-.app[data-sidebar="collapsed"] .tree { grid-column: 2; }
+.sidebar > .tree[hidden] { display: none; }
 .tree-head {
   padding: var(--space-3);
   border-bottom: 1px solid var(--border-dim);
@@ -419,27 +418,23 @@ pre.ascii-banner .dim { color: var(--fg-3); }
 .tree-node.deleted .tree-status-badge { color: var(--danger); }
 .tree-node.dirty .tree-status-badge { color: var(--warn); }
 
-.file-preview-modal {
-  position: fixed;
-  inset: 0;
-  z-index: 100;
-  display: grid;
-  place-items: center;
-  padding: var(--space-5);
-  background: rgba(0,0,0,0.62);
-}
-.file-preview-modal .fp-dialog {
-  width: min(960px, 94vw);
-  height: min(720px, 86vh);
-  border: 1px solid var(--border-hi);
-  border-radius: var(--radius-2);
+.file-preview-panel {
+  grid-column: 3;
+  grid-row: 1 / 3;
+  min-width: 0;
+  min-height: 0;
   background: var(--bg-1);
-  box-shadow: var(--shadow-drawer);
+  border-left: 1px solid var(--border);
+}
+.file-preview-panel .fp-dialog {
+  width: 100%;
+  height: 100%;
+  background: var(--bg-1);
   display: flex;
   flex-direction: column;
   overflow: hidden;
 }
-.file-preview-modal .fp-head {
+.file-preview-panel .fp-head {
   flex-shrink: 0;
   display: flex;
   align-items: center;
@@ -449,7 +444,7 @@ pre.ascii-banner .dim { color: var(--fg-3); }
   border-bottom: 1px solid var(--border-dim);
   background: var(--bg-2);
 }
-.file-preview-modal .fp-path {
+.file-preview-panel .fp-path {
   color: var(--fg-0);
   font-size: var(--text-sm);
   overflow: hidden;
@@ -457,9 +452,9 @@ pre.ascii-banner .dim { color: var(--fg-3); }
   white-space: nowrap;
   display: block;
 }
-.file-preview-modal small { color: var(--fg-3); font-size: 10px; }
-.file-preview-modal .fp-actions { display: flex; gap: var(--space-2); }
-.file-preview-modal button {
+.file-preview-panel small { color: var(--fg-3); font-size: 10px; }
+.file-preview-panel .fp-actions { display: flex; gap: var(--space-2); }
+.file-preview-panel button {
   border: 1px solid var(--border);
   border-radius: var(--radius-1);
   background: var(--bg-1);

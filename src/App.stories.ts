@@ -10,7 +10,7 @@ const meta = {
   args: {
     initialRoute: "workspace",
     initialSession: "active",
-    treeOpen: false,
+    treeOpen: true,
     sidebarCollapsed: false,
     showCompaction: false,
     showDisconnect: false,

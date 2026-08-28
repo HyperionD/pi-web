@@ -31,6 +31,7 @@ export const filePreviewMethods = {
     if (!preview || !body) return;
     this.destroyFilePreviewEditor?.();
     preview.hidden = false;
+    this.toggleFilePreviewPanel?.(true);
     this.filePreview = {
       workspaceId: this.dataset.activeWorkspaceId,
       file,
@@ -74,6 +75,7 @@ export const filePreviewMethods = {
     if (!this.confirmCleanFilePreview?.()) return;
     this.destroyFilePreviewEditor?.();
     this.filePreview = undefined;
+    this.toggleFilePreviewPanel?.(false);
     this.querySelector("[data-file-preview]")?.setAttribute("hidden", "");
   },
 

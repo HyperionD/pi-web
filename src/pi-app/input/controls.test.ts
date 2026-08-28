@@ -833,7 +833,7 @@ describe("pi-app controls", () => {
     expect(app.querySelector('[data-view="workspace"]').hidden).toBe(false);
   });
 
-  it("closes the file tree when clicking outside it", async () => {
+  it("keeps the file tree visible when clicking outside it", async () => {
     const app = await connectPiApp();
     const body = app.querySelector(".app-body");
     const tree = app.querySelector(".tree");
@@ -844,9 +844,8 @@ describe("pi-app controls", () => {
     expect(app.dataset.tree).toBe("on");
 
     main.click();
-    expect(app.dataset.tree).toBe("off");
-    expect(body.classList.contains("tree-open")).toBe(false);
-    expect(tree.hidden).toBe(true);
+    expect(app.dataset.tree).toBe("on");
+    expect(tree.hidden).toBe(false);
   });
 
   it("keeps the file tree open when an inside click removes its target", async () => {
@@ -862,6 +861,28 @@ describe("pi-app controls", () => {
 
     expect(app.dataset.tree).toBe("on");
     expect(tree.hidden).toBe(false);
+  });
+
+  it("keeps the file tree in the sidebar and opens file content on the right", async () => {
+    const app = await connectPiApp();
+    const body = app.querySelector(".app-body");
+    const tree = app.querySelector(".tree");
+    const preview = app.querySelector("[data-file-preview]");
+
+    expect(tree.closest(".sidebar")).not.toBeNull();
+    expect(preview.hidden).toBe(true);
+    expect(app.dataset.tree).toBe("on");
+    expect(body.style.gridTemplateColumns).toBe("280px 1fr");
+
+    app.renderFilePreview({ path: "README.md", previewKind: "loading" });
+    expect(preview.hidden).toBe(false);
+    expect(app.dataset.preview).toBe("on");
+    expect(body.style.gridTemplateColumns).toBe("280px 1fr 420px");
+
+    app.closeFilePreview();
+    expect(preview.hidden).toBe(true);
+    expect(app.dataset.preview).toBe("off");
+    expect(body.style.gridTemplateColumns).toBe("280px 1fr");
   });
 
   it("refreshes workspaces from the sidebar refresh button", async () => {

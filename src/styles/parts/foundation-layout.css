@@ -204,8 +204,6 @@ button.tc-head {
   min-height: 0;
   position: relative;
 }
-.app-body.with-tree { grid-template-columns: 280px 1fr 320px; }
-
 .sidebar-wrap {
   position: relative;
   min-width: 0;

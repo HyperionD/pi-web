@@ -26,7 +26,7 @@ export function installPiAppFixture() {
         aria-expanded="false"
       >≡</button>
       <section data-view="picker" hidden></section>
-      <section class="app-body with-tree" data-view="workspace">
+      <section class="app-body" data-view="workspace">
         <div class="sidebar-wrap">
           <aside class="sidebar">
             <div class="sb-section">
@@ -44,7 +44,7 @@ export function installPiAppFixture() {
                 </span>
               </div>
             </div>
-          </aside>
+          <aside class="tree"></aside>
           <div class="sb-footer">
             <button class="update-release" type="button" data-action="show-update-tip" hidden>
               New Version Released!
@@ -52,9 +52,15 @@ export function installPiAppFixture() {
             <span class="update-tip" data-update-tip hidden>Run <code>pi-web update</code>, then restart pi-web.</span>
             <div class="sb-footer-status"><span class="status-dot"></span><span>connecting</span></div>
           </div>
+          </aside>
         </div>
         <main data-main="session"><div class="term"><div class="term-inner"></div></div></main>
-        <aside class="tree"></aside>
+        <div class="file-preview-panel" data-file-preview hidden>
+          <div class="fp-dialog">
+            <div class="fp-head"><strong class="fp-path">file</strong><small></small><div class="fp-actions"><button type="button" data-action="save-file-preview" hidden>save</button><button type="button" data-action="toggle-file-preview-mode" hidden>text</button><button type="button" data-action="close-file-preview">×</button></div></div>
+            <div class="fp-body"></div>
+          </div>
+        </div>
         <div class="scrim" data-action="close-drawer"></div>
       </section>
       <button class="sb-expand-btn"></button>

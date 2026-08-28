@@ -14,7 +14,7 @@ vi.mock("../../lib/api", async () => {
 function mountPreview() {
   document.body.innerHTML = `
     <pi-app data-active-workspace-id="workspace-1">
-      <div class="file-preview-modal" data-file-preview hidden>
+      <div class="file-preview-panel" data-file-preview hidden>
         <div class="fp-dialog">
           <div class="fp-head">
             <div><strong class="fp-path">file</strong><small></small></div>

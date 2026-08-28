@@ -32,7 +32,7 @@ import {
 const {
   initialRoute = "workspace",
   initialSession = "active",
-  treeOpen = false,
+  treeOpen = true,
   sidebarCollapsed = false,
   showCompaction = false,
   showDisconnect = false,
@@ -55,8 +55,8 @@ const workspaceVisible = initialRoute !== "picker";
 const pickerVisible = initialRoute === "picker";
 const emptyVisible = initialSession === "empty";
 const sessionVisible = !emptyVisible;
-const bodyClass = ["app-body", treeOpen && "with-tree", treeOpen && "tree-open"].filter(Boolean).join(" ");
-const bodyGrid = sidebarCollapsed ? (treeOpen ? "1fr 320px" : "1fr") : (treeOpen ? "280px 1fr 320px" : "280px 1fr");
+const bodyClass = "app-body";
+const bodyGrid = sidebarCollapsed ? "1fr" : "280px 1fr";
 const pickerHidden = !pickerVisible;
 const workspaceHidden = !workspaceVisible;
 const sessionHidden = !sessionVisible;
@@ -222,6 +222,13 @@ function speechLanguageListId(path) {
             );
           })}
         </div>
+        <aside class="tree" aria-label="workspace details" hidden={treeHidden}>
+          <div class="tree-head"><span class="tree-title">workspace</span><span class="tree-tabs"><button class="tree-tab on" type="button" data-action="show-file-tree"><Folder size={12} strokeWidth={1.75} aria-hidden="true" /> files</button><button class="tree-tab" type="button" data-action="show-git-history"><GitBranch size={12} strokeWidth={1.75} aria-hidden="true" /> git</button></span><span class="tree-head-actions"><span class="branch" data-git-status>—</span><button type="button" data-action="tree-root-menu" aria-label="file tree actions" title="file tree actions"><Plus size={12} strokeWidth={1.75} aria-hidden="true" /></button><button type="button" data-action="refresh-tree" aria-label="refresh workspace explorer" title="refresh workspace explorer"><RefreshCw size={12} strokeWidth={1.75} aria-hidden="true" /></button></span></div>
+          <div class="tree-list">
+            <WorkspaceFileTree client:load initialFiles={fileTree} />
+          </div>
+          <div class="git-panel" data-git-panel hidden></div>
+        </aside>
         <div class="sb-footer">
           <button class="update-release" type="button" data-action="show-update-tip" hidden={!showUpdateRelease}>New Version Released!</button>
           <span class="update-tip" data-update-tip hidden={!showUpdateTip}>Run <code>pi-web update</code>, then restart pi-web.</span>
@@ -267,15 +274,8 @@ function speechLanguageListId(path) {
       <div class="empty-shell"><div class="empty-inner"><div class="empty-title">new session in <span class="accent" data-empty-workspace>{activeWorkspaceName}</span></div><div class="empty-sub">pi is idle. say the first thing.</div><div class="empty-tips"><div class="dim">session id will be assigned on first send.</div></div></div></div>
     </main>
 
-    <aside class="tree" aria-label="workspace details" hidden={treeHidden}> 
-      <div class="tree-head"><span class="tree-title">workspace</span><span class="tree-tabs"><button class="tree-tab on" type="button" data-action="show-file-tree"><Folder size={12} strokeWidth={1.75} aria-hidden="true" /> files</button><button class="tree-tab" type="button" data-action="show-git-history"><GitBranch size={12} strokeWidth={1.75} aria-hidden="true" /> git</button></span><span class="tree-head-actions"><span class="branch" data-git-status>—</span><button type="button" data-action="tree-root-menu" aria-label="file tree actions" title="file tree actions"><Plus size={12} strokeWidth={1.75} aria-hidden="true" /></button><button type="button" data-action="refresh-tree" aria-label="refresh workspace explorer" title="refresh workspace explorer"><RefreshCw size={12} strokeWidth={1.75} aria-hidden="true" /></button></span></div>
-      <div class="tree-list">
-        <WorkspaceFileTree client:load initialFiles={fileTree} />
-      </div>
-      <div class="git-panel" data-git-panel hidden></div>
-    </aside>
-    <div class="file-preview-modal" data-file-preview hidden>
-      <div class="fp-dialog" role="dialog" aria-modal="true" aria-labelledby="file-preview-title">
+    <div class="file-preview-panel" data-file-preview hidden>
+      <div class="fp-dialog" role="region" aria-labelledby="file-preview-title">
         <div class="fp-head">
           <div><strong id="file-preview-title" class="fp-path">file</strong><small></small></div>
           <div class="fp-actions"><button type="button" data-action="save-file-preview" hidden>save</button><button type="button" data-action="toggle-file-preview-mode" hidden>text</button><button type="button" data-action="close-file-preview" aria-label="close file preview"><X size={14} strokeWidth={1.75} aria-hidden="true" /></button></div>
