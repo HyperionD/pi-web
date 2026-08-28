@@ -89,12 +89,22 @@ export const messageMethods = {
       if (!delta) return;
     }
     let messageRow = this.currentStreamingRow(kind);
+    let accumulatedText = "";
+    if (messageRow && !this.termInner?.contains(messageRow)) {
+      // The virtual scroller unmounted the streaming row (scroll window moved away).
+      // Rebuild it in place, carrying over the already streamed text.
+      accumulatedText = messageRow.dataset.streamText || "";
+      for (const stale of this.streamingRowsForKind(kind)) this.removeTranscriptNode(stale);
+      this.streamingRows = { ...(this.streamingRows || {}), [kind]: undefined };
+      messageRow = undefined;
+    }
     if (!messageRow) {
       messageRow = this.simpleMessage(`${kind} streaming`, kind === "think" ? "…" : "pi >", "");
       messageRow.classList.add("streaming");
       messageRow.dataset.kind = kind;
       this.streamingRows = { ...(this.streamingRows || {}), [kind]: messageRow };
       if (kind === "think") this.attachThinkingStream(messageRow);
+      if (accumulatedText) messageRow.dataset.streamText = accumulatedText;
       this.appendTranscriptNode(messageRow, { stickToBottom: true });
     }
     const body = messageRow.querySelector("[data-stream-text]") || messageRow.querySelector(".body");

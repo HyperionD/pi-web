@@ -430,4 +430,51 @@ describe("pi-app messages", () => {
     expect(app.transcriptItems.some((item) => item.nodes?.some((node) => node.matches?.(".msg.loading")))).toBe(false);
     expect(app.querySelector(".msg.loading")).toBeNull();
   });
+
+  it("recreates a streamed row that the virtual scroller unmounted", async () => {
+    const frames = [];
+    vi.spyOn(window, "requestAnimationFrame").mockImplementation((callback) => {
+      frames.push(callback);
+      return frames.length;
+    });
+    const app = await connectPiApp();
+    app.renderMessages([]);
+    app.appendDelta({ kind: "pi", delta: "part1" });
+    frames.splice(0).forEach((callback) => callback(0));
+    const firstRow = app.querySelector(".msg.streaming");
+    expect(firstRow).not.toBeNull();
+
+    // virtual scroller unmounts the streaming row (scroll window moved away)
+    firstRow.remove();
+
+    app.appendDelta({ kind: "pi", delta: " part2" });
+    frames.splice(0).forEach((callback) => callback(0));
+    const rows = app.querySelectorAll(".msg.streaming");
+    expect(rows).toHaveLength(1);
+    const row = app.querySelector(".msg.streaming");
+    expect(row).not.toBeNull();
+    expect(row.dataset.streamText).toContain("part1");
+    expect(row.dataset.streamText).toContain("part2");
+    expect(app.querySelector(".term-inner").textContent).toContain("part2");
+  });
+
+  it("keeps following the bottom when the virtual scroller scrolls programmatically", async () => {
+    const app = await connectPiApp();
+    app.renderMessages([]);
+    app.transcriptFollowBottom = true;
+    Object.defineProperty(app.term, "scrollHeight", { configurable: true, get: () => 1000 });
+    Object.defineProperty(app.term, "clientHeight", { configurable: true, get: () => 100 });
+    Object.defineProperty(app.term, "scrollTop", { configurable: true, get: () => 500, set: () => {} });
+
+    // programmatic scroll (virtual scroller layout correction) must not break follow-bottom
+    app.term.dispatchEvent(new Event("scroll"));
+    expect(app.transcriptFollowBottom).toBe(true);
+    expect(app.shouldStickToBottom()).toBe(true);
+
+    // a user wheel gesture moving away from the bottom should stop follow-bottom
+    app.term.dispatchEvent(new WheelEvent("wheel", { deltaY: 100 }));
+    app.term.dispatchEvent(new Event("scroll"));
+    expect(app.shouldStickToBottom()).toBe(false);
+    expect(app.transcriptFollowBottom).toBe(false);
+  });
 });

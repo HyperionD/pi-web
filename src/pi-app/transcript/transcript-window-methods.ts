@@ -63,8 +63,12 @@ export const transcriptWindowMethods = {
   installTranscriptScrollGuard() {
     if (this.transcriptScrollGuardInstalled) return;
     this.transcriptScrollGuardInstalled = true;
+    this.userScrolledAway = false;
+    this.term?.addEventListener("wheel", () => { this.userGestureScroll = true; }, { passive: true });
+    this.term?.addEventListener("touchstart", () => { this.userGestureScroll = true; }, { passive: true });
+    this.term?.addEventListener("pointerdown", () => { this.userGestureScroll = true; });
     this.scrollTerm = ({ force = false } = {}) => {
-      if (!force && this.transcriptFollowBottom === false) return;
+      if (!force && this.userScrolledAway) return;
       if (this.scrollFrame) {
         if (!force) return;
         window.cancelAnimationFrame?.(this.scrollFrame);
@@ -92,7 +96,12 @@ export const transcriptWindowMethods = {
   },
 
   handleTranscriptScroll() {
-    this.transcriptFollowBottom = this.isTermPinnedToBottom();
+    const userDriven = this.userGestureScroll === true;
+    this.userGestureScroll = false;
+    if (userDriven) {
+      this.transcriptFollowBottom = this.isTermPinnedToBottom();
+      this.userScrolledAway = !this.transcriptFollowBottom;
+    }
     this.updateTranscriptScrollButton();
     if (this.shouldLoadOlderTranscriptMessages()) void this.loadOlderSessionMessages?.();
   },
@@ -130,6 +139,8 @@ export const transcriptWindowMethods = {
     this.transcriptVisibleStart = 0;
     this.transcriptVisibleEnd = 0;
     this.transcriptFollowBottom = true;
+    this.userScrolledAway = false;
+    this.userGestureScroll = false;
     this.answeredChoiceIds = new Set();
     this.updateTranscriptScrollButton();
   },
@@ -205,7 +216,7 @@ export const transcriptWindowMethods = {
   },
 
   shouldStickToBottom() {
-    return this.transcriptFollowBottom !== false && this.isTermPinnedToBottom();
+    return !this.userScrolledAway && this.transcriptFollowBottom !== false;
   },
 
   renderVirtualTranscriptItem(item) {

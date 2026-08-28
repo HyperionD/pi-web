@@ -377,6 +377,7 @@ describe("pi-app transcript window", () => {
     frames.splice(0).forEach((callback) => callback(0));
 
     app.term.scrollTop = 100;
+    app.userGestureScroll = true;
     app.handleTranscriptScroll();
     app.scrollTerm();
     frames.splice(0).forEach((callback) => callback(0));
