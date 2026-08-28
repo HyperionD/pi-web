@@ -29,4 +29,11 @@ describe("transcript scrolling styles", () => {
     expect(styles.scrollBehavior).toBe("auto");
     expect(styles.overflowAnchor).toBe("none");
   });
+
+  it("keeps streaming tail in the same non-anchored content layer", () => {
+    expect(terminalStyles).toContain(".streaming-tail");
+    expect(terminalStyles).toMatch(/\.streaming-tail[^}]*max-width:\s*960px/);
+    expect(terminalStyles).toMatch(/\.streaming-tail[^}]*overflow-anchor:\s*none/);
+    expect(terminalStyles).not.toMatch(/\.streaming-tail[^}]*overflow-y:\s*auto/);
+  });
 });

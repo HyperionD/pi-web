@@ -127,6 +127,13 @@
 }
 
 .term-inner { position: relative; z-index: 2; max-width: 960px; min-height: 100%; overflow-anchor: none; }
+.streaming-tail {
+  position: relative;
+  z-index: 2;
+  max-width: 960px;
+  min-height: 0;
+  overflow-anchor: none;
+}
 .transcript-item { display: flow-root; overflow-anchor: none; }
 .transcript-spacer { width: 100%; flex: 0 0 auto; }
 .scroll-bottom-btn {
