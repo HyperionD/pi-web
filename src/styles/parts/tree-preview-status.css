@@ -194,14 +194,13 @@ pre.ascii-banner .dim { color: var(--fg-3); }
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: var(--space-2);
   color: var(--fg-3);
   font-size: var(--text-xs);
   letter-spacing: var(--tracking-wide);
   text-transform: uppercase;
   user-select: none;
 }
-.tree-head .branch { color: var(--accent); text-transform: none; letter-spacing: 0; font-size: var(--text-xs); }
-.tree-title { color: var(--fg-3); }
 .tree-tabs,
 .tree-head-actions { display: inline-flex; align-items: center; gap: var(--space-2); }
 .tree-head button {

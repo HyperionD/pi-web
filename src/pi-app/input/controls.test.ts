@@ -848,6 +848,13 @@ describe("pi-app controls", () => {
     expect(tree.hidden).toBe(false);
   });
 
+  it("keeps workspace and branch details out of the file tree header", async () => {
+    const app = await connectPiApp();
+
+    expect(app.querySelector(".tree-title")).toBeNull();
+    expect(app.querySelector(".tree-head [data-git-status]")).toBeNull();
+  });
+
   it("keeps the file tree open when an inside click removes its target", async () => {
     const app = await connectPiApp();
     const tree = app.querySelector(".tree");

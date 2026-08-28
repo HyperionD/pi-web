@@ -19,7 +19,6 @@
   .app-body.drawer-open .scrim { display: block; }
   .topbar .hamburger { display: inline-flex; }
   .topbar .brand { display: none; }
-  .tree-title { display: none; }
   .prompt-region { padding-bottom: max(env(safe-area-inset-bottom), 10px); }
   .topbar .hamburger,
   .topbar .iconbtn,

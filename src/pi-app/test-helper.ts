@@ -44,7 +44,12 @@ export function installPiAppFixture() {
                 </span>
               </div>
             </div>
-          <aside class="tree"></aside>
+          <aside class="tree">
+            <div class="tree-head">
+              <span class="tree-tabs"><button class="tree-tab on" type="button" data-action="show-file-tree">files</button><button class="tree-tab" type="button" data-action="show-git-history">git</button></span>
+              <span class="tree-head-actions"><button type="button" data-action="tree-root-menu">+</button><button type="button" data-action="refresh-tree">↻</button></span>
+            </div>
+          </aside>
           <div class="sb-footer">
             <button class="update-release" type="button" data-action="show-update-tip" hidden>
               New Version Released!
