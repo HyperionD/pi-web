@@ -11,7 +11,6 @@ import {
   Menu,
   Mic,
   Paperclip,
-  Play,
   Plus,
   RefreshCw,
   SendHorizontal,
@@ -244,11 +243,6 @@ function speechLanguageListId(path) {
 
     <main class="main" data-main="session" hidden={sessionHidden}> 
       {showDisconnect && <div class="disconn"><span class="pulse"></span><span>disconnected · retrying in 2s</span></div>}
-      <form class="shell-row" data-shell-form>
-        <span class="shell-prefix">$</span>
-        <input name="command" placeholder="run shell command in workspace" autocomplete="off" />
-        <button type="submit" aria-label="run shell command" title="run shell command"><Play size={14} strokeWidth={2} aria-hidden="true" /></button>
-      </form>
       <div class:list={["term", scanlines && "scanlines"]}>
         <div class="term-inner">
           {conversation.length === 0 ? (
