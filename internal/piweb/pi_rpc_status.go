@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -13,7 +14,7 @@ import (
 	"time"
 )
 
-func CurrentPiContextUsage(ctx context.Context, sessionFile string, cwd string) (*ContextUsage, error) {
+func CurrentPiContextUsage(ctx context.Context, sessionFile string, cwd string) (usage *ContextUsage, resultErr error) {
 	if strings.TrimSpace(sessionFile) == "" {
 		return nil, fmt.Errorf("session file is required")
 	}
@@ -23,7 +24,12 @@ func CurrentPiContextUsage(ctx context.Context, sessionFile string, cwd string) 
 	}
 	queryCtx, cancel := context.WithTimeout(ctx, 8*time.Second)
 	defer cancel()
-	command := exec.CommandContext(queryCtx, executable, "--mode", "rpc", "--session", sessionFile, "--no-extensions")
+	snapshotFile, cleanupSnapshot, err := createSessionSnapshot(queryCtx, sessionFile)
+	if err != nil {
+		return nil, fmt.Errorf("create session snapshot: %w", err)
+	}
+	defer func() { resultErr = errors.Join(resultErr, cleanupSnapshot()) }()
+	command := exec.CommandContext(queryCtx, executable, "--mode", "rpc", "--session", snapshotFile, "--no-extensions")
 	if cwd != "" {
 		command.Dir = cwd
 	}
@@ -40,12 +46,130 @@ func CurrentPiContextUsage(ctx context.Context, sessionFile string, cwd string) 
 	}
 	_, writeErr := fmt.Fprintln(stdin, `{"id":"context","type":"get_session_stats"}`)
 	closeErr := stdin.Close()
-	usage, readErr := readContextUsageResponse(stdout)
+	var readErr error
+	usage, readErr = readContextUsageResponse(stdout)
 	waitErr := command.Wait()
 	if err := firstPiRPCError(queryCtx, writeErr, closeErr, readErr, waitErr); err != nil {
 		return nil, err
 	}
 	return usage, nil
+}
+
+func createSessionSnapshot(ctx context.Context, sessionFile string) (string, func() error, error) {
+	if err := ctx.Err(); err != nil {
+		return "", nil, err
+	}
+	source, err := os.Open(sessionFile)
+	if err != nil {
+		return "", nil, err
+	}
+	stat, err := source.Stat()
+	if err != nil {
+		return "", nil, errors.Join(err, source.Close())
+	}
+	snapshot, err := os.CreateTemp("", "pi-web-session-*.jsonl")
+	if err != nil {
+		return "", nil, errors.Join(err, source.Close())
+	}
+	_, copyErr := io.CopyN(snapshot, contextReader{ctx: ctx, reader: source}, stat.Size())
+	sourceCloseErr := source.Close()
+	trimErr := truncateIncompleteJSONLTail(ctx, snapshot, stat.Size())
+	snapshotCloseErr := snapshot.Close()
+	if err := errors.Join(copyErr, sourceCloseErr, trimErr, snapshotCloseErr); err != nil {
+		return "", nil, errors.Join(err, os.Remove(snapshot.Name()))
+	}
+	return snapshot.Name(), func() error { return os.Remove(snapshot.Name()) }, nil
+}
+
+func truncateIncompleteJSONLTail(ctx context.Context, file *os.File, size int64) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if size == 0 {
+		return nil
+	}
+	var finalByte [1]byte
+	if _, err := file.ReadAt(finalByte[:], size-1); err != nil {
+		return err
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if finalByte[0] == '\n' {
+		return nil
+	}
+	lineStart, err := finalJSONLLineStart(ctx, file, size)
+	if err != nil {
+		return err
+	}
+	complete, err := isCompleteJSONSection(ctx, file, lineStart, size-lineStart)
+	if err != nil {
+		return err
+	}
+	if complete {
+		return nil
+	}
+	return file.Truncate(lineStart)
+}
+
+func finalJSONLLineStart(ctx context.Context, file *os.File, size int64) (int64, error) {
+	const chunkSize int64 = 64 * 1024
+	for end := size; end > 0; {
+		if err := ctx.Err(); err != nil {
+			return 0, err
+		}
+		start := max(int64(0), end-chunkSize)
+		chunk := make([]byte, end-start)
+		n, err := file.ReadAt(chunk, start)
+		if err != nil && err != io.EOF {
+			return 0, err
+		}
+		if err := ctx.Err(); err != nil {
+			return 0, err
+		}
+		if newline := bytes.LastIndexByte(chunk[:n], '\n'); newline >= 0 {
+			return start + int64(newline) + 1, nil
+		}
+		end = start
+	}
+	return 0, nil
+}
+
+func isCompleteJSONSection(ctx context.Context, file *os.File, start int64, size int64) (bool, error) {
+	section := io.NewSectionReader(file, start, size)
+	decoder := json.NewDecoder(contextReader{ctx: ctx, reader: section})
+	var value json.RawMessage
+	if err := decoder.Decode(&value); err != nil {
+		var syntaxError *json.SyntaxError
+		if errors.As(err, &syntaxError) || errors.Is(err, io.ErrUnexpectedEOF) || errors.Is(err, io.EOF) {
+			return false, nil
+		}
+		return false, err
+	}
+	if err := decoder.Decode(&value); errors.Is(err, io.EOF) {
+		return true, nil
+	} else if err != nil {
+		var syntaxError *json.SyntaxError
+		if errors.As(err, &syntaxError) || errors.Is(err, io.ErrUnexpectedEOF) {
+			return false, nil
+		}
+		return false, err
+	}
+	return false, nil
+}
+
+type contextReader struct {
+	ctx    context.Context
+	reader io.Reader
+}
+
+func (reader contextReader) Read(buffer []byte) (int, error) {
+	select {
+	case <-reader.ctx.Done():
+		return 0, reader.ctx.Err()
+	default:
+		return reader.reader.Read(buffer)
+	}
 }
 
 func CurrentPiSetModel(ctx context.Context, sessionFile string, cwd string, provider string, modelID string) error {

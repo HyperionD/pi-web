@@ -2,6 +2,7 @@ package piweb
 
 import (
 	"context"
+	"errors"
 	"io"
 	"net/http"
 	"os"
@@ -44,24 +45,29 @@ func TestParseSessionStatsRPCLine(t *testing.T) {
 	}
 }
 
-func TestCurrentPiContextUsageQueriesRequestedSession(t *testing.T) {
+func TestCurrentPiContextUsageQueriesSnapshotWithoutMutatingSession(t *testing.T) {
 	binDir := t.TempDir()
 	sessionFile := filepath.Join(t.TempDir(), "session.jsonl")
-	if err := os.WriteFile(sessionFile, []byte(`{"type":"session","id":"s1"}`), 0o600); err != nil {
+	original := []byte("{\"type\":\"session\",\"id\":\"s1\"}\n")
+	if err := os.WriteFile(sessionFile, original, 0o600); err != nil {
 		t.Fatal(err)
 	}
 	script := `#!/bin/sh
-found=0
+session=""
 previous=""
 for argument in "$@"; do
-  if [ "$previous" = "--session" ] && [ "$argument" = "$EXPECTED_SESSION" ]; then found=1; fi
+  if [ "$previous" = "--session" ]; then session="$argument"; fi
   previous="$argument"
 done
-[ "$found" = "1" ] || exit 3
+[ -n "$session" ] || exit 3
+[ "$session" != "$ORIGINAL_SESSION" ] || exit 4
+cmp -s "$session" "$ORIGINAL_SESSION" || exit 5
+printf '%s' "$session" > "$SNAPSHOT_PATH_RECORD"
+echo '{"type":"model_change"}' >> "$session"
 read command
 case "$command" in
   *get_session_stats*) echo '{"id":"context","type":"response","command":"get_session_stats","success":true,"data":{"contextUsage":{"tokens":64000,"contextWindow":128000,"percent":50}}}' ;;
-  *) exit 4 ;;
+  *) exit 6 ;;
 esac
 `
 	piPath := filepath.Join(binDir, "pi")
@@ -69,11 +75,146 @@ esac
 		t.Fatal(err)
 	}
 	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
-	t.Setenv("EXPECTED_SESSION", sessionFile)
+	t.Setenv("ORIGINAL_SESSION", sessionFile)
+	snapshotRecord := filepath.Join(t.TempDir(), "snapshot-path")
+	t.Setenv("SNAPSHOT_PATH_RECORD", snapshotRecord)
 
 	usage, err := CurrentPiContextUsage(context.Background(), sessionFile, t.TempDir())
 	if err != nil || usage == nil || usage.Tokens == nil || *usage.Tokens != 64000 || usage.ContextWindow != 128000 {
 		t.Fatalf("unexpected usage=%+v err=%v", usage, err)
+	}
+	if contents, err := os.ReadFile(sessionFile); err != nil || string(contents) != string(original) {
+		t.Fatalf("context query mutated session: contents=%q err=%v", contents, err)
+	}
+	snapshotPath, err := os.ReadFile(snapshotRecord)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(strings.TrimSpace(string(snapshotPath))); !os.IsNotExist(err) {
+		t.Fatalf("session snapshot was not removed: %v", err)
+	}
+}
+
+func TestCurrentPiContextUsageRemovesSnapshotOnFailure(t *testing.T) {
+	binDir := t.TempDir()
+	sessionFile := filepath.Join(t.TempDir(), "session.jsonl")
+	if err := os.WriteFile(sessionFile, []byte("{\"type\":\"session\",\"id\":\"s1\"}\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	snapshotRecord := filepath.Join(t.TempDir(), "snapshot-path")
+	script := `#!/bin/sh
+previous=""
+for argument in "$@"; do
+  if [ "$previous" = "--session" ]; then session="$argument"; fi
+  previous="$argument"
+done
+printf '%s' "$session" > "$SNAPSHOT_PATH_RECORD"
+exit 7
+`
+	if err := os.WriteFile(filepath.Join(binDir, "pi"), []byte(script), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	t.Setenv("SNAPSHOT_PATH_RECORD", snapshotRecord)
+
+	if _, err := CurrentPiContextUsage(context.Background(), sessionFile, t.TempDir()); err == nil {
+		t.Fatal("expected context query failure")
+	}
+	snapshotPath, err := os.ReadFile(snapshotRecord)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(strings.TrimSpace(string(snapshotPath))); !os.IsNotExist(err) {
+		t.Fatalf("failed context query left session snapshot: %v", err)
+	}
+}
+
+func TestCreateSessionSnapshotDropsIncompleteTail(t *testing.T) {
+	sessionFile := filepath.Join(t.TempDir(), "session.jsonl")
+	complete := []byte("{\"type\":\"session\",\"id\":\"s1\"}\n")
+	if err := os.WriteFile(sessionFile, append(complete, []byte(`{"type":"message"`)...), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	snapshotPath, cleanup, err := createSessionSnapshot(context.Background(), sessionFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		if err := cleanup(); err != nil {
+			t.Error(err)
+		}
+	}()
+	contents, err := os.ReadFile(snapshotPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(contents) != string(complete) {
+		t.Fatalf("snapshot contains incomplete JSONL tail: %q", contents)
+	}
+}
+
+func TestCreateSessionSnapshotDropsPartialSecondValue(t *testing.T) {
+	sessionFile := filepath.Join(t.TempDir(), "session.jsonl")
+	complete := []byte("{\"type\":\"session\",\"id\":\"s1\"}\n")
+	if err := os.WriteFile(sessionFile, append(complete, []byte(`{} {`)...), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	snapshotPath, cleanup, err := createSessionSnapshot(context.Background(), sessionFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		if err := cleanup(); err != nil {
+			t.Error(err)
+		}
+	}()
+	snapshot, err := os.ReadFile(snapshotPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(snapshot) != string(complete) {
+		t.Fatalf("snapshot retained invalid final JSONL record: %q", snapshot)
+	}
+}
+
+func TestCreateSessionSnapshotHonorsCancelledContextForEmptyFile(t *testing.T) {
+	sessionFile := filepath.Join(t.TempDir(), "session.jsonl")
+	if err := os.WriteFile(sessionFile, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	_, _, err := createSessionSnapshot(ctx, sessionFile)
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("expected context cancellation, got %v", err)
+	}
+}
+
+func TestCreateSessionSnapshotKeepsCompleteTailWithoutNewline(t *testing.T) {
+	sessionFile := filepath.Join(t.TempDir(), "session.jsonl")
+	contents := []byte("{\"type\":\"session\",\"id\":\"s1\"}\n{\"type\":\"model_change\"}")
+	if err := os.WriteFile(sessionFile, contents, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	snapshotPath, cleanup, err := createSessionSnapshot(context.Background(), sessionFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		if err := cleanup(); err != nil {
+			t.Error(err)
+		}
+	}()
+	snapshot, err := os.ReadFile(snapshotPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(snapshot) != string(contents) {
+		t.Fatalf("snapshot dropped complete final JSONL record: %q", snapshot)
 	}
 }
 
