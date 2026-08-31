@@ -42,10 +42,10 @@ export const sessionMethods = {
       `<span class="meta"></span></button>`,
       `<button type="button" class="session-menu-button" data-action="session-menu-toggle"`,
       ` aria-haspopup="true" aria-expanded="false" aria-controls="${menuId}"`,
-      ` aria-label="session actions">${LUCIDE_ELLIPSIS_ICON}</button>`,
+      ` aria-label="会话操作">${LUCIDE_ELLIPSIS_ICON}</button>`,
       `<div class="session-menu" id="${menuId}" role="menu" hidden>`,
-      `<button type="button" role="menuitem" data-action="rename-session">${LUCIDE_PENCIL_ICON}<span>rename</span></button>`,
-      `<button type="button" role="menuitem" class="danger" data-action="delete-session">${LUCIDE_TRASH_ICON}<span>delete</span></button>`,
+      `<button type="button" role="menuitem" data-action="rename-session">${LUCIDE_PENCIL_ICON}<span>重命名</span></button>`,
+      `<button type="button" role="menuitem" class="danger" data-action="delete-session">${LUCIDE_TRASH_ICON}<span>删除</span></button>`,
       `</div>`,
     ].join("");
   },
@@ -119,7 +119,7 @@ export const sessionMethods = {
   updateSessionMeta(row, running) {
     const meta = row.querySelector(".meta");
     if (!meta) return;
-    meta.textContent = running ? "waiting" : "";
+    meta.textContent = running ? "等待中" : "";
     meta.toggleAttribute("hidden", !running);
   },
 
@@ -138,7 +138,7 @@ export const sessionMethods = {
     this.closeSessionMenus();
     if (!sessionId || !this.apiConnected) return;
     const current = this.querySelector(`[data-session='${sessionId}']`)?.dataset.title || "";
-    const title = prompt("Rename session", current)?.trim();
+    const title = prompt("重命名会话", current)?.trim();
     if (!title) return;
     try {
       const { session } = await renameSessionRequest(sessionId, title);
@@ -159,7 +159,7 @@ export const sessionMethods = {
   async deleteSession(sessionId) {
     this.closeSessionMenus();
     if (!sessionId || !this.apiConnected) return;
-    if (!confirm(`Delete session ${sessionId}? This removes the local JSONL file.`)) return;
+    if (!confirm(`要删除会话 ${sessionId} 吗？这将移除本地 JSONL 文件。`)) return;
     try {
       await deleteSessionRequest(sessionId);
       const workspaceId = this.findWorkspaceIdForSession(sessionId);
@@ -175,8 +175,8 @@ export const sessionMethods = {
     this.closeSessionMenus();
     if (!workspaceId || !this.apiConnected) return;
     const count = this.countWorkspaceSessions(workspaceId);
-    const suffix = count ? ` (${count} shown)` : "";
-    if (!confirm(`Delete all sessions in this workspace${suffix}? This removes local JSONL files.`)) return;
+    const suffix = count ? `（${count} 个已显示）` : "";
+    if (!confirm(`要删除此工作区中的所有会话${suffix}吗？这将移除本地 JSONL 文件。`)) return;
     try {
       await deleteWorkspaceSessionsRequest(workspaceId);
       this.clearWorkspaceSessionRows(workspaceId);
@@ -198,8 +198,8 @@ export const sessionMethods = {
     this.showEmptyMain();
     const title = this.querySelector("[data-active-session-title]");
     if (title) {
-      title.textContent = "no session";
-      title.title = "no session";
+      title.textContent = "无会话";
+      title.title = "无会话";
     }
   },
 
@@ -248,11 +248,11 @@ export const sessionMethods = {
     this.showEmptyMain();
     const label = this.querySelector(`[data-workspace='${workspaceId}'] .label`)?.textContent
       || workspaceId
-      || "workspace";
+      || "工作区";
     const empty = this.querySelector("[data-empty-workspace]");
     const title = this.querySelector("[data-active-session-title]");
     if (empty) empty.textContent = label;
-    if (title && !this.dataset.activeSessionId) title.textContent = "new session";
+    if (title && !this.dataset.activeSessionId) title.textContent = "新建会话";
   },
 
   activateCreatedSession(workspaceId, session) {

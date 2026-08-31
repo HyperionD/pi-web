@@ -19,7 +19,7 @@ export const gitHistoryMethods = {
         && this.gitHistoryLimit < MAX_GIT_HISTORY_COMMITS;
       this.renderGitHistory(this.gitHistoryCommits);
     } catch (error) {
-      this.renderGitHistoryError(error?.message || "git history unavailable");
+      this.renderGitHistoryError(error?.message || "Git 历史不可用");
     }
   },
 
@@ -53,7 +53,7 @@ export const gitHistoryMethods = {
     const panel = this.querySelector("[data-git-panel]");
     if (!panel) return;
     panel.dataset.mode = mode;
-    if (mode === "loading") panel.innerHTML = `<div class="git-empty">loading git history…</div>`;
+    if (mode === "loading") panel.innerHTML = `<div class="git-empty">正在加载 Git 历史…</div>`;
   },
 
   renderGitHistoryError(message) {
@@ -66,14 +66,14 @@ export const gitHistoryMethods = {
     const panel = this.querySelector("[data-git-panel]");
     if (!panel) return;
     if (!commits.length) {
-      panel.innerHTML = `<div class="git-empty">no commits found</div>`;
+      panel.innerHTML = `<div class="git-empty">未找到提交记录</div>`;
       return;
     }
     panel.innerHTML = [
       `<div class="git-history-grid" data-git-history-grid>`,
       `<div class="git-history-toolbar">`,
       `<button type="button" data-action="load-more-git-history"`,
-      ` ${this.gitHistoryHasMore ? "" : "disabled"}>${LUCIDE_LIST_PLUS_ICON}<span>load 30 more</span></button>`,
+      ` ${this.gitHistoryHasMore ? "" : "disabled"}>${LUCIDE_LIST_PLUS_ICON}<span>再加载 30 条</span></button>`,
       `</div>`,
       `<div class="git-commit-scroll" data-git-commit-scroll>`,
       `<div class="git-commit-list" data-git-commit-list></div>`,
@@ -100,7 +100,7 @@ export const gitHistoryMethods = {
       const nextScroll = this.querySelector("[data-git-commit-scroll]");
       if (nextScroll) nextScroll.scrollTop = scrollTop;
     } catch (error) {
-      this.renderGitHistoryError(error?.message || "git history unavailable");
+      this.renderGitHistoryError(error?.message || "Git 历史不可用");
     }
   },
 
@@ -114,8 +114,8 @@ export const gitHistoryMethods = {
     row.innerHTML = [
       `<span class="git-commit-main">`,
       `<span class="git-subject"></span>`,
-      `<span class="git-meta"><code>${escapeHtml(commit.shortHash)}</code> · ${escapeHtml(commit.authorName || "unknown")} · ${formatGitDate(commit.date)}</span>`,
-      `<span class="git-stats"><span class="add">+${commit.additions || 0}</span><span class="del">-${commit.deletions || 0}</span><span>${(commit.files || []).length} files</span></span>`,
+      `<span class="git-meta"><code>${escapeHtml(commit.shortHash)}</code> · ${escapeHtml(commit.authorName || "未知")} · ${formatGitDate(commit.date)}</span>`,
+      `<span class="git-stats"><span class="add">+${commit.additions || 0}</span><span class="del">-${commit.deletions || 0}</span><span>${(commit.files || []).length} 个文件</span></span>`,
       `</span>`,
     ].join("");
     row.querySelector(".git-subject").textContent = commit.subject || commit.shortHash;
@@ -129,14 +129,14 @@ export const gitHistoryMethods = {
     const inspectorRequestId = this.beginInspectorRequest?.();
     this.querySelectorAll(".git-commit-row").forEach((row) => row.classList.toggle("selected", row.dataset.hash === hash));
     const detail = this.ensureGitDetail();
-    detail.innerHTML = `<div class="git-empty">loading commit…</div>`;
+    detail.innerHTML = `<div class="git-empty">正在加载提交…</div>`;
     try {
       const response = await getGitCommit(workspaceId, hash);
       if (!this.inspectorRequestIsCurrent?.(inspectorRequestId, workspaceId)) return;
       this.renderGitCommitDetail(response);
     } catch (error) {
       if (!this.inspectorRequestIsCurrent?.(inspectorRequestId, workspaceId)) return;
-      detail.innerHTML = `<div class="git-empty err">${escapeHtml(error?.message || "commit unavailable")}</div>`;
+      detail.innerHTML = `<div class="git-empty err">${escapeHtml(error?.message || "提交不可用")}</div>`;
     }
   },
 
@@ -165,15 +165,15 @@ export const gitHistoryMethods = {
     const files = commit.files || [];
     target.innerHTML = [
       `<div class="git-detail-head">`,
-      `<button type="button" class="git-detail-close" data-action="close-git-detail" aria-label="close commit details" title="close commit details">${LUCIDE_X_ICON}</button>`,
-      `<strong>${escapeHtml(commit.subject || commit.shortHash || "commit")}</strong>`,
-      `<span><code>${escapeHtml(commit.shortHash || "")}</code> · ${escapeHtml(commit.authorName || "unknown")} · ${formatGitDate(commit.date)}</span>`,
+      `<button type="button" class="git-detail-close" data-action="close-git-detail" aria-label="关闭提交详情" title="关闭提交详情">${LUCIDE_X_ICON}</button>`,
+      `<strong>${escapeHtml(commit.subject || commit.shortHash || "提交")}</strong>`,
+      `<span><code>${escapeHtml(commit.shortHash || "")}</code> · ${escapeHtml(commit.authorName || "未知")} · ${formatGitDate(commit.date)}</span>`,
       refsTemplate(commit.refs),
       `</div>`,
-      `<div class="git-file-list">${files.map(fileTemplate).join("") || `<span class="git-empty-inline">no file stats</span>`}</div>`,
+      `<div class="git-file-list">${files.map(fileTemplate).join("") || `<span class="git-empty-inline">暂无文件统计</span>`}</div>`,
       `<pre class="git-message">${escapeHtml(detail.body || commit.subject || "")}</pre>`,
-      detail.truncated ? `<div class="git-truncated">diff truncated for performance</div>` : "",
-      `<pre class="git-diff">${escapeHtml(detail.diff || "no diff")}</pre>`,
+      detail.truncated ? `<div class="git-truncated">为保证性能，diff 已截断</div>` : "",
+      `<pre class="git-diff">${escapeHtml(detail.diff || "无 diff")}</pre>`
     ].join("");
   },
 };

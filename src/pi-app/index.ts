@@ -372,9 +372,9 @@ class PiApp extends HTMLElement {
     this.syncCompactionControl?.();
     if (!indicator) return;
     const styles = {
-      ok: ["var(--accent)", "connected"],
-      reconnecting: ["var(--fg-3)", "reconnecting to event stream"],
-      err: ["var(--danger)", "backend disconnected"],
+      ok: ["var(--accent)", "已连接"],
+      reconnecting: ["var(--fg-3)", "正在重新连接事件流"],
+      err: ["var(--danger)", "后端连接已断开"],
     };
     const [color, title] = styles[status] || styles.err;
     indicator.style.color = color;

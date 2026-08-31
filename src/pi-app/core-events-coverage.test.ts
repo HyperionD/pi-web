@@ -215,20 +215,20 @@ describe("pi-app core events coverage", () => {
 
     app.confirmConnection();
     expect(app.apiConnected).toBe(true);
-    expect(indicator.title).toBe("connected");
+    expect(indicator.title).toBe("已连接");
 
     app.deferEventStreamError();
-    expect(indicator.title).toBe("reconnecting to event stream");
+    expect(indicator.title).toBe("正在重新连接事件流");
     expect(indicator.style.color).toBe("var(--fg-3)");
     expect(app.apiConnected).toBe(true);
 
     app.confirmConnection();
-    expect(indicator.title).toBe("connected");
+    expect(indicator.title).toBe("已连接");
 
     globalThis.EventSource = { CLOSED: 2 };
     app.eventSource = { readyState: 2, close: vi.fn() };
     app.deferEventStreamError();
-    expect(indicator.title).toBe("backend disconnected");
+    expect(indicator.title).toBe("后端连接已断开");
   });
 
   it("marks the backend disconnected when the event stream stays down", async () => {
@@ -247,7 +247,7 @@ describe("pi-app core events coverage", () => {
     app.deferEventStreamError();
     timeoutCallback();
     expect(window.clearTimeout).toHaveBeenCalledWith(7);
-    expect(indicator.title).toBe("backend disconnected");
+    expect(indicator.title).toBe("后端连接已断开");
 
     app.eventSource = { readyState: 0, close: vi.fn() };
     app.deferEventStreamError();
@@ -255,7 +255,7 @@ describe("pi-app core events coverage", () => {
     expect(() => timeoutCallback()).not.toThrow();
 
     app.setConnection("unexpected");
-    expect(indicator.title).toBe("backend disconnected");
+    expect(indicator.title).toBe("后端连接已断开");
   });
 
   it("connects events, checks stream identity, mode, connection, and quota labels", async () => {

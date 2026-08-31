@@ -22,7 +22,7 @@ describe("pi-app session switch UX", () => {
     const loading = app.loadSession("s1");
 
     expect(app.querySelector(".session-switch-loading")).not.toBeNull();
-    expect(app.querySelector(".session-switch-label").textContent).toBe("loading large session…");
+    expect(app.querySelector(".session-switch-label").textContent).toBe("正在加载 large session…");
 
     resolveFetch({
       ok: true,

@@ -9,7 +9,7 @@ const LUCIDE_CHEVRON_RIGHT_ICON = `<svg xmlns="http://www.w3.org/2000/svg" width
 export const workspaceRenderMethods = {
   renderWorkspaces(workspaces) {
     const count = this.querySelector("[data-workspace-count]");
-    if (count) count.textContent = `${workspaces.length} known`;
+    if (count) count.textContent = `${workspaces.length} 个工作区`;
     this.renderRecentWorkspaces(workspaces);
     this.renderSidebarWorkspaces(workspaces);
     this.syncUnreadCompletedSessions?.();
@@ -40,12 +40,12 @@ export const workspaceRenderMethods = {
     row.type = "button";
     row.className = "recent-row";
     row.dataset.workspace = workspace.id;
-    row.setAttribute("aria-label", `open ${workspace.name}`);
+    row.setAttribute("aria-label", `打开 ${workspace.name}`);
     row.innerHTML = [
       `<span class="glyph">${LUCIDE_CHEVRON_RIGHT_ICON}</span>`,
       "<span class=\"ws-info\"><span class=\"name\"></span><span class=\"path\"></span></span>",
       "<span class=\"ws-stat\"></span>",
-      `<span class="open-cta">open ${LUCIDE_CORNER_DOWN_LEFT_ICON}</span>`,
+      `<span class="open-cta">打开 ${LUCIDE_CORNER_DOWN_LEFT_ICON}</span>`,
     ].join("");
     row.querySelector(".name").textContent = workspace.name;
     row.querySelector(".path").textContent = workspace.path;
@@ -55,10 +55,10 @@ export const workspaceRenderMethods = {
 
   workspaceRecentStatus(workspace) {
     if (workspace.live) {
-      return `<span class="live">● live</span><span class="lbl">${workspace.sessionCount} sessions</span>`;
+      return `<span class="live">● 在线</span><span class="lbl">${workspace.sessionCount} 个会话</span>`;
     }
     const lastUsed = escapeHtml(workspace.lastUsed || "—");
-    return `<span>${lastUsed}</span><span class="lbl">${workspace.sessionCount} sessions</span>`;
+    return `<span>${lastUsed}</span><span class="lbl">${workspace.sessionCount} 个会话</span>`;
   },
 
   createWorkspaceGroup(workspace) {
@@ -92,7 +92,7 @@ export const workspaceRenderMethods = {
       "<span class=\"label\"></span></span><span class=\"ws-path\"></span></span>",
       `<span class="ws-meta"><span class="ws-count">${workspace.sessionCount}</span></span></button>`,
       `<button type="button" class="row-action danger" data-action="delete-workspace"`,
-      ` data-workspace="${escapeHtml(workspace.id)}" title="remove workspace" aria-label="remove workspace">${LUCIDE_X_ICON}</button>`,
+      ` data-workspace="${escapeHtml(workspace.id)}" title="删除工作区" aria-label="删除工作区">${LUCIDE_X_ICON}</button>`,
       `</div><div class="sessions"${open ? "" : " hidden"}></div>`,
     ].join("");
   },
@@ -115,8 +115,8 @@ export const workspaceRenderMethods = {
     row.className = "session-row new-session-row";
     row.dataset.action = "new-session";
     row.dataset.workspace = workspaceId;
-    row.setAttribute("aria-label", "new session");
-    row.title = "new session";
+    row.setAttribute("aria-label", "新建会话");
+    row.title = "新建会话";
     row.innerHTML = LUCIDE_PLUS_ICON;
     return row;
   },

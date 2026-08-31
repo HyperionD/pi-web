@@ -155,7 +155,7 @@ export const workspaceBootstrapMethods = {
     row.dataset.kind = "loading";
     const label = document.createElement("span");
     label.className = "session-switch-label";
-    label.textContent = `loading ${this.findSessionRow(sessionId)?.dataset.title || "session"}…`;
+    label.textContent = `正在加载 ${this.findSessionRow(sessionId)?.dataset.title || "会话"}…`;
     const skeleton = document.createElement("span");
     skeleton.className = "session-switch-skeleton";
     skeleton.setAttribute("aria-hidden", "true");

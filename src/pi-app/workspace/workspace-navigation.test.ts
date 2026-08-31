@@ -81,11 +81,11 @@ describe("pi-app workspace navigation", () => {
     ]);
 
     const row = app.querySelector("[data-workspace='w2'].ws-row");
-    expect(count.textContent).toBe("5 known");
+    expect(count.textContent).toBe("5 个工作区");
     expect(recent.querySelectorAll(".recent-row")).toHaveLength(4);
-    expect(recent.querySelector(".recent-row").getAttribute("aria-label")).toBe("open one");
+    expect(recent.querySelector(".recent-row").getAttribute("aria-label")).toBe("打开 one");
     expect(recent.querySelector(".ws-stat").innerHTML).toContain("&lt;old&gt;");
-    expect(recent.querySelectorAll(".ws-stat")[1].textContent).toContain("● live");
+    expect(recent.querySelectorAll(".ws-stat")[1].textContent).toContain("● 在线");
     expect(row.classList.contains("has-active-session")).toBe(true);
     expect(row.querySelector(".ws-name .dot").classList.contains("live")).toBe(true);
     expect(app.querySelector("[data-session='s2']").classList.contains("active")).toBe(true);

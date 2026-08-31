@@ -43,7 +43,7 @@ export const workspaceFolderMethods = {
   emptyFolderRow() {
     const empty = document.createElement("div");
     empty.className = "folder-empty";
-    empty.textContent = "no folders";
+    empty.textContent = "暂无文件夹";
     return empty;
   },
 
@@ -110,7 +110,7 @@ export const workspaceFolderMethods = {
 
   async deleteWorkspace(workspaceId) {
     if (!workspaceId || !this.apiConnected) return;
-    if (!confirm(`Remove workspace ${workspaceId} from this view?`)) return;
+    if (!confirm(`要从当前视图移除工作区 ${workspaceId} 吗？`)) return;
     try {
       await deleteWorkspaceRequest(workspaceId);
       const { workspaces } = await getWorkspaces();

@@ -33,8 +33,8 @@ describe("pi-app sessions", () => {
     ]);
     const newSession = rows.at(-1);
     expect(newSession.classList.contains("new-session-row")).toBe(true);
-    expect(newSession.getAttribute("aria-label")).toBe("new session");
-    expect(newSession.getAttribute("title")).toBe("new session");
+    expect(newSession.getAttribute("aria-label")).toBe("新建会话");
+    expect(newSession.getAttribute("title")).toBe("新建会话");
     expect(newSession.textContent.trim()).toBe("");
     expect(newSession.querySelector("svg")).not.toBeNull();
   });
@@ -120,6 +120,7 @@ describe("pi-app sessions", () => {
 
     await app.deleteWorkspaceSessions("w1");
 
+    expect(window.confirm).toHaveBeenCalledWith("要删除此工作区中的所有会话（2 个已显示）吗？这将移除本地 JSONL 文件。");
     expect(globalThis.fetch).toHaveBeenCalledWith(
       "http://backend.test/api/workspaces/w1/sessions",
       expect.objectContaining({ method: "DELETE" }),
@@ -173,7 +174,7 @@ describe("pi-app sessions", () => {
     expect(app.querySelector(".msg[data-kind='user']")).toBeNull();
     expect(app.querySelector(".msg.loading .spinner")).not.toBeNull();
     expect(app.querySelector("[data-session='s1']").classList.contains("active")).toBe(true);
-    expect(app.querySelector("[data-session='s1'] .meta").textContent).toBe("waiting");
+    expect(app.querySelector("[data-session='s1'] .meta").textContent).toBe("等待中");
 
     app.applyEvent({ type: "session.message", payload: { kind: "user", text: "hello" } });
     expect(app.querySelectorAll(".msg[data-kind='user']")).toHaveLength(1);

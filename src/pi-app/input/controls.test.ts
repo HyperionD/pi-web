@@ -806,11 +806,11 @@ describe("pi-app controls", () => {
     hamburger.click();
     expect(body.classList.contains("drawer-open")).toBe(true);
     expect(hamburger.getAttribute("aria-expanded")).toBe("true");
-    expect(hamburger.getAttribute("aria-label")).toBe("close sidebar");
+    expect(hamburger.getAttribute("aria-label")).toBe("关闭侧栏");
     hamburger.click();
     expect(body.classList.contains("drawer-open")).toBe(false);
     expect(hamburger.getAttribute("aria-expanded")).toBe("false");
-    expect(hamburger.getAttribute("aria-label")).toBe("open sidebar");
+    expect(hamburger.getAttribute("aria-label")).toBe("打开侧栏");
   });
 
   it("renders a terminal dot spinner and advances its frame", async () => {

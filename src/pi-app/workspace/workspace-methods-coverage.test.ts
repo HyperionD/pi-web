@@ -47,8 +47,10 @@ describe("workspace folder/render/bootstrap coverage", () => {
       { name: "child", path: "/tmp/child", displayPath: "~/child" },
     ] });
 
-    expect(count.textContent).toBe("2 known");
+    expect(count.textContent).toBe("2 个工作区");
     expect(recent.querySelectorAll(".recent-row")).toHaveLength(2);
+    expect(recent.querySelector(".recent-row").getAttribute("aria-label")).toBe("打开 one");
+    expect(recent.querySelector(".open-cta").textContent).toContain("打开");
     expect(recent.querySelector(".ws-stat").innerHTML).toContain("1m");
     expect(recent.querySelectorAll(".ws-stat")[1].innerHTML).toContain("live");
     expect(app.querySelector("[data-workspace-group='w2'] .sessions").hidden).toBe(false);
@@ -58,7 +60,7 @@ describe("workspace folder/render/bootstrap coverage", () => {
     expect(list.querySelector(".folder-row").dataset.path).toBe("/tmp/child");
 
     app.renderFolderListing({ path: "/empty", folders: [] });
-    expect(list.querySelector(".folder-empty").textContent).toBe("no folders");
+    expect(list.querySelector(".folder-empty").textContent).toBe("暂无文件夹");
   });
 
   it("loads folders and opens workspaces through backend responses", async () => {
@@ -521,6 +523,6 @@ describe("workspace folder/render/bootstrap coverage", () => {
     expect(fetch).toHaveBeenCalledWith(expect.stringContaining("limit=60"), expect.anything());
     expect(panel.querySelectorAll(".git-commit-row")).toHaveLength(60);
     expect(panel.querySelector("[data-git-commit-scroll]").scrollTop).toBe(320);
-    expect(panel.querySelector("[data-action='load-more-git-history']")?.textContent).toBe("load 30 more");
+    expect(panel.querySelector("[data-action='load-more-git-history']")?.textContent).toBe("再加载 30 条");
   });
 });

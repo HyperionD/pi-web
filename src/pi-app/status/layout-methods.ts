@@ -76,7 +76,7 @@ export const layoutMethods = {
     body.classList.toggle("drawer-open", open);
     const button = this.querySelector('[data-action="open-drawer"]');
     button?.setAttribute("aria-expanded", String(open));
-    button?.setAttribute("aria-label", open ? "close sidebar" : "open sidebar");
+    button?.setAttribute("aria-label", open ? "关闭侧栏" : "打开侧栏");
   },
 
   collapseSidebar(collapsed) {

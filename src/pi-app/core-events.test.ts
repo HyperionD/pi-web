@@ -264,9 +264,9 @@ describe("pi-app core events", () => {
     indicator.className = "statusbtn";
     app.append(indicator);
     app.setConnection("ok");
-    expect(indicator.title).toBe("connected");
+    expect(indicator.title).toBe("已连接");
     app.setConnection("err");
-    expect(indicator.title).toBe("backend disconnected");
+    expect(indicator.title).toBe("后端连接已断开");
 
     app.finishRunningTools = vi.fn();
     app.syncLoadingMessage = vi.fn();

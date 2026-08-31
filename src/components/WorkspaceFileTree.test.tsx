@@ -28,7 +28,7 @@ describe("WorkspaceFileTree", () => {
     await act(async () => {
       root.render(<WorkspaceFileTree initialFiles={[]} />);
     });
-    expect(host.textContent).toContain("file tree loads from backend");
+    expect(host.textContent).toContain("文件树正在从后端加载");
 
     await updateTree();
 
@@ -112,7 +112,7 @@ describe("WorkspaceFileTree", () => {
     });
     await act(async () => {
       [...host.querySelectorAll<HTMLButtonElement>(".tree-action-menu button")]
-        .find((button) => button.textContent === "new file")?.click();
+        .find((button) => button.textContent === "新建文件")?.click();
     });
 
     expect(createWorkspaceFile).toHaveBeenCalledWith("workspace-1", "src/created.ts", "file");
@@ -138,7 +138,7 @@ describe("WorkspaceFileTree", () => {
     });
     await act(async () => {
       [...host.querySelectorAll<HTMLButtonElement>(".tree-action-menu button")]
-        .find((button) => button.textContent === "rename")?.click();
+        .find((button) => button.textContent === "重命名")?.click();
     });
     expect(renameWorkspaceFile).toHaveBeenCalledWith("workspace-1", "src/main.ts", "src/renamed.ts");
 
@@ -147,7 +147,7 @@ describe("WorkspaceFileTree", () => {
     });
     await act(async () => {
       [...host.querySelectorAll<HTMLButtonElement>(".tree-action-menu button")]
-        .find((button) => button.textContent === "delete")?.click();
+        .find((button) => button.textContent === "删除")?.click();
     });
     expect(deleteWorkspaceFile).toHaveBeenCalledWith("workspace-1", "src/main.ts");
     await cleanup(root, host);

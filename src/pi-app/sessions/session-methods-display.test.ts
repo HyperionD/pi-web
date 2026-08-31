@@ -48,7 +48,7 @@ describe("pi-app session method display states", () => {
     localStorage.setItem("pi.activeSession", JSON.stringify({ workspaceId: "w1", sessionId: "s1" }));
     app.clearActiveSession("s1");
     expect(app.eventSource.close).toHaveBeenCalled();
-    expect(activeTitle.textContent).toBe("no session");
+    expect(activeTitle.textContent).toBe("无会话");
     expect(localStorage.getItem("pi.activeSession")).toBeNull();
 
     const row = app.createSessionRow("w1", { id: "s2", title: "two", lastUsed: "now" });
@@ -72,19 +72,19 @@ describe("pi-app session method display states", () => {
     app.apiConnected = false;
     app.dataset.activeWorkspaceId = "";
     await app.newSession();
-    expect(shell.emptyWorkspace.textContent).toBe("workspace");
+    expect(shell.emptyWorkspace.textContent).toBe("工作区");
 
     app.dataset.activeWorkspaceId = "w1";
     await app.newSession();
     expect(shell.emptyWorkspace.textContent).toBe("demo");
-    expect(shell.activeTitle.textContent).toBe("new session");
+    expect(shell.activeTitle.textContent).toBe("新建会话");
     app.querySelector("[data-workspace='w1'] .label")?.remove();
     await app.newSession("w1");
     expect(shell.emptyWorkspace.textContent).toBe("w1");
 
     app.dataset.activeSessionId = "existing";
     await app.newSession("w1");
-    expect(shell.activeTitle.textContent).toBe("new session");
+    expect(shell.activeTitle.textContent).toBe("新建会话");
 
     app.dataset.activeSessionId = "";
     mockFetchJson({ error: "boom" }, false);

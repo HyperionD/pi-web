@@ -121,7 +121,7 @@ export default function WorkspaceFileTree({ initialFiles = [], initialStatusMap 
         </label>
         <div ref={treeArea} className="tree-arborist-body">
           {!files.length ? (
-            <div className="tree-empty">file tree loads from backend.</div>
+            <div className="tree-empty">文件树正在从后端加载。</div>
           ) : data.length ? (
             <Tree<FileTreeNode>
               data={data}
@@ -162,7 +162,7 @@ export default function WorkspaceFileTree({ initialFiles = [], initialStatusMap 
           onChange={(event) => void uploadFiles(event.currentTarget.files)}
         />
         {menu && <TreeActionMenu target={menu} onAction={(action) => void runAction(action, menu)} />}
-        <div className="tree-tip">tip: right-click or tap ⋯ for file actions.</div>
+        <div className="tree-tip">提示：右键点击或轻触 ⋯ 进行文件操作。</div>
       </div>
     </TreeContext.Provider>
   );
@@ -174,20 +174,20 @@ export default function WorkspaceFileTree({ initialFiles = [], initialStatusMap 
     try {
       if (action === "new-file" || action === "new-folder") {
         const parent = uploadFolder(target);
-        const label = action === "new-file" ? "New file path" : "New folder path";
+        const label = action === "new-file" ? "新建文件路径" : "新建文件夹路径";
         const name = window.prompt(label, joinPath(parent, action === "new-file" ? "untitled.txt" : "new-folder"));
         if (!name) return;
         await createWorkspaceFile(workspaceId, name, action === "new-file" ? "file" : "dir");
         refreshTree(action === "new-file" ? name : "");
       }
       if (action === "rename" && target.kind !== "root") {
-        const nextPath = window.prompt("Rename path", target.path);
+        const nextPath = window.prompt("重命名路径", target.path);
         if (!nextPath || nextPath === target.path) return;
         await renameWorkspaceFile(workspaceId, target.path, nextPath);
         refreshTree(nextPath);
       }
       if (action === "delete" && target.kind !== "root") {
-        if (!window.confirm(`Delete ${target.path}?`)) return;
+        if (!window.confirm(`要删除 ${target.path} 吗？`)) return;
         await deleteWorkspaceFile(workspaceId, target.path);
         refreshTree("");
       }
@@ -216,7 +216,7 @@ export default function WorkspaceFileTree({ initialFiles = [], initialStatusMap 
         try {
           await uploadWorkspaceFile(workspaceId, path, content, false);
         } catch (error) {
-          if (!isAlreadyExistsError(error) || !window.confirm(`${path} already exists. Overwrite?`)) throw error;
+          if (!isAlreadyExistsError(error) || !window.confirm(`${path} 已存在。要覆盖吗？`)) throw error;
           await uploadWorkspaceFile(workspaceId, path, content, true);
         }
         if (!firstPath) firstPath = path;
@@ -288,7 +288,7 @@ function FileTreeRow({ node, style, dragHandle }: any) {
       </span>
       <span className="name">{item.name}</span>
       <StatusBadge status={status} />
-      <button className="tree-row-menu" type="button" aria-label={`actions for ${item.name}`} onClick={onMenuClick}>⋯</button>
+      <button className="tree-row-menu" type="button" aria-label={`操作：${item.name}`} onClick={onMenuClick}>⋯</button>
     </div>
   );
 }
@@ -298,11 +298,11 @@ function TreeActionMenu({ target, onAction }: { target: MenuTarget; onAction: (a
   const style = menuPosition(target);
   return (
     <div className="tree-action-menu" role="menu" style={style} onClick={(event) => event.stopPropagation()}>
-      <button type="button" role="menuitem" onClick={() => onAction("new-file")}>new file</button>
-      <button type="button" role="menuitem" onClick={() => onAction("new-folder")}>new folder</button>
-      <button type="button" role="menuitem" onClick={() => onAction("upload")}>upload here</button>
-      <button type="button" role="menuitem" disabled={!canTarget} onClick={() => onAction("rename")}>rename</button>
-      <button type="button" role="menuitem" disabled={!canTarget} className="danger" onClick={() => onAction("delete")}>delete</button>
+      <button type="button" role="menuitem" onClick={() => onAction("new-file")}>新建文件</button>
+      <button type="button" role="menuitem" onClick={() => onAction("new-folder")}>新建文件夹</button>
+      <button type="button" role="menuitem" onClick={() => onAction("upload")}>上传到此处</button>
+      <button type="button" role="menuitem" disabled={!canTarget} onClick={() => onAction("rename")}>重命名</button>
+      <button type="button" role="menuitem" disabled={!canTarget} className="danger" onClick={() => onAction("delete")}>删除</button>
     </div>
   );
 }
