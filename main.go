@@ -36,7 +36,6 @@ func defaultRootDependencies() rootDependencies {
 		stdout: os.Stdout,
 		stderr: os.Stderr,
 		serve:  runServer,
-		update: runUpdate,
 	}
 }
 

@@ -1,5 +1,7 @@
 # 浅色简体中文离线 Web UI 实施计划与交接记录
 
+> **历史记录说明（2026-08-31）：** 本文保留原始实施上下文；其中关于更新提示、远程通知、语音输入、Whisper 和回答朗读的内容已由后续提交 `63e880d` 移除，不代表当前支持功能。
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** 基于 `Epsilondelta-ai/pi-web v1.9.0` 完成浅色蓝灰主题、默认简体中文、清除韩语 UI、Chrome 107 兼容，并构建为复用现有 `pi --mode rpc` 的离线单二进制。

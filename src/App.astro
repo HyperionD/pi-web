@@ -8,7 +8,6 @@ import {
   Folder,
   GitBranch,
   Menu,
-  Mic,
   Paperclip,
   Plus,
   RefreshCw,
@@ -23,10 +22,7 @@ import { escapeHtml, renderBannerBody, renderPiBody, renderUserBody } from "./li
 import { formatToolArgs, toolIconHtml } from "./pi-app/messages/tool-message-methods";
 import { isLargeToolBody, renderToolBody } from "./pi-app/messages/tool-output-rendering";
 import { PI_WEB_WELCOME_TEXT, TERMINAL_SPINNER_HTML } from "./pi-app/constants";
-import {
-  SETTINGS_FIELDS as settingsFields,
-  SPEECH_LANGUAGE_OPTIONS as speechLanguageOptions,
-} from "./pi-app/workspace/settings-schema";
+import { SETTINGS_FIELDS as settingsFields } from "./pi-app/workspace/settings-schema";
 
 const {
   initialRoute = "workspace",
@@ -36,8 +32,6 @@ const {
   showCompaction = false,
   showDisconnect = false,
   scanlines = false,
-  showUpdateRelease = false,
-  showUpdateTip = false,
   workspaces = [],
   fileTree = [],
   conversation = [],
@@ -78,34 +72,6 @@ const settingsGroups = [
     paths: ["compaction.enabled", "enableSkillCommands", "steeringMode", "followUpMode", "hideThinkingBlock"],
   },
   {
-    title: "Voice",
-    titleKey: "voice",
-    description: "read aloud output",
-    descriptionKey: "voiceDescription",
-    paths: ["readResponsesAloud", "voice.language"],
-  },
-  {
-    title: "Speech",
-    titleKey: "speech",
-    description: "speech input and transcription",
-    descriptionKey: "speechDescription",
-    paths: ["enableSpeechInput", "speechInput.language"],
-  },
-  {
-    title: "Remote notifications",
-    titleKey: "remoteNotifications",
-    description: "Discord and Telegram answer-complete alerts",
-    descriptionKey: "remoteNotificationsDescription",
-    paths: [
-      "remoteNotifications.discord.enabled",
-      "remoteNotifications.discord.token",
-      "remoteNotifications.discord.channelId",
-      "remoteNotifications.telegram.enabled",
-      "remoteNotifications.telegram.token",
-      "remoteNotifications.telegram.chatId",
-    ],
-  },
-  {
     title: "Warnings",
     titleKey: "warnings",
     description: "usage and safety notices",
@@ -121,10 +87,6 @@ function toolStatus(msg) {
   if (msg.status === "running") return `${TERMINAL_SPINNER_HTML}<span style="color:var(--accent)">running</span>`;
   if (msg.status === "err") return `<span class="err">✗</span>${escapeHtml(msg.resultMeta || "failed")}`;
   return `<span class="ok">✓</span>${msg.durationMs ? `${msg.durationMs} ms` : ""}${msg.resultMeta ? ` · ${escapeHtml(msg.resultMeta)}` : ""}`;
-}
-
-function speechLanguageListId(path) {
-  return `speech-language-options-${path.replace(/[^a-z0-9_-]/gi, "-")}`;
 }
 
 ---
@@ -227,8 +189,6 @@ function speechLanguageListId(path) {
           <div class="git-panel" data-git-panel hidden></div>
         </aside>
         <div class="sb-footer">
-          <button class="update-release" type="button" data-action="show-update-tip" hidden={!showUpdateRelease}>发现新版本！</button>
-          <span class="update-tip" data-update-tip hidden={!showUpdateTip}>运行 <code>pi-web update</code>，然后重启 pi-web。</span>
           <div class="sb-footer-status">
             <span class="status-dot"></span><span>连接中</span>
             <button class="sb-settings" type="button" data-action="open-settings" title="设置" aria-label="打开设置"><Settings size={14} strokeWidth={1.75} aria-hidden="true" /></button>
@@ -289,7 +249,7 @@ function speechLanguageListId(path) {
       <button class="attach-btn" type="button" aria-label="attach files" title="attach files"><Paperclip size={14} strokeWidth={1.5} aria-hidden="true" /></button>
       <input type="file" multiple hidden data-file-input />
       <div class="prompt-input-col"><div class="attach-chips" hidden></div><textarea class="prompt-textarea" placeholder="ask pi to do something…" rows="1"></textarea></div>
-      <div class="prompt-actions"><button class="stop-btn" type="button" aria-label="stop" title="stop" hidden><Square size={13} strokeWidth={2} aria-hidden="true" /></button><button class="mic-btn" type="button" data-action="toggle-speech-input" aria-label="start voice input" title="voice input" hidden><Mic size={14} strokeWidth={2} aria-hidden="true" /></button><button class="send-btn" type="button" aria-label="send" title="send" aria-disabled="true"><SendHorizontal size={14} strokeWidth={2} aria-hidden="true" /></button></div>
+      <div class="prompt-actions"><button class="stop-btn" type="button" aria-label="stop" title="stop" hidden><Square size={13} strokeWidth={2} aria-hidden="true" /></button><button class="send-btn" type="button" aria-label="send" title="send" aria-disabled="true"><SendHorizontal size={14} strokeWidth={2} aria-hidden="true" /></button></div>
       <div class="drop-overlay" hidden><span>drop to attach</span></div>
     </div>
     <div class="prompt-meta"><span data-prompt-meta>— | <span class="prompt-meta-item prompt-meta-branch"><GitBranch size={12} strokeWidth={1.75} aria-hidden="true" /><span>—</span></span></span><button type="button" class="compact-btn" data-action="compact-session" disabled aria-label="压缩上下文" title="压缩上下文">压缩上下文</button></div>
@@ -358,23 +318,17 @@ function speechLanguageListId(path) {
         </details>
         <div class="settings-groups">
           {settingsGroups.map((group) => (
-            <section class:list={["settings-group", group.title === "Speech" && "settings-group-speech"]}>
+            <section class="settings-group">
               <div class="settings-group-head">
                 <div>
                   <strong data-i18n={group.titleKey}>{group.title}</strong>
                   <small data-i18n={group.descriptionKey}>{group.description}</small>
                 </div>
-                {group.title === "Speech" && <span class="settings-group-badge" data-i18n="browserLocal">browser + local</span>}
               </div>
-              {group.title === "Speech" && (
-                <p class="settings-group-note" data-i18n="speechNote">Enable the mic, choose recognition language, then optionally cache a local Whisper model for offline transcription.</p>
-              )}
-              <div class:list={["settings-grid", group.title === "Speech" && "settings-speech-grid"]}>
+              <div class="settings-grid">
                 {group.fields.map((field) => (
                   <label
                     class="settings-field"
-                    data-secure-context-only={field.path === "enableSpeechInput" ? "https" : undefined}
-                    hidden={field.path === "enableSpeechInput"}
                   >
                     <span>{field.label}</span>
                       {field.type === "text" ? (
@@ -396,21 +350,6 @@ function speechLanguageListId(path) {
                       </select>
                     ) : field.type === "checkbox" ? (
                       <span class="settings-checkbox"><input type="checkbox" data-setting={field.path} /> <span data-i18n="enabled">Enabled</span></span>
-                    ) : field.type === "speechLanguage" ? (
-                      <>
-                        <input
-                          data-setting={field.path}
-                          list={speechLanguageListId(field.path)}
-                          autocomplete="off"
-                          placeholder="Search language…"
-                          data-i18n-placeholder="searchLanguage"
-                        />
-                        <datalist id={speechLanguageListId(field.path)}>
-                          {speechLanguageOptions.map((language) => (
-                            <option value={language.label} label={language.value} data-language-value={language.value} />
-                          ))}
-                        </datalist>
-                      </>
                     ) : (
                       <select data-setting={field.path}>
                         <option value="inherit">inherit</option>
@@ -420,34 +359,6 @@ function speechLanguageListId(path) {
                     <small>effective: not set</small>
                   </label>
                 ))}
-                {group.title === "Speech" && (
-                  <>
-                    <label class="settings-field" data-speech-advanced data-secure-context-only="https" hidden>
-                      <span class="settings-label-row"><span data-i18n="useLocalWhisper">Use local Whisper</span> <em data-i18n="enhanced">Enhanced</em></span>
-                      <span class="settings-checkbox"><input type="checkbox" data-setting="speechInput.useLocalWhisper" /> <span data-i18n="enabled">Enabled</span></span>
-                      <small>effective: not set</small>
-                    </label>
-                    <label class="settings-field settings-whisper-model" data-speech-advanced data-secure-context-only="https" hidden>
-                      <span data-i18n="whisperModel">Whisper model</span>
-                      <span class="settings-select-action">
-                        <select data-setting="speechInput.whisperModel">
-                          <option value="tiny-q5">tiny-q5 · compact · ~31MB</option>
-                          <option value="tiny">tiny · balanced · ~75MB</option>
-                          <option value="base-q5">base-q5 · compact quality · ~57MB</option>
-                          <option value="base">base · better quality · ~142MB</option>
-                          <option value="small-q5">small-q5 · high quality compact · ~181MB</option>
-                          <option value="small">small · high quality · ~466MB</option>
-                          <option value="medium-q5">medium-q5 · very high quality compact · ~582MB</option>
-                          <option value="medium">medium · very high quality · ~1.5GB</option>
-                          <option value="large-v3-q5">large-v3-q5 · best compact · ~1.2GB</option>
-                          <option value="large-v3">large-v3 · best quality · ~3GB+</option>
-                        </select>
-                        <button type="button" data-action="download-whisper-model" hidden data-i18n="download">download</button>
-                      </span>
-                      <small data-whisper-status>not checked</small>
-                    </label>
-                  </>
-                )}
               </div>
             </section>
           ))}

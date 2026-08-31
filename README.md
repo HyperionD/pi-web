@@ -22,12 +22,6 @@ Install the latest GitHub release binary:
 curl -fsSL https://raw.githubusercontent.com/Epsilondelta-ai/pi-web/main/scripts/install.sh | sh
 ```
 
-Update the installed binary:
-
-```bash
-pi-web update
-```
-
 Run after installation:
 
 ```bash

@@ -151,22 +151,6 @@ type FolderListing struct {
 	Folders           []FolderEntry `json:"folders"`
 }
 
-type VersionStatus struct {
-	CurrentVersion  string `json:"currentVersion"`
-	LatestVersion   string `json:"latestVersion,omitempty"`
-	UpdateAvailable bool   `json:"updateAvailable"`
-	Error           string `json:"error,omitempty"`
-}
-
-type PiVersionStatus struct {
-	CurrentVersion  string `json:"currentVersion,omitempty"`
-	LatestVersion   string `json:"latestVersion,omitempty"`
-	PackageName     string `json:"packageName,omitempty"`
-	Note            string `json:"note,omitempty"`
-	UpdateAvailable bool   `json:"updateAvailable"`
-	Error           string `json:"error,omitempty"`
-}
-
 type ErrorResponse struct {
 	Error string `json:"error"`
 }

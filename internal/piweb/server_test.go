@@ -3,7 +3,6 @@ package piweb
 import (
 	"bufio"
 	"bytes"
-	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -28,44 +27,17 @@ func TestHealthEndpoint(t *testing.T) {
 	}
 }
 
-func TestVersionEndpoint(t *testing.T) {
-	server := NewServer(Config{
-		CurrentVersion: "1.0.0",
-		VersionStatus: func(_ context.Context, current string) (VersionStatus, error) {
-			return VersionStatus{CurrentVersion: current, LatestVersion: "1.1.0", UpdateAvailable: true}, nil
-		},
-	}, NewMockStore(), NewBroker())
-	req := httptest.NewRequest(http.MethodGet, "/api/version", nil)
-	res := httptest.NewRecorder()
-	server.Handler().ServeHTTP(res, req)
-	if res.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d", res.Code)
-	}
-	if !strings.Contains(res.Body.String(), `"currentVersion":"1.0.0"`) ||
-		!strings.Contains(res.Body.String(), `"latestVersion":"1.1.0"`) ||
-		!strings.Contains(res.Body.String(), `"updateAvailable":true`) {
-		t.Fatalf("unexpected body: %s", res.Body.String())
-	}
-}
-
-func TestPiVersionEndpoint(t *testing.T) {
-	server := NewServer(Config{
-		EnablePiExecution: true,
-		PiVersionStatus: func(_ context.Context) (PiVersionStatus, error) {
-			return PiVersionStatus{CurrentVersion: "0.75.0", LatestVersion: "0.75.5", UpdateAvailable: true, Note: "security"}, nil
-		},
-	}, NewMockStore(), NewBroker())
-	req := httptest.NewRequest(http.MethodGet, "/api/pi/version", nil)
-	res := httptest.NewRecorder()
-	server.Handler().ServeHTTP(res, req)
-	if res.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d", res.Code)
-	}
-	if !strings.Contains(res.Body.String(), `"currentVersion":"0.75.0"`) ||
-		!strings.Contains(res.Body.String(), `"latestVersion":"0.75.5"`) ||
-		!strings.Contains(res.Body.String(), `"updateAvailable":true`) ||
-		!strings.Contains(res.Body.String(), `"note":"security"`) {
-		t.Fatalf("unexpected body: %s", res.Body.String())
+func TestRemovedVersionEndpoints(t *testing.T) {
+	server := NewServer(Config{}, NewMockStore(), NewBroker())
+	for _, path := range []string{"/api/version", "/api/pi/version"} {
+		t.Run(path, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodGet, path, nil)
+			res := httptest.NewRecorder()
+			server.Handler().ServeHTTP(res, req)
+			if res.Code != http.StatusNotFound {
+				t.Fatalf("expected removed endpoint to return 404, got %d", res.Code)
+			}
+		})
 	}
 }
 

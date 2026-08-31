@@ -142,9 +142,6 @@ func (r *Runner) StartPiPrompt(
 			"status":     "idle",
 			"finishedAt": time.Now().UTC().Format(time.RFC3339),
 		})
-		if session, messages, err := store.Session(sessionID); err == nil {
-			_ = notifyRemoteResponseCompleted(cwd, session, messages)
-		}
 	}()
 	return nil
 }

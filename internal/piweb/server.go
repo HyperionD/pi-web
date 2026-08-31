@@ -17,9 +17,6 @@ type Config struct {
 	AllowedOrigins    []string
 	EnablePiExecution bool
 	StaticFiles       fs.FS
-	CurrentVersion    string
-	VersionStatus     func(context.Context, string) (VersionStatus, error)
-	PiVersionStatus   func(context.Context) (PiVersionStatus, error)
 }
 
 type Server struct {
@@ -45,9 +42,6 @@ func NewServer(config Config, store *Store, broker *Broker) *Server {
 			"http://127.0.0.1:6006",
 		}
 	}
-	if config.CurrentVersion == "" {
-		config.CurrentVersion = "dev"
-	}
 	s := &Server{store: store, broker: broker, runner: NewRunner(), mux: http.NewServeMux(), config: config}
 	s.routes()
 	return s
@@ -61,8 +55,6 @@ func (s *Server) Handler() http.Handler {
 }
 func (s *Server) routes() {
 	s.mux.HandleFunc("GET /api/health", s.health)
-	s.mux.HandleFunc("GET /api/version", s.versionStatus)
-	s.mux.HandleFunc("GET /api/pi/version", s.piVersionStatus)
 	s.mux.HandleFunc("GET /api/auth/providers", s.authProviders)
 	s.mux.HandleFunc("GET /api/auth/oauth/providers", s.oauthProviders)
 	s.mux.HandleFunc("POST /api/auth/oauth/start", s.startOAuthLogin)

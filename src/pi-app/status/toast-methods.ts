@@ -182,29 +182,6 @@ export const toastMethods = {
     return notification;
   },
 
-  notifyUpdateAvailable(status) {
-    const current = status?.currentVersion || "unknown";
-    const latest = status?.latestVersion || "latest";
-    this.showSystemToast(
-      "warning",
-      "pi-web 有可用更新",
-      `当前 ${current}，最新 ${latest}。运行 pi-web update，然后重启 pi-web。`,
-      `piweb-update:${current}:${latest}`,
-    );
-  },
-
-  notifyPiUpdateAvailable(status) {
-    const current = status?.currentVersion || "unknown";
-    const latest = status?.latestVersion || "latest";
-    const note = status?.note ? ` ${status.note}` : "";
-    this.showSystemToast(
-      "warning",
-      "pi 有可用更新",
-      `当前 ${current}，最新 ${latest}。运行 pi update，然后重启 pi。${note}`,
-      `pi-update:${current}:${latest}`,
-    );
-  },
-
   notifyRuntimeWarning(detail) {
     const message = authWarningDetail(detail);
     this.showSystemToast("warning", "身份验证警告", message, `auth:${message}`);

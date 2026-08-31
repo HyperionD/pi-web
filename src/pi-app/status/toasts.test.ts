@@ -74,25 +74,6 @@ describe("pi-app toast notifications", () => {
     expect(app.setConnection).toHaveBeenCalledWith("err");
   });
 
-  it("shows system warnings for update and auth credential failures once", async () => {
-    const app = await connectPiApp();
-
-    app.notifyUpdateAvailable({ currentVersion: "1.0.0", latestVersion: "1.1.0" });
-    app.notifyUpdateAvailable({ currentVersion: "1.0.0", latestVersion: "1.1.0" });
-    app.notifyPiUpdateAvailable({ currentVersion: "0.75.0", latestVersion: "0.75.5", note: "security fix" });
-    app.notifyRuntimeWarning("Authentication failed for github-copilot. Credentials may have expired.");
-
-    const warnings = [...document.querySelectorAll(".session-toast.warning")];
-    expect(warnings).toHaveLength(3);
-    expect(warnings[0].textContent).toContain("pi-web 有可用更新");
-    expect(warnings[0].textContent).toContain("pi-web update");
-    expect(warnings[1].textContent).toContain("pi 有可用更新");
-    expect(warnings[1].textContent).toContain("pi update");
-    expect(warnings[1].textContent).toContain("security fix");
-    expect(warnings[2].textContent).toContain("身份验证警告");
-    expect(warnings[2].textContent).toContain("请在设置中重新登录");
-  });
-
   it("shows auth warnings instead of generic response errors for credential failures", async () => {
     const app = await connectPiApp();
     setActiveToastContext(app);

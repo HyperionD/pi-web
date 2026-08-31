@@ -10,11 +10,9 @@ import {
   getGitCommit,
   getGitHistory,
   getGitStatus,
-  getPiVersionStatus,
   getSession,
   getSessionContextUsage,
   setSessionModel,
-  getVersionStatus,
   getWorkspaceCommands,
   getWorkspaceFile,
   getWorkspaceFiles,
@@ -56,16 +54,6 @@ describe("api adapter", () => {
   it("fetches workspaces from the configured backend", async () => {
     const result = await getWorkspaces();
     expect(result.url).toBe("http://backend.test/api/workspaces");
-  });
-
-  it("fetches version status", async () => {
-    const result = await getVersionStatus();
-    expect(result.url).toBe("http://backend.test/api/version");
-  });
-
-  it("fetches pi version status", async () => {
-    const result = await getPiVersionStatus();
-    expect(result.url).toBe("http://backend.test/api/pi/version");
   });
 
   it("defaults to same-origin API paths for the embedded app", async () => {

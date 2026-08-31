@@ -14,7 +14,6 @@ import { layoutMethods } from "./status/layout-methods";
 import { compactionMethods } from "./status/compaction-methods";
 import { runtimeStatusMethods } from "./status/runtime-status-methods";
 import { toastMethods } from "./status/toast-methods";
-import { versionMethods } from "./status/version-methods";
 import { transcriptWindowMethods } from "./transcript/transcript-window-methods";
 import { oauthMethods } from "./workspace/oauth-methods";
 import { settingsMethods } from "./workspace/settings-methods";
@@ -27,29 +26,7 @@ class PiApp extends HTMLElement {
     this.prompt = this.querySelector(".prompt-textarea");
     this.sendButton = this.querySelector(".send-btn");
     this.stopButton = this.querySelector(".stop-btn");
-    this.micButton = this.querySelector(".mic-btn");
     this.attachButton = this.querySelector(".attach-btn");
-    this.readResponsesAloud = false;
-    this.enableSpeechInput = false;
-    this.useLocalWhisper = false;
-    this.whisperModel = "tiny-q5";
-    this.whisperPipeline = null;
-    this.whisperPipelineKey = "";
-    this.whisperLoadingPromise = null;
-    this.whisperLoadingKey = "";
-    this.whisperStatusFrame = null;
-    this.whisperStatusPending = null;
-    this.whisperStatusLastAt = 0;
-    this.whisperProgressByFile = new Map();
-    this.whisperProgressLoaded = 0;
-    this.whisperProgressTotal = 0;
-    this.voiceLanguage = "system";
-    this.speechLanguage = "system";
-    this.speechRecognition = null;
-    this.speechListening = false;
-    this.speechSilenceTimer = null;
-    this.speechRecorder = null;
-    this.speechRecordingChunks = [];
     this.fileInput = this.querySelector("[data-file-input]");
     this.attachments = this.querySelector(".attach-chips");
     this.slashPopover = this.querySelector(".slash-pop");
@@ -82,14 +59,12 @@ class PiApp extends HTMLElement {
     this.bootstrapAPI();
   }
   disconnectedCallback() {
-    this.stopSpeechInput?.();
     this.destroyFilePreviewEditor?.();
     this.eventSource?.close();
     this.backgroundSessionWatches?.forEach((watch) => watch.source?.close?.());
     this.backgroundSessionWatches?.clear?.();
     if (this.spinnerTimer) clearInterval(this.spinnerTimer);
     if (this.runtimeStatusTimer) clearInterval(this.runtimeStatusTimer);
-    if (this.updateTipTimer) clearTimeout(this.updateTipTimer);
     if (this.connectionErrorTimer) clearTimeout(this.connectionErrorTimer);
     this.toastDismissObserver?.disconnect?.();
     this.clearStreamingTail?.();
@@ -147,23 +122,12 @@ class PiApp extends HTMLElement {
       const locale = normalizeUiLocale((event.currentTarget as HTMLSelectElement).value);
       if (locale) setUiLocale(locale, this);
     });
-    globalThis.speechSynthesis?.addEventListener?.("voiceschanged", () => {
-      this.populateBrowserVoiceLanguageOptions?.();
-      this.fillSettingsForm?.();
-    });
     this.querySelector("[data-setting='defaultProvider']")?.addEventListener("change", (event) => {
       this.syncCustomSettingInput(event.currentTarget);
       this.fillModelControls();
     });
     this.querySelector("[data-setting='defaultModel']")?.addEventListener("change", (event) => {
       this.syncCustomSettingInput(event.currentTarget);
-    });
-    this.querySelector("[data-setting='speechInput.useLocalWhisper']")?.addEventListener("change", () => {
-      this.refreshWhisperModelRequirement?.();
-    });
-    this.querySelector("[data-setting='speechInput.whisperModel']")?.addEventListener("change", (event) => {
-      this.whisperModel = event.currentTarget.value || "tiny-q5";
-      void this.updateWhisperCacheStatus?.();
     });
     this.sendButton?.addEventListener("click", () => this.submitPrompt());
     this.stopButton?.addEventListener("click", () => this.cancelActiveSession());
@@ -520,7 +484,6 @@ Object.assign(
   compactionMethods,
   settingsMethods,
   oauthMethods,
-  versionMethods,
 );
 
 if (!customElements.get("pi-app")) customElements.define("pi-app", PiApp);

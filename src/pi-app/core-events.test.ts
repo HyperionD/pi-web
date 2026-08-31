@@ -41,7 +41,6 @@ describe("pi-app core events", () => {
     app.backgroundSessionWatches = new Map([["s2", { source: backgroundSource }]]);
     app.streamingRenderFrame = 1;
     app.scrollFrame = 2;
-    app.updateTipTimer = setTimeout(() => {}, 1000);
     app.uninstallViewportSizing = vi.fn();
     vi.spyOn(window, "cancelAnimationFrame").mockImplementation(() => undefined);
     app.disconnectedCallback();
@@ -55,9 +54,25 @@ describe("pi-app core events", () => {
     app.runtimeStatusTimer = undefined;
     app.streamingRenderFrame = undefined;
     app.scrollFrame = undefined;
-    app.updateTipTimer = undefined;
     expect(() => app.disconnectedCallback()).not.toThrow();
     vi.useRealTimers();
+  });
+
+  it("persists the sidebar width only after a resize gesture ends", async () => {
+    const app = await connectPiApp();
+    app.dataset.sidebarWidth = "280";
+    app.applyGrid = vi.fn();
+    localStorage.setItem.mockClear();
+
+    app.startResize(new PointerEvent("pointerdown", { clientX: 100 }));
+    window.dispatchEvent(new PointerEvent("pointermove", { clientX: 180 }));
+    expect(app.dataset.sidebarWidth).toBe("360");
+    expect(localStorage.setItem).not.toHaveBeenCalledWith("pi.sb.width", "360");
+
+    window.dispatchEvent(new PointerEvent("pointerup", { clientX: 180 }));
+    expect(localStorage.setItem).toHaveBeenCalledWith("pi.sb.width", "360");
+    window.dispatchEvent(new PointerEvent("pointermove", { clientX: 220 }));
+    expect(app.dataset.sidebarWidth).toBe("360");
   });
 
   it("clears streaming lifecycle state through the real disconnect path", async () => {
@@ -80,15 +95,9 @@ describe("pi-app core events", () => {
   it("binds DOM and window events to current methods", async () => {
     const app = await connectPiApp();
     const calls = [];
-    let voicesChanged;
-    vi.stubGlobal("speechSynthesis", {
-      addEventListener: vi.fn((event, callback) => {
-        if (event === "voiceschanged") voicesChanged = callback;
-      }),
-    });
     ["submitWorkspacePath", "submitCloneWorkspace", "submitShellCommand", "saveSettingsForm", "fillSettingsForm", "fillModelControls", "syncCustomSettingInput", "setModelControlsLoading",
       "submitPrompt", "cancelActiveSession", "handlePromptPaste", "navigateList", "pickSlash", "addFiles", "startResize",
-      "shortcut", "closeSessionMenus", "populateBrowserVoiceLanguageOptions"].forEach((name) => { app[name] = (...args) => calls.push([name, ...args]); });
+      "shortcut", "closeSessionMenus"].forEach((name) => { app[name] = (...args) => calls.push([name, ...args]); });
     app.slashPopover.hidden = false;
     app.slashPopover.removeAttribute("hidden");
     const pathForm = document.createElement("form");
@@ -122,8 +131,6 @@ describe("pi-app core events", () => {
     resizer.dispatchEvent(new PointerEvent("pointerdown"));
     window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
     window.dispatchEvent(new Event("click"));
-    voicesChanged();
-
     const tweaks = document.createElement("div");
     tweaks.dataset.tweaks = "";
     tweaks.hidden = true;
@@ -134,7 +141,6 @@ describe("pi-app core events", () => {
     expect(tweaks.hidden).toBe(true);
     expect(calls.map(([name]) => name)).toContain("submitWorkspacePath");
     expect(calls.map(([name]) => name)).toContain("navigateList");
-    expect(calls.map(([name]) => name)).toContain("populateBrowserVoiceLanguageOptions");
   });
 
   it("keeps settings controls usable when model discovery fails", async () => {

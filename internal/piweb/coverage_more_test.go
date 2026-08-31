@@ -199,10 +199,7 @@ func TestCoverageServerHandlers(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	server := NewServer(Config{
-		CurrentVersion: "1.0.0",
-		VersionStatus:  func(context.Context, string) (VersionStatus, error) { return VersionStatus{}, errors.New("version") },
-	}, store, NewBroker())
+	server := NewServer(Config{}, store, NewBroker())
 	h := server.Handler()
 
 	for _, tc := range []struct {
@@ -212,7 +209,7 @@ func TestCoverageServerHandlers(t *testing.T) {
 		code   int
 	}{
 		{http.MethodOptions, "/api/health", "", http.StatusNoContent},
-		{http.MethodGet, "/api/version", "", http.StatusOK},
+		{http.MethodGet, "/api/version", "", http.StatusNotFound},
 		{http.MethodGet, "/api/system/folders?path=" + root, "", http.StatusOK},
 		{http.MethodGet, "/api/system/folders?path=" + filepath.Join(root, "missing"), "", http.StatusBadRequest},
 		{http.MethodGet, "/api/workspaces", "", http.StatusOK},

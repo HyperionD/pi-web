@@ -10,7 +10,6 @@ import {
 } from "../../lib/api";
 import {
   SETTINGS_FIELDS,
-  SPEECH_LANGUAGE_OPTIONS,
   parseSettingsPatch,
   parseWorkspaceSettings,
   settingsScopeSchema,
@@ -32,51 +31,6 @@ function setPatchValue(patch, path, value) {
 
 function settingLabel(path) {
   return path.replace(/([A-Z])/g, " $1").replace(/\./g, " · ").replace(/^./, (char) => char.toUpperCase());
-}
-
-function baseLanguageCode(value) {
-  return String(value || "").trim().split("-")[0].toLowerCase();
-}
-
-function languageOptionFromList(control, value) {
-  const text = String(value || "").trim();
-  const list = control?.list;
-  if (!text || !list) return null;
-  return [...list.options].find((option) => (
-    option.value.toLowerCase() === text.toLowerCase()
-    || option.dataset.languageValue?.toLowerCase() === text.toLowerCase()
-  ));
-}
-
-function speechLanguageOption(value) {
-  const text = String(value || "").trim();
-  if (!text) return SPEECH_LANGUAGE_OPTIONS[0];
-  const lower = text.toLowerCase();
-  const aliases = { "en-us": "en", "ko-kr": "ko", "ja-jp": "ja", "zh-cn": "zh" };
-  const normalized = aliases[lower] || lower;
-  return SPEECH_LANGUAGE_OPTIONS.find((language) => (
-    language.value.toLowerCase() === normalized || language.label.toLowerCase() === lower
-  ));
-}
-
-function speechLanguageValue(value, control) {
-  const text = String(value || "").trim();
-  if (!text) return "system";
-  const listed = languageOptionFromList(control, text)?.dataset.languageValue;
-  return listed || speechLanguageOption(text)?.value || text;
-}
-
-function speechLanguageLabel(value, control) {
-  const text = String(value || "").trim();
-  if (!text) return "System default";
-  const listed = languageOptionFromList(control, text);
-  if (listed) return listed.value;
-  return speechLanguageOption(text)?.label || text;
-}
-
-function browserVoiceLanguageLabel(lang) {
-  if (lang === "system") return "System default";
-  return speechLanguageOption(baseLanguageCode(lang))?.label || lang;
 }
 
 function describeEffective(value) {
@@ -119,7 +73,6 @@ export const settingsMethods = {
     if (!workspaceId || !this.apiConnected) return;
     const { settings } = await getWorkspaceSettings(workspaceId);
     this.settingsState = parseWorkspaceSettings(settings);
-    this.syncSettingsStateToApp();
   },
 
   async openSettingsModal() {
@@ -152,7 +105,6 @@ export const settingsMethods = {
       return;
     }
     this.settingsState = parseWorkspaceSettings(settingsResult.value.settings);
-    this.populateBrowserVoiceLanguageOptions();
     if (authResult.status === "fulfilled") {
       this.authState = authResult.value;
       this.fillAuthForm();
@@ -169,7 +121,6 @@ export const settingsMethods = {
       this.fillFallbackModelControls();
     }
     this.fillSettingsForm();
-    this.syncSettingsStateToApp();
     const errors = [authResult, oauthResult, modelsResult]
       .filter((result) => result.status === "rejected")
       .map((result) => result.reason instanceof Error ? result.reason.message : String(result.reason));
@@ -219,34 +170,6 @@ export const settingsMethods = {
       event.preventDefault();
       first.focus();
     }
-  },
-
-  populateBrowserVoiceLanguageOptions() {
-    const control = this.querySelector("[data-setting='voice.language']");
-    const list = control?.list;
-    if (!list) return;
-    const selected = speechLanguageValue(control.value, control);
-    const voices = globalThis.speechSynthesis?.getVoices?.() || [];
-    const languagesByBase = new Map();
-    for (const voice of voices) {
-      if (!voice.lang) continue;
-      const base = baseLanguageCode(voice.lang);
-      const previous = languagesByBase.get(base);
-      const preferVoice = !previous || voice.lang === selected || (!previous.default && voice.default === true);
-      if (preferVoice) languagesByBase.set(base, voice);
-    }
-    const languages = [...languagesByBase.values()]
-      .map((voice) => voice.lang)
-      .sort((a, b) => browserVoiceLanguageLabel(a).localeCompare(browserVoiceLanguageLabel(b)));
-    const options = ["system", ...languages].map((language) => {
-      const option = document.createElement("option");
-      option.value = browserVoiceLanguageLabel(language);
-      option.label = language;
-      option.dataset.languageValue = language;
-      return option;
-    });
-    list.replaceChildren(...options);
-    control.value = speechLanguageLabel(selected, control);
   },
 
   setModelControlsLoading(message = "loading models…") {
@@ -314,7 +237,6 @@ export const settingsMethods = {
   fillSettingsForm() {
     const form = this.querySelector("[data-settings-form]");
     if (!form || !this.settingsState) return;
-    this.syncSecureContextSettingsControls();
     const scope = form.querySelector("[name='scope']")?.value || "project";
     const scopedSettings = this.settingsState[scope] || {};
     const effective = this.settingsState.effective || {};
@@ -325,29 +247,11 @@ export const settingsMethods = {
       const explicitValue = valueAt(scopedSettings, field.path);
       const effectiveValue = valueAt(effective, field.path);
       const hint = control.closest(".settings-field")?.querySelector("small");
-      const effectiveLabel = field.type === "password" && effectiveValue ? "set" : describeEffective(effectiveValue);
+      const effectiveLabel = describeEffective(effectiveValue);
       hint?.replaceChildren(`effective: ${effectiveLabel}`);
       this.fillSettingsControl(control, field, explicitValue, effectiveValue);
       if (field.path === "defaultProvider") this.fillModelControls();
     }
-    this.fillSpeechInputAdvancedControls(scopedSettings, effective);
-  },
-
-  fillSpeechInputAdvancedControls(scopedSettings, effective) {
-    const fields = [
-      { path: "speechInput.useLocalWhisper", type: "checkbox" },
-      { path: "speechInput.whisperModel", type: "whisperModel" },
-    ];
-    for (const field of fields) {
-      const control = this.querySelector(`[data-setting='${field.path}']`);
-      if (!control) continue;
-      const explicitValue = valueAt(scopedSettings, field.path);
-      const effectiveValue = valueAt(effective, field.path) || (field.path === "speechInput.whisperModel" ? "tiny-q5" : undefined);
-      const hint = control.closest(".settings-field")?.querySelector("small");
-      hint?.replaceChildren(`effective: ${describeEffective(effectiveValue)}`);
-      this.fillSettingsControl(control, field, explicitValue, effectiveValue);
-    }
-    void this.updateWhisperCacheStatus?.();
   },
 
   fillSettingsControl(control, field, explicitValue, effectiveValue) {
@@ -365,7 +269,7 @@ export const settingsMethods = {
       this.syncCustomSettingInput(control);
       return;
     }
-    if (field.type === "text" || field.type === "password" || field.type === "numberText") {
+    if (field.type === "text" || field.type === "numberText") {
       control.value = explicitValue === undefined ? "" : String(explicitValue);
       control.placeholder = field.type === "password" && effectiveValue ? "set" : describeEffective(effectiveValue);
       return;
@@ -376,19 +280,6 @@ export const settingsMethods = {
     }
     if (field.type === "checkbox") {
       control.checked = explicitValue === undefined ? effectiveValue === true : explicitValue === true;
-      return;
-    }
-    if (field.type === "voiceEngine") {
-      control.value = explicitValue === undefined ? String(effectiveValue || "browser") : String(explicitValue || "browser");
-      return;
-    }
-    if (field.type === "speechLanguage") {
-      const value = explicitValue === undefined ? effectiveValue || "system" : explicitValue || "system";
-      control.value = speechLanguageLabel(value, control);
-      return;
-    }
-    if (field.type === "whisperModel") {
-      control.value = explicitValue === undefined ? String(effectiveValue || "tiny-q5") : String(explicitValue || "tiny-q5");
       return;
     }
     control.value = explicitValue === undefined ? "inherit" : String(explicitValue);
@@ -466,10 +357,6 @@ export const settingsMethods = {
     const workspaceId = this.dataset.activeWorkspaceId;
     if (!form || !workspaceId || !this.apiConnected) return;
     const scopeValue = form.querySelector("[name='scope']")?.value || "project";
-    if (this.refreshWhisperModelRequirement?.() === false) {
-      this.setSettingsStatus("download selected Whisper model before saving", true);
-      return;
-    }
     this.setSettingsStatus("saving…");
     try {
       const scope = settingsScopeSchema.parse(scopeValue);
@@ -477,7 +364,6 @@ export const settingsMethods = {
       const { settings } = await saveWorkspaceSettings(workspaceId, scope, patch);
       this.settingsState = parseWorkspaceSettings(settings);
       this.fillSettingsForm();
-      this.syncSettingsStateToApp();
       this.setSettingsStatus("saved");
       void this.loadRuntimeStatus?.(workspaceId);
       if ("defaultProvider" in patch || "defaultModel" in patch) void this.applyEffectiveModelToActiveSession();
@@ -506,53 +392,18 @@ export const settingsMethods = {
     }
   },
 
-  syncSettingsStateToApp() {
-    const allowSpeechInput = this.speechInputAllowed?.() === true;
-    const speechInput = this.settingsState?.effective?.speechInput || {};
-    const voice = this.settingsState?.effective?.voice || {};
-    this.readResponsesAloud = this.settingsState?.effective?.readResponsesAloud === true;
-    this.voiceEngine = "browser";
-    this.enableSpeechInput = allowSpeechInput && this.settingsState?.effective?.enableSpeechInput === true;
-    this.useLocalWhisper = allowSpeechInput && speechInput.useLocalWhisper === true;
-    this.whisperModel = speechInput.whisperModel || "tiny-q5";
-    if (!this.enableSpeechInput) this.stopSpeechInput?.();
-    this.voiceLanguage = voice.language || this.settingsState?.effective?.speechLanguage || "system";
-    this.speechLanguage = speechInput.language || this.settingsState?.effective?.speechLanguage || "system";
-    this.syncReadAloudControls?.();
-    this.syncSecureContextSettingsControls();
-    this.syncSpeechInputControls?.();
-  },
-
-  syncReadAloudFromSettingsState() {
-    this.syncSettingsStateToApp();
-  },
-
-  syncSecureContextSettingsControls() {
-    const allowSpeechInput = this.speechInputAllowed?.() === true;
-    for (const field of this.querySelectorAll("[data-secure-context-only='https']")) {
-      field.hidden = !allowSpeechInput;
-    }
-  },
-
   settingsPatchFromForm(form) {
     const patch = {};
     const scope = form.querySelector("[name='scope']")?.value || "project";
     const scopedSettings = this.settingsState?.[scope] || {};
     const effective = this.settingsState?.effective || {};
-    const allowSpeechInput = this.speechInputAllowed?.() === true;
     const addChangedValue = (path, value) => {
       if (settingsValueChanged(scopedSettings, effective, path, value)) setPatchValue(patch, path, value);
     };
     for (const field of SETTINGS_FIELDS) {
-      if ((field.path === "enableSpeechInput" || field.path.startsWith("speechInput.")) && !allowSpeechInput) continue;
       const control = form.querySelector(`[data-setting='${field.path}']`);
       if (!control) continue;
       addChangedValue(field.path, this.settingValueFromControl(control, field));
-    }
-    for (const control of form.querySelectorAll("[data-setting^='speechInput.']")) {
-      if (!allowSpeechInput) continue;
-      const type = control.type === "checkbox" ? "checkbox" : control.dataset.settingType || "select";
-      addChangedValue(control.dataset.setting, this.settingValueFromControl(control, { type }));
     }
     return patch;
   },
@@ -575,10 +426,6 @@ export const settingsMethods = {
       return control.value;
     }
     if (field.type === "checkbox") return control.checked === true;
-    if (field.type === "speechLanguage") {
-      const value = speechLanguageValue(control.value, control);
-      return value === "system" ? null : value;
-    }
     if (control.value === "inherit") return null;
     if (field.type === "boolean") return control.value === "true";
     if (field.type === "numberSelect") return Number(control.value);

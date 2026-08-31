@@ -107,14 +107,6 @@ func defaultSettings() map[string]any {
 		"warnings": map[string]any{
 			"anthropicExtraUsage": true,
 		},
-		"remoteNotifications": map[string]any{
-			"discord": map[string]any{
-				"enabled": false,
-			},
-			"telegram": map[string]any{
-				"enabled": false,
-			},
-		},
 	}
 }
 
