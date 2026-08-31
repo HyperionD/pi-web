@@ -18,6 +18,28 @@ const tree = [
 ];
 
 describe("decorateFileTree", () => {
+  it("sorts folders before files and sorts each group by name recursively", () => {
+    const [assets, docs, alpha, zeta] = decorateFileTree([
+      { type: "file", name: "zeta.txt", path: "zeta.txt" },
+      {
+        type: "dir",
+        name: "docs",
+        path: "docs",
+        children: [
+          { type: "file", name: "zeta.md", path: "docs/zeta.md" },
+          { type: "dir", name: "B-guides", path: "docs/B-guides" },
+          { type: "file", name: "alpha.md", path: "docs/alpha.md" },
+          { type: "dir", name: "a-guides", path: "docs/a-guides" },
+        ],
+      },
+      { type: "dir", name: "assets", path: "assets" },
+      { type: "file", name: "alpha.txt", path: "alpha.txt" },
+    ]);
+
+    expect([assets.name, docs.name, alpha.name, zeta.name]).toEqual(["assets", "docs", "alpha.txt", "zeta.txt"]);
+    expect(docs.children?.map((child) => child.name)).toEqual(["a-guides", "B-guides", "alpha.md", "zeta.md"]);
+  });
+
   it("adds git status, selected state, and dirty folder ancestors", () => {
     const [src, readme] = decorateFileTree(tree, {
       "src/main.ts": "modified",
@@ -31,11 +53,11 @@ describe("decorateFileTree", () => {
     expect(src.expanded).toBe(true);
     expect(src.dirtyDescendants).toBe(true);
     expect(src.children?.map((child) => [child.path, child.gitStatus, child.selected])).toEqual([
+      ["src/clean.ts", "clean", false],
+      ["src/gone.ts", "deleted", false],
       ["src/main.ts", "modified", true],
       ["src/new.ts", "untracked", false],
-      ["src/gone.ts", "deleted", false],
       ["src/renamed.ts", "renamed", false],
-      ["src/clean.ts", "clean", false],
     ]);
     expect(readme.gitStatus).toBe("added");
   });

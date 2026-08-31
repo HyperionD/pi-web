@@ -32,7 +32,7 @@ export function decorateFileTree(
   selectedPath = "",
   expandedPaths: ReadonlySet<string> = new Set(),
 ): FileTreeNode[] {
-  return nodes.map((node) => decorateNode(node, statusMap, selectedPath, expandedPaths));
+  return sortFileTreeNodes(nodes).map((node) => decorateNode(node, statusMap, selectedPath, expandedPaths));
 }
 
 export function isDirtyStatus(status: GitFileStatus | string | undefined): boolean {
@@ -46,7 +46,7 @@ function decorateNode(
   expandedPaths: ReadonlySet<string>,
 ): FileTreeNode {
   const path = normalizePath(node.path || node.name);
-  const children = (node.children || []).map((child) => decorateNode(child, statusMap, selectedPath, expandedPaths));
+  const children = sortFileTreeNodes(node.children || []).map((child) => decorateNode(child, statusMap, selectedPath, expandedPaths));
   const gitStatus = normalizeGitStatus(statusMap[path] || node.status);
   const dirtyDescendants = children.some((child) => isDirtyStatus(child.gitStatus) || child.dirtyDescendants);
   const kind = node.type === "dir" ? "dir" : "file";
@@ -61,6 +61,20 @@ function decorateNode(
     selected: path === selectedPath,
     expanded: Boolean(node.open || expandedPaths.has(path)),
   };
+}
+
+function sortFileTreeNodes(nodes: RawFileNode[]): RawFileNode[] {
+  return nodes
+    .map((node, index) => ({ node, index }))
+    .sort((left, right) => {
+      const leftKind = left.node.type === "dir" ? 0 : 1;
+      const rightKind = right.node.type === "dir" ? 0 : 1;
+      if (leftKind !== rightKind) return leftKind - rightKind;
+
+      const nameOrder = left.node.name.toLowerCase().localeCompare(right.node.name.toLowerCase());
+      return nameOrder || left.index - right.index;
+    })
+    .map(({ node }) => node);
 }
 
 function normalizeGitStatus(status: GitFileStatus | string | undefined): GitFileStatus {
