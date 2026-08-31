@@ -67,9 +67,9 @@ describe("pi-app transcript virtualization", () => {
     expect(renderedMessages.at(-1).textContent).toContain("new tail message");
   });
 
-  it("renders only a preview for long tool output", async () => {
+  it("renders only the latest 4000 characters for long tool output", async () => {
     const app = await connectPiApp();
-    const largeBody = `${"line\n".repeat(5000)}tail-marker`;
+    const largeBody = `old-start\n${"x".repeat(20000)}\ntail-marker`;
 
     app.renderMessages([]);
     app.appendMessage({
@@ -82,7 +82,8 @@ describe("pi-app transcript virtualization", () => {
 
     const body = app.querySelector(".tool-card .tc-body");
     expect(body.hidden).toBe(false);
-    expect(body.textContent).not.toContain("tail-marker");
+    expect(body.textContent).not.toContain("old-start");
+    expect(body.textContent).toContain("tail-marker");
     expect(body.textContent.length).toBeLessThan(largeBody.length);
   });
 
@@ -99,7 +100,7 @@ describe("pi-app transcript virtualization", () => {
       body: largeBody,
     });
 
-    expect(app.querySelector(".tool-card .tc-body").textContent).not.toContain("tail-marker");
+    expect(app.querySelector(".tool-card .tc-body").textContent).toContain("tail-marker");
 
     app.showFullToolOutput(app.querySelector("[data-action='show-full-tool-output']"));
     expect(app.querySelector(".tool-card .tc-body").textContent).toContain("tail-marker");

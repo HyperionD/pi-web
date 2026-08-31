@@ -419,22 +419,39 @@ describe("pi-app transcript window", () => {
     expect(app.querySelector(".tool-card .tc-body").textContent).toContain("streamed output");
   });
 
-  it("previews long live tool output and keeps the full output available", async () => {
+  it("previews the latest 4000 characters of live tool output", async () => {
     const app = await connectPiApp();
     app.renderMessages([]);
     app.appendMessage({ kind: "tool", tool: "bash", status: "running" });
-    const output = `${"head\n".repeat(4000)}tail-marker`;
+    const output = `old-start\n${"x".repeat(20000)}\nlatest-marker`;
 
     app.appendToolOutput({ tool: "bash", chunk: output });
     await new Promise((resolve) => requestAnimationFrame(resolve));
 
     const body = app.querySelector(".tool-card .tc-body");
-    expect(body.textContent).not.toContain("tail-marker");
+    expect(body.textContent).not.toContain("old-start");
+    expect(body.textContent).toContain("latest-marker");
     expect(body.querySelector("[data-action='show-full-tool-output']")).not.toBeNull();
     expect(body.__fullToolBody).toBe(output);
+  });
+
+  it("updates the live preview with newly appended tool output", async () => {
+    const app = await connectPiApp();
+    app.renderMessages([]);
+    app.appendMessage({ kind: "tool", tool: "bash", status: "running" });
+    const output = `old-start\n${"x".repeat(20000)}`;
+
+    app.appendToolOutput({ tool: "bash", chunk: output });
+    await new Promise((resolve) => requestAnimationFrame(resolve));
+    app.appendToolOutput({ tool: "bash", chunk: "newest-marker" });
+    await new Promise((resolve) => requestAnimationFrame(resolve));
+
+    const body = app.querySelector(".tool-card .tc-body");
+    expect(body.textContent).toContain("newest-marker");
+    expect(body.__fullToolBody).toContain("newest-marker");
 
     app.showFullToolOutput(body.querySelector("[data-action='show-full-tool-output']"));
-    expect(body.textContent).toContain("tail-marker");
+    expect(body.textContent).toContain("old-start");
   });
 
   it("binds an existing scroll-bottom button", async () => {
