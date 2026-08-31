@@ -425,7 +425,8 @@ pre.ascii-banner .dim { color: var(--fg-3); }
   background: var(--bg-1);
   border-left: 1px solid var(--border);
 }
-.file-preview-panel { position: relative; }
+.file-preview-panel,
+.git-detail-panel { position: relative; }
 .fp-resizer {
   position: absolute;
   top: 0;

@@ -122,12 +122,14 @@ describe("pi-app core events", () => {
     const shellForm = document.createElement("form");
     const resizer = document.createElement("div");
     const inspectorResizer = document.createElement("div");
+    const gitInspectorResizer = document.createElement("div");
     pathForm.dataset.pathForm = "";
     cloneForm.dataset.cloneForm = "";
     shellForm.dataset.shellForm = "";
     resizer.className = "sb-resizer";
     inspectorResizer.className = "fp-resizer";
-    app.append(pathForm, cloneForm, shellForm, resizer, inspectorResizer);
+    gitInspectorResizer.className = "fp-resizer";
+    app.append(pathForm, cloneForm, shellForm, resizer, inspectorResizer, gitInspectorResizer);
     app.bindDomEvents();
 
     pathForm.dispatchEvent(new Event("submit"));
@@ -149,6 +151,7 @@ describe("pi-app core events", () => {
     app.fileInput.dispatchEvent(new Event("change"));
     resizer.dispatchEvent(new PointerEvent("pointerdown"));
     inspectorResizer.dispatchEvent(new PointerEvent("pointerdown"));
+    gitInspectorResizer.dispatchEvent(new PointerEvent("pointerdown"));
     window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
     window.dispatchEvent(new Event("click"));
     const tweaks = document.createElement("div");
