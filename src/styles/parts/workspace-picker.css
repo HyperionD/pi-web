@@ -2,14 +2,32 @@
 .icon-btn.on { color: var(--accent); border-color: var(--accent); }
 
 .prompt-meta {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
   padding: 0 var(--space-3) var(--space-2);
   font-size: var(--text-xs);
   color: var(--fg-2);
+  letter-spacing: .01em;
+}
+.prompt-meta > [data-prompt-meta] {
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  letter-spacing: .01em;
 }
+.compact-btn {
+  flex: 0 0 auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-1);
+  padding: 2px 6px;
+  background: var(--bg-1);
+  color: var(--fg-3);
+  font: inherit;
+  line-height: 1.2;
+}
+.compact-btn:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
+.compact-btn:disabled { cursor: not-allowed; opacity: .55; }
 .prompt-meta-item {
   display: inline-flex;
   align-items: center;

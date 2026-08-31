@@ -279,6 +279,8 @@ export const sessionMethods = {
 
   resetActiveSessionState() {
     this.running = false;
+    this.compacting = false;
+    this.syncCompactionControl?.();
     this.piDeltaBuffer = "";
     this.syncBackgroundSessionWatches?.();
     this.removeLoadingMessage?.();

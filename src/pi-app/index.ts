@@ -11,6 +11,7 @@ import { messageMethods } from "./messages/message-methods";
 import { toolMessageMethods } from "./messages/tool-message-methods";
 import { sessionMethods } from "./sessions/session-methods";
 import { layoutMethods } from "./status/layout-methods";
+import { compactionMethods } from "./status/compaction-methods";
 import { runtimeStatusMethods } from "./status/runtime-status-methods";
 import { toastMethods } from "./status/toast-methods";
 import { versionMethods } from "./status/version-methods";
@@ -60,6 +61,7 @@ class PiApp extends HTMLElement {
     this.apiConnected = false;
     this.currentFolder = "~";
     this.running = false;
+    this.compacting = false;
     this.attachmentContents = [];
     this.spinnerIndex = 0;
     this.piDeltaBuffer = "";
@@ -73,6 +75,7 @@ class PiApp extends HTMLElement {
     this.syncUnreadCompletedSessions?.();
     this.updatePrompt();
     this.updatePromptMeta();
+    this.syncCompactionControl?.();
     this.scrollTerm();
     this.startSpinners();
     this.startRuntimeStatusPolling();
@@ -284,15 +287,15 @@ class PiApp extends HTMLElement {
       onRunError: (message) => {
         if (this.dataset.activeSessionId !== sessionId) return;
         textBuffer = "";
+        this.commitStreamingMessages?.();
         this.notifyResponseFailure?.(message);
         this.setMode("idle");
-        this.finalizeStreamingMessages();
       },
       onRunFinished: () => {
         if (this.dataset.activeSessionId !== sessionId) return;
         textBuffer = "";
+        this.commitStreamingMessages?.();
         this.setMode(this.isSessionCancellationPending(sessionId) ? "cancelled" : "idle");
-        this.finalizeStreamingMessages();
       },
     };
   }
@@ -306,8 +309,15 @@ class PiApp extends HTMLElement {
     }
     if (event.type === "session.status") {
       const mode = event.payload?.status || "auto-accept";
+      if (mode === "compacting") {
+        this.setMode(mode);
+        return;
+      }
+      if (mode === "idle" || mode === "cancelled") {
+        this.compacting = false;
+        this.commitStreamingMessages?.();
+      }
       this.setMode(mode);
-      if (mode === "idle" || mode === "cancelled") this.finalizeStreamingMessages();
       return;
     }
     if (event.type === "session.message") {
@@ -359,6 +369,7 @@ class PiApp extends HTMLElement {
   setConnection(status) {
     const indicator = this.querySelector(".statusbtn");
     if (status === "ok") this.apiConnected = true;
+    this.syncCompactionControl?.();
     if (!indicator) return;
     const styles = {
       ok: ["var(--accent)", "connected"],
@@ -378,6 +389,16 @@ class PiApp extends HTMLElement {
 
   setMode(mode) {
     const sessionId = this.dataset.activeSessionId;
+    if (mode === "compacting") {
+      this.compacting = true;
+      this.running = false;
+      this.syncCurrentSessionRunState?.(false);
+      this.stopButton?.setAttribute("hidden", "");
+      this.syncCompactionControl?.();
+      this.syncLoadingMessage?.();
+      return;
+    }
+    this.compacting = false;
     if (mode === "idle" && this.isSessionCancellationPending(sessionId)) mode = "cancelled";
     const wasRunning = this.running;
     const willRun = ["running", "thinking"].includes(mode);
@@ -391,6 +412,7 @@ class PiApp extends HTMLElement {
     if (wasRunning && mode === "idle" && !this.responseFailureToastShown) this.notifyResponseCompletedOnce?.();
     if (!willRun && mode === "cancelled") this.clearSessionCancellationPending(sessionId);
     this.syncCurrentSessionRunState?.(this.running);
+    this.syncCompactionControl?.();
     this.stopButton?.toggleAttribute("hidden", !this.running);
     if (this.sendButton) this.updatePrompt();
     this.syncLoadingMessage?.();
@@ -495,6 +517,7 @@ Object.assign(
   layoutMethods,
   toastMethods,
   runtimeStatusMethods,
+  compactionMethods,
   settingsMethods,
   oauthMethods,
   versionMethods,

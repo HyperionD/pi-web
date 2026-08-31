@@ -247,6 +247,10 @@ export function cancelSession(sessionId) {
   return request(`/api/sessions/${encodeURIComponent(sessionId)}/cancel`, { method: "POST" });
 }
 
+export function compactSession(sessionId: string) {
+  return request(`/api/sessions/${encodeURIComponent(sessionId)}/compact`, { method: "POST" });
+}
+
 export function postPrompt(sessionId, text, attachments = []) {
   return request(`/api/sessions/${encodeURIComponent(sessionId)}/prompt`, {
     method: "POST",

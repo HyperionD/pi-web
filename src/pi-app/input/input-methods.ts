@@ -166,7 +166,7 @@ export const inputMethods = {
     const button = event.currentTarget.querySelector("button[type='submit']");
     if (button) button.disabled = true;
     this.showSessionMain();
-    this.finalizeStreamingMessages();
+    this.commitStreamingMessages();
     this.appendMessage({
       kind: "tool",
       tool: "shell",
@@ -301,6 +301,7 @@ export const inputMethods = {
     if (action === "show-update-tip") this.showUpdateTip?.();
     if (action === "open-settings") this.openSettingsModal?.();
     if (action === "close-settings") this.closeSettingsModal?.();
+    if (action === "compact-session") void this.compactActiveSession?.();
     if (action === "toggle-speech-input") this.toggleSpeechInput?.();
     if (action === "download-whisper-model") this.downloadWhisperModel?.();
     if (action === "delete-whisper-model") this.deleteWhisperModel?.();

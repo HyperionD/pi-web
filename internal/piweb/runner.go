@@ -37,9 +37,10 @@ type Runner struct {
 }
 
 type activePiRun struct {
-	cancel context.CancelFunc
-	stdin  io.WriteCloser
-	mu     sync.Mutex
+	cancel     context.CancelFunc
+	stdin      io.WriteCloser
+	compacting bool
+	mu         sync.Mutex
 }
 
 func NewRunner() *Runner {
@@ -75,14 +76,10 @@ func (r *Runner) StartPiPrompt(
 	stderr, _ := cmd.StderrPipe()
 
 	activeRun := &activePiRun{cancel: cancel, stdin: stdin}
-	r.mu.Lock()
-	if _, exists := r.running[sessionID]; exists {
-		r.mu.Unlock()
+	if err := r.claimRun(sessionID, activeRun); err != nil {
 		cancel()
-		return errors.New("session already running")
+		return err
 	}
-	r.running[sessionID] = activeRun
-	r.mu.Unlock()
 
 	if err := cmd.Start(); err != nil {
 		r.forgetRun(sessionID, activeRun)
@@ -156,7 +153,7 @@ func (r *Runner) Steer(sessionID string, text string, images []PromptAttachment)
 	r.mu.Lock()
 	run, ok := r.running[sessionID]
 	r.mu.Unlock()
-	if !ok {
+	if !ok || run.compacting {
 		return errors.New("session is not running")
 	}
 	return run.send(rpcPromptCommand(text, images, "steer"))
@@ -167,6 +164,13 @@ func (r *Runner) IsRunning(sessionID string) bool {
 	defer r.mu.Unlock()
 	_, ok := r.running[sessionID]
 	return ok
+}
+
+func (r *Runner) IsCompacting(sessionID string) bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	run, ok := r.running[sessionID]
+	return ok && run.compacting
 }
 
 func (r *Runner) forgetRun(sessionID string, run *activePiRun) {

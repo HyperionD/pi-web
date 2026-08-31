@@ -178,6 +178,12 @@ func jsonChunk(raw json.RawMessage) string {
 	if err := json.Unmarshal(raw, &text); err == nil {
 		return text
 	}
+	var envelope struct {
+		Content json.RawMessage `json:"content"`
+	}
+	if err := json.Unmarshal(raw, &envelope); err == nil && len(envelope.Content) > 0 && string(envelope.Content) != "null" {
+		return contentText(envelope.Content)
+	}
 	return fmt.Sprintf("%s", raw)
 }
 func eventTypeForMessage(msg Message) string {

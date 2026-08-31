@@ -83,7 +83,7 @@ export function installPiAppFixture() {
         <button class="send-btn" disabled>send</button>
         <button class="attach-btn">attach</button>
         <input data-file-input type="file" />
-        <div class="prompt-meta" data-prompt-meta></div>
+        <div class="prompt-meta"><span data-prompt-meta></span><button type="button" data-action="compact-session" disabled>compact</button></div>
       </div>
       <div class="settings-modal" data-settings-modal hidden>
         <form data-settings-form>

@@ -531,6 +531,69 @@ describe("pi-app messages", () => {
     expect(block.querySelector("[data-stream-text]").textContent).toBe("reason");
   });
 
+  it("commits streamed thinking when the AG-UI run finishes", async () => {
+    const app = await connectPiApp();
+    app.dataset.activeSessionId = "s1";
+    app.renderMessages([]);
+    const subscriber = app.aguiSubscriber("s1");
+
+    subscriber.onRunStarted();
+    subscriber.onThinkingDelta("reasoning");
+    subscriber.onTextDelta("answer");
+    subscriber.onTextEnd("answer");
+    subscriber.onRunFinished();
+
+    expect(app.querySelector(".term-inner .msg[data-kind='think']")?.textContent).toContain("reasoning");
+    expect(app.querySelector(".streaming-tail .msg.streaming[data-kind='think']")).toBeNull();
+  });
+
+  it("keeps partial streamed content visible when the AG-UI run fails", async () => {
+    const app = await connectPiApp();
+    app.dataset.activeSessionId = "s1";
+    app.notifyResponseFailure = vi.fn();
+    app.renderMessages([]);
+    const subscriber = app.aguiSubscriber("s1");
+
+    subscriber.onRunStarted();
+    subscriber.onThinkingDelta("reasoning");
+    subscriber.onTextDelta("partial answer");
+    subscriber.onRunError("backend failed");
+    subscriber.onRunFinished();
+
+    expect(app.termInner.textContent).toContain("reasoning");
+    expect(app.termInner.textContent).toContain("partial answer");
+    expect(app.querySelector(".streaming-tail .msg.streaming")).toBeNull();
+  });
+
+  it("commits streamed content when the session status becomes idle", async () => {
+    const app = await connectPiApp();
+    app.notifyResponseCompletedOnce = vi.fn();
+    app.renderMessages([]);
+    app.setMode("running");
+    app.appendDelta({ kind: "think", delta: "reasoning" });
+    app.appendDelta({ kind: "pi", delta: "summary" });
+
+    app.applyEvent({ type: "session.status", payload: { status: "idle" } });
+
+    expect(app.termInner.textContent).toContain("reasoning");
+    expect(app.termInner.textContent).toContain("summary");
+    expect(app.querySelector(".streaming-tail .msg.streaming")).toBeNull();
+  });
+
+  it("preserves streamed thinking and text when a new tool starts", async () => {
+    const app = await connectPiApp();
+    app.renderMessages([]);
+    app.setMode("running");
+    app.appendDelta({ kind: "think", delta: "reasoning" });
+    app.appendDelta({ kind: "pi", delta: "summary" });
+
+    app.appendMessage({ kind: "tool", tool: "bash", status: "running" });
+
+    expect(app.termInner.textContent).toContain("reasoning");
+    expect(app.termInner.textContent).toContain("summary");
+    expect(app.querySelector(".streaming-tail .msg.streaming")).toBeNull();
+  });
+
   it("keeps assistant streaming in the tail without height notification", async () => {
     const app = await connectPiApp();
     const heightNotification = vi.spyOn(app, "notifyTranscriptNodeHeightDidChange");

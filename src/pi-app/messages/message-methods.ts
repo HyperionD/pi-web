@@ -61,7 +61,7 @@ export const messageMethods = {
     this.removeLoadingMessage();
     if (message.kind === "pi" || message.kind === "think") this.finishRunningTools();
     if (message.kind === "pi") this.clearStreamingState("pi");
-    if (message.kind === "tool") this.finalizeStreamingMessages();
+    if (message.kind === "tool") this.commitStreamingMessages();
     for (const streamingRow of this.streamingRowsForKind(message.kind)) this.removeStreamingNode(streamingRow);
     this.appendTranscriptNode(this.messageNode(message), { stickToBottom: true });
     this.notifyPiMessageCommitted(message);
@@ -245,6 +245,23 @@ export const messageMethods = {
       ".fallback-choice-list",
     ].join(", "));
     return !!(historyActive || tailActive);
+  },
+
+  commitStreamingMessages() {
+    if (!this.streamingTail) return;
+    this.flushStreamingRender();
+    const messages = [...this.streamingTail.querySelectorAll(".msg.streaming")]
+      .filter((row) => !row.classList.contains("loading"))
+      .map((row) => {
+        const kind = row.dataset.kind;
+        const streamText = row.querySelector("[data-stream-text]")?.textContent;
+        const text = kind === "pi" ? row.dataset.streamText : streamText;
+        return kind && text ? { kind, text } : undefined;
+      })
+      .filter(Boolean);
+    this.finalizeStreamingMessages();
+    for (const message of messages) this.appendTranscriptNode(this.messageNode(message), { stickToBottom: false });
+    if (messages.length) this.renderTranscriptWindow({ stickToBottom: true });
   },
 
   finalizeStreamingMessages() {

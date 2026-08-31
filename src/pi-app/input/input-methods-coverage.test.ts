@@ -293,12 +293,17 @@ describe("pi-app input methods coverage", () => {
     app.append(form);
     app.apiConnected = true;
     app.dataset.activeWorkspaceId = "w1";
+    app.renderMessages([]);
+    app.appendDelta({ kind: "think", delta: "reasoning" });
+    app.appendDelta({ kind: "pi", delta: "summary" });
     app.loadRuntimeStatus = vi.fn();
     app.loadWorkspaceMeta = vi.fn();
     form.querySelector("input").value = "echo ok";
     globalThis.fetch = vi.fn(async () => ok({ exitCode: 0, durationMs: 1, output: "ok" }));
 
     await app.submitShellCommand({ preventDefault: vi.fn(), currentTarget: form });
+    expect(app.termInner.textContent).toContain("reasoning");
+    expect(app.termInner.textContent).toContain("summary");
     expect(app.querySelector(".tool-card").dataset.status).toBe("ok");
     expect(form.querySelector("input").value).toBe("");
 

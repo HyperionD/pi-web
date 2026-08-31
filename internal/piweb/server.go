@@ -104,6 +104,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("DELETE /api/sessions/{sessionID}", s.deleteSession)
 	s.mux.HandleFunc("POST /api/sessions/{sessionID}/prompt", s.prompt)
 	s.mux.HandleFunc("POST /api/sessions/{sessionID}/ag-ui", s.aguiSessionRun)
+	s.mux.HandleFunc("POST /api/sessions/{sessionID}/compact", s.compactSession)
 	s.mux.HandleFunc("POST /api/sessions/{sessionID}/steer", s.steerSession)
 	s.mux.HandleFunc("POST /api/sessions/{sessionID}/cancel", s.cancelSession)
 	s.mux.HandleFunc("GET /api/sessions/{sessionID}/events", s.sessionEvents)

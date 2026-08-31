@@ -26,6 +26,9 @@ func (s *Server) session(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) sessionStatus(sessionID string) string {
+	if s.runner.IsCompacting(sessionID) {
+		return "compacting"
+	}
 	if s.runner.IsRunning(sessionID) {
 		return "running"
 	}
@@ -93,6 +96,27 @@ func (s *Server) prompt(w http.ResponseWriter, r *http.Request) {
 		go s.broker.PublishMockPrompt(s.context(), s.store, sessionID, displayText)
 	}
 	writeJSON(w, http.StatusAccepted, map[string]any{"accepted": true, "realPi": s.config.EnablePiExecution})
+}
+func (s *Server) compactSession(w http.ResponseWriter, r *http.Request) {
+	sessionID := r.PathValue("sessionID")
+	if _, _, err := s.store.Session(sessionID); err != nil {
+		writeStoreError(w, err)
+		return
+	}
+	if !s.config.EnablePiExecution {
+		writeError(w, http.StatusNotImplemented, errors.New("pi execution is disabled"))
+		return
+	}
+	result, err := s.runner.Compact(s.context(), s.broker, s.store, sessionID)
+	if err != nil {
+		if errors.Is(err, errSessionBusy) {
+			writeError(w, http.StatusConflict, err)
+			return
+		}
+		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"compacted": true, "result": result})
 }
 func (s *Server) steerSession(w http.ResponseWriter, r *http.Request) {
 	sessionID := r.PathValue("sessionID")

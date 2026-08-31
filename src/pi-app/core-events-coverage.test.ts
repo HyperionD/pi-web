@@ -28,10 +28,13 @@ describe("pi-app core events coverage", () => {
     const app = await connectPiApp();
     Element.prototype.scrollIntoView = vi.fn();
     app.submitPrompt = vi.fn();
+    app.compactActiveSession = vi.fn();
     app.pickSlash = vi.fn();
     app.slashPopover.hidden = false;
     app.sendButton.disabled = false;
     app.sendButton.click();
+    app.querySelector("[data-action='compact-session']").disabled = false;
+    app.querySelector("[data-action='compact-session']").click();
     app.prompt.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", ctrlKey: true }));
     app.prompt.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter" }));
     expect(app.submitPrompt).toHaveBeenCalledTimes(1);
@@ -60,6 +63,7 @@ describe("pi-app core events coverage", () => {
     app.running = false;
 
     app.applyEvent({ type: "heartbeat" });
+    app.applyEvent({ type: "session.status", payload: { status: "compacting" } });
     app.applyEvent({ type: "session.status", payload: { status: "idle" } });
     app.applyEvent({ type: "session.status", payload: { status: "cancelled" } });
     app.applyEvent({ type: "session.status", payload: {} });

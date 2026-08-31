@@ -447,6 +447,30 @@ func TestSessionContextUsageEndpointUsesMockWhenPiDisabled(t *testing.T) {
 	}
 }
 
+func TestSessionCompactEndpointUsesPiRPC(t *testing.T) {
+	root := t.TempDir()
+	writeFakePi(t, root, `#!/bin/sh
+read request
+printf '%s\n' '{"type":"response","command":"compact","success":true,"data":{"tokensBefore":99,"estimatedTokensAfter":22}}'
+`)
+	store := NewMockStore()
+	workspace, err := store.OpenWorkspace(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	session, err := store.CreateSession(workspace.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := NewServer(Config{EnablePiExecution: true}, store, NewBroker())
+	req := httptest.NewRequest(http.MethodPost, "/api/sessions/"+session.ID+"/compact", nil)
+	res := httptest.NewRecorder()
+	server.Handler().ServeHTTP(res, req)
+	if res.Code != http.StatusOK || !strings.Contains(res.Body.String(), `"compacted":true`) || !strings.Contains(res.Body.String(), `"tokensBefore":99`) {
+		t.Fatalf("unexpected compact response: %d %s", res.Code, res.Body.String())
+	}
+}
+
 func TestSessionSetModelEndpointRejectsWhenPiDisabled(t *testing.T) {
 	server := NewServer(Config{EnablePiExecution: false}, NewMockStore(), NewBroker())
 	req := httptest.NewRequest(http.MethodPost, "/api/sessions/8e7c-44ff/model",

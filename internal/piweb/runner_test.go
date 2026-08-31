@@ -97,6 +97,26 @@ func TestHandlePiJSONEventPreservesToolCallID(t *testing.T) {
 	}
 }
 
+func TestHandlePiJSONEventRendersStructuredToolResultText(t *testing.T) {
+	broker := NewBroker()
+	store := NewMockStore()
+	state := &jsonStreamState{}
+	handlePiJSONEvent(`{"type":"tool_execution_start","toolCallId":"call-1","toolName":"bash","args":{"command":"ls"}}`, broker, store, "session", state)
+	handlePiJSONEvent(`{"type":"tool_execution_update","toolCallId":"call-1","toolName":"bash","partialResult":{"content":[{"type":"text","text":"partial output"}],"details":{"truncation":null}}}`, broker, store, "session", state)
+	handlePiJSONEvent(`{"type":"tool_execution_end","toolCallId":"call-1","toolName":"bash","result":{"content":[{"type":"text","text":"total output"}],"details":{}}}`, broker, store, "session", state)
+
+	events := broker.Replay("session", 0)
+	if len(events) != 3 {
+		t.Fatalf("unexpected tool events: %#v", events)
+	}
+	if got := events[1].Payload.(map[string]string)["chunk"]; got != "partial output" {
+		t.Fatalf("unexpected partial output: %q", got)
+	}
+	if got := events[2].Payload.(Message).Body; got != "total output" {
+		t.Fatalf("unexpected final output: %q", got)
+	}
+}
+
 func TestHandlePiJSONEventDoesNotDuplicateFinishedToolResult(t *testing.T) {
 	broker := NewBroker()
 	store := NewMockStore()

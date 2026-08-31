@@ -64,6 +64,66 @@ describe("context usage status", () => {
     expect(app.formatContextTokens(999)).toBe("999");
   });
 
+  it("compacts the active session and restores the compact control", async () => {
+    const app = await connectPiApp();
+    app.apiConnected = true;
+    app.dataset.activeSessionId = "s1";
+    globalThis.PI_WEB_API_BASE = "http://backend.test";
+    app.loadSession = vi.fn();
+    let resolveRequest;
+    globalThis.fetch = vi.fn(() => new Promise((resolve) => { resolveRequest = resolve; }));
+
+    const compacting = app.compactActiveSession();
+    const button = app.querySelector("[data-action='compact-session']");
+    expect(button.disabled).toBe(true);
+    expect(button.textContent).toBe("compacting…");
+    app.applyEvent({ type: "session.status", payload: { status: "idle" } });
+    expect(button.disabled).toBe(true);
+    expect(button.textContent).toBe("compacting…");
+    resolveRequest({ ok: true, json: async () => ({ compacted: true }) });
+    await compacting;
+
+    expect(globalThis.fetch).toHaveBeenCalledWith(
+      "http://backend.test/api/sessions/s1/compact",
+      expect.objectContaining({ method: "POST" }),
+    );
+    expect(app.loadSession).toHaveBeenCalledWith("s1");
+    expect(button.disabled).toBe(false);
+    expect(button.textContent).toBe("compact");
+  });
+
+  it("restores compacting mode when the session status is loaded", async () => {
+    const app = await connectPiApp();
+    app.apiConnected = true;
+    app.dataset.activeSessionId = "s1";
+
+    app.setMode("compacting");
+
+    expect(app.compacting).toBe(true);
+    expect(app.querySelector("[data-action='compact-session']").disabled).toBe(true);
+  });
+
+  it("resets the compact control after a compaction error", async () => {
+    const app = await connectPiApp();
+    app.apiConnected = true;
+    app.dataset.activeSessionId = "s1";
+    app.setConnection = vi.fn();
+    globalThis.PI_WEB_API_BASE = "http://backend.test";
+    globalThis.fetch = vi.fn(async () => ({
+      ok: false,
+      status: 500,
+      statusText: "Internal Server Error",
+      json: async () => ({ error: "quota exceeded" }),
+    }));
+
+    await app.compactActiveSession();
+
+    expect(app.setConnection).toHaveBeenCalledWith("err");
+    const button = app.querySelector("[data-action='compact-session']");
+    expect(button.disabled).toBe(false);
+    expect(button.textContent).toBe("compact");
+  });
+
   it("ignores context usage returned after the active session changes", async () => {
     const app = await connectPiApp();
     app.apiConnected = true;
