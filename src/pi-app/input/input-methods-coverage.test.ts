@@ -26,6 +26,19 @@ function aguiResponse() {
   }), { status: 200, headers: { "Content-Type": "text/event-stream" } });
 }
 
+function aguiErrorResponse(message = "model failed") {
+  const events = [
+    { type: "RUN_STARTED", threadId: "s1", runId: "r1" },
+    { type: "RUN_ERROR", threadId: "s1", runId: "r1", message },
+  ].map((event) => `data: ${JSON.stringify(event)}\n\n`).join("");
+  return new Response(new ReadableStream({
+    start(controller) {
+      controller.enqueue(new TextEncoder().encode(events));
+      controller.close();
+    },
+  }), { status: 200, headers: { "Content-Type": "text/event-stream" } });
+}
+
 describe("pi-app input methods coverage", () => {
   beforeEach(() => {
     installPiAppFixture();
@@ -245,6 +258,21 @@ describe("pi-app input methods coverage", () => {
     app.prompt.value = "bad";
     await app.submitSteeringPrompt("bad");
     expect(app.setConnection).toHaveBeenCalledWith("err");
+  });
+
+  it("keeps AG-UI model errors visible after the request finishes", async () => {
+    const app = await connectPiApp();
+    globalThis.EventSource = class {};
+    globalThis.fetch = vi.fn(async () => aguiErrorResponse());
+    app.apiConnected = true;
+    app.dataset.activeSessionId = "s1";
+    app.connectEvents = vi.fn();
+    app.prompt.value = "agui error";
+
+    await app.submitPrompt();
+
+    expect(app.termInner.textContent).toContain("model failed");
+    expect(app.querySelector(".term-inner .msg.error .body")?.textContent).toBe("model failed");
   });
 
   it("cleans up completed AG-UI prompt and fallback choice streams", async () => {

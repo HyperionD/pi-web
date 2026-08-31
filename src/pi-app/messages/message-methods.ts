@@ -156,9 +156,8 @@ export const messageMethods = {
     const text = responseErrorText(detail);
     if (!text || this.responseErrorMessageShown) return;
     this.responseErrorMessageShown = true;
-    const messageRow = this.simpleMessage("error streaming", "error >", text);
-    messageRow.classList.add("error", "streaming");
-    this.appendStreamingNode(messageRow);
+    const messageRow = this.messageNode({ kind: "error", text });
+    this.appendTranscriptNode(messageRow, { stickToBottom: true });
     this.scrollTerm();
   },
 

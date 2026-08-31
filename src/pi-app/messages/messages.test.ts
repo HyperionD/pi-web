@@ -526,20 +526,16 @@ describe("pi-app messages", () => {
     expect(app.querySelector(".streaming-tail .msg.streaming")).toBeNull();
   });
 
-  it("renders response errors as escaped messages and commits them after streaming", async () => {
+  it("renders response errors as escaped transcript messages", async () => {
     const app = await connectPiApp();
     app.renderMessages([]);
 
     app.appendErrorMessage("<script>alert('xss')</script>");
 
-    const streamingError = app.querySelector(".streaming-tail .msg.error");
-    expect(streamingError?.querySelector(".prefix")?.textContent).toBe("error >");
-    expect(streamingError?.querySelector(".body")?.textContent).toBe("<script>alert('xss')</script>");
-    expect(streamingError?.querySelector(".body")?.innerHTML).not.toContain("<script>");
-
-    app.commitStreamingMessages();
-
-    expect(app.querySelector(".term-inner .msg.error .body")?.textContent).toBe("<script>alert('xss')</script>");
+    const error = app.querySelector(".term-inner .msg.error");
+    expect(error?.querySelector(".prefix")?.textContent).toBe("error >");
+    expect(error?.querySelector(".body")?.textContent).toBe("<script>alert('xss')</script>");
+    expect(error?.querySelector(".body")?.innerHTML).not.toContain("<script>");
     expect(app.querySelector(".streaming-tail .msg.error")).toBeNull();
   });
 
