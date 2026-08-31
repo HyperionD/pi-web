@@ -93,7 +93,27 @@ func readAppConfig(path string) (map[string]any, error) {
 	if stored == nil {
 		return map[string]any{}, nil
 	}
+	if err := normalizeStoredAppConfig(stored); err != nil {
+		return nil, fmt.Errorf("read app config %q: %w", path, err)
+	}
 	return stored, nil
+}
+
+func normalizeStoredAppConfig(stored map[string]any) error {
+	value, ok := stored["brand"]
+	if !ok {
+		return nil
+	}
+	brand, err := normalizedAppBrand(value)
+	if err != nil {
+		return err
+	}
+	if brand == "" {
+		delete(stored, "brand")
+	} else {
+		stored["brand"] = brand
+	}
+	return nil
 }
 
 func applyAppConfigPatch(stored, patch map[string]any) error {
@@ -142,6 +162,9 @@ func normalizedAppBrand(value any) (string, error) {
 func writeAppConfig(path string, stored map[string]any) error {
 	dir := filepath.Dir(path)
 	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return err
+	}
+	if err := os.Chmod(dir, 0o700); err != nil {
 		return err
 	}
 	temporary, err := os.CreateTemp(dir, ".pi-web-config-*.tmp")

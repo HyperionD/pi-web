@@ -151,6 +151,47 @@ func TestLoadAppConfigTreatsZeroLengthFileAsDefaults(t *testing.T) {
 	}
 }
 
+func TestLoadAppConfigValidatesStoredBrand(t *testing.T) {
+	cases := []struct {
+		name      string
+		brand     any
+		wantBrand string
+		wantError bool
+	}{
+		{name: "trims", brand: "  Custom  ", wantBrand: "Custom"},
+		{name: "blank resets", brand: " \t\n ", wantBrand: DefaultAppBrand},
+		{name: "null resets", brand: nil, wantBrand: DefaultAppBrand},
+		{name: "wrong type", brand: 42, wantError: true},
+		{name: "control character", brand: "bad\x00brand", wantError: true},
+		{name: "too long", brand: strings.Repeat("a", 121), wantError: true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			root := t.TempDir()
+			t.Setenv("PI_CODING_AGENT_SESSION_DIR", filepath.Join(root, "sessions"))
+			path := filepath.Join(root, "pi-web-config.json")
+			data, err := json.Marshal(map[string]any{"brand": tc.brand})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(path, data, 0o600); err != nil {
+				t.Fatal(err)
+			}
+
+			response, err := LoadAppConfig()
+			if tc.wantError {
+				if err == nil {
+					t.Fatal("expected invalid stored brand error")
+				}
+				return
+			}
+			if err != nil || response.Config["brand"] != tc.wantBrand {
+				t.Fatalf("response=%+v err=%v", response, err)
+			}
+		})
+	}
+}
+
 func TestSaveAppConfigCreatesPrivateDirectoriesAndFile(t *testing.T) {
 	root := t.TempDir()
 	sessionDir := filepath.Join(root, "agent", "sessions")
@@ -168,7 +209,7 @@ func TestSaveAppConfigCreatesPrivateDirectoriesAndFile(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if mode := dirInfo.Mode().Perm(); mode&0o077 != 0 {
+	if mode := dirInfo.Mode().Perm(); mode != 0o700 {
 		t.Fatalf("directory permissions=%o", mode)
 	}
 	fileInfo, err := os.Stat(path)
@@ -177,6 +218,46 @@ func TestSaveAppConfigCreatesPrivateDirectoriesAndFile(t *testing.T) {
 	}
 	if mode := fileInfo.Mode().Perm(); mode != 0o600 {
 		t.Fatalf("file permissions=%o", mode)
+	}
+}
+
+func TestSaveAppConfigCorrectsExistingDirectoryPermissions(t *testing.T) {
+	root := t.TempDir()
+	sessionDir := filepath.Join(root, "agent", "sessions")
+	t.Setenv("PI_CODING_AGENT_SESSION_DIR", sessionDir)
+	configDir := filepath.Dir(filepath.Join(root, "agent", "pi-web-config.json"))
+	if err := os.MkdirAll(configDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(configDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	path, err := SaveAppConfig(map[string]any{"brand": "Custom"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	dirInfo, err := os.Stat(filepath.Dir(path.Path))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if mode := dirInfo.Mode().Perm(); mode != 0o700 {
+		t.Fatalf("directory permissions=%o", mode)
+	}
+	fileInfo, err := os.Stat(path.Path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if mode := fileInfo.Mode().Perm(); mode != 0o600 {
+		t.Fatalf("file permissions=%o", mode)
+	}
+}
+
+func TestAppConfigPathReturnsErrorWhenDefaultSessionDirectoryEmpty(t *testing.T) {
+	t.Setenv("PI_CODING_AGENT_SESSION_DIR", "")
+	t.Setenv("HOME", "")
+	if _, err := AppConfigPath(); err == nil {
+		t.Fatal("expected empty default session directory error")
 	}
 }
 
