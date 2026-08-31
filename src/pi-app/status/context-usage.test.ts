@@ -76,10 +76,10 @@ describe("context usage status", () => {
     const compacting = app.compactActiveSession();
     const button = app.querySelector("[data-action='compact-session']");
     expect(button.disabled).toBe(true);
-    expect(button.textContent).toBe("compacting…");
+    expect(button.textContent).toBe("压缩中…");
     app.applyEvent({ type: "session.status", payload: { status: "idle" } });
     expect(button.disabled).toBe(true);
-    expect(button.textContent).toBe("compacting…");
+    expect(button.textContent).toBe("压缩中…");
     resolveRequest({ ok: true, json: async () => ({ compacted: true }) });
     await compacting;
 
@@ -89,7 +89,7 @@ describe("context usage status", () => {
     );
     expect(app.loadSession).toHaveBeenCalledWith("s1");
     expect(button.disabled).toBe(false);
-    expect(button.textContent).toBe("compact");
+    expect(button.textContent).toBe("压缩上下文");
   });
 
   it("restores compacting mode when the session status is loaded", async () => {
@@ -121,7 +121,7 @@ describe("context usage status", () => {
     expect(app.setConnection).toHaveBeenCalledWith("err");
     const button = app.querySelector("[data-action='compact-session']");
     expect(button.disabled).toBe(false);
-    expect(button.textContent).toBe("compact");
+    expect(button.textContent).toBe("压缩上下文");
   });
 
   it("ignores context usage returned after the active session changes", async () => {

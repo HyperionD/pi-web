@@ -8,9 +8,9 @@ export const compactionMethods = {
     const compacting = this.compacting || requestPending;
     const disabled = !this.dataset.activeSessionId || !this.apiConnected || this.running || compacting;
     button.disabled = disabled;
-    button.textContent = compacting ? "compacting…" : "compact";
-    button.setAttribute("aria-label", compacting ? "compacting context" : "compact context");
-    button.title = compacting ? "compacting context" : "compact context";
+    button.textContent = compacting ? "压缩中…" : "压缩上下文";
+    button.setAttribute("aria-label", compacting ? "正在压缩上下文" : "压缩上下文");
+    button.title = compacting ? "正在压缩上下文" : "压缩上下文";
   },
 
   async compactActiveSession() {
