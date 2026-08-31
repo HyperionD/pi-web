@@ -55,6 +55,8 @@ func (s *Server) Handler() http.Handler {
 }
 func (s *Server) routes() {
 	s.mux.HandleFunc("GET /api/health", s.health)
+	s.mux.HandleFunc("GET /api/app-config", s.appConfig)
+	s.mux.HandleFunc("PATCH /api/app-config", s.patchAppConfig)
 	s.mux.HandleFunc("GET /api/auth/providers", s.authProviders)
 	s.mux.HandleFunc("GET /api/auth/oauth/providers", s.oauthProviders)
 	s.mux.HandleFunc("POST /api/auth/oauth/start", s.startOAuthLogin)

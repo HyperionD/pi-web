@@ -1,0 +1,90 @@
+package piweb
+
+import (
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+)
+
+func TestAppConfigAPIWorksWithoutWorkspace(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv("PI_CODING_AGENT_SESSION_DIR", filepath.Join(root, "sessions"))
+	server := NewServer(Config{}, NewWebStore(filepath.Join(root, "web.db")), NewBroker())
+
+	get := httptest.NewRecorder()
+	server.Handler().ServeHTTP(get, httptest.NewRequest(http.MethodGet, "/api/app-config", nil))
+	if get.Code != http.StatusOK || !strings.Contains(get.Body.String(), `"brand":"pi.dev / web"`) {
+		t.Fatalf("GET %d %s", get.Code, get.Body.String())
+	}
+
+	patch := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodPatch, "/api/app-config", strings.NewReader(`{"brand":"JuunAI / web"}`))
+	server.Handler().ServeHTTP(patch, request)
+	if patch.Code != http.StatusOK || !strings.Contains(patch.Body.String(), `"brand":"JuunAI / web"`) {
+		t.Fatalf("PATCH %d %s", patch.Code, patch.Body.String())
+	}
+}
+
+func TestAppConfigAPIPatchRejectsMalformedJSON(t *testing.T) {
+	server := newAppConfigAPIServer(t)
+	request := httptest.NewRequest(http.MethodPatch, "/api/app-config", strings.NewReader(`{"brand":`))
+	response := httptest.NewRecorder()
+
+	server.Handler().ServeHTTP(response, request)
+
+	if response.Code != http.StatusBadRequest {
+		t.Fatalf("PATCH status=%d body=%s", response.Code, response.Body.String())
+	}
+}
+
+func TestAppConfigAPIPatchRejectsNullObject(t *testing.T) {
+	server := newAppConfigAPIServer(t)
+	request := httptest.NewRequest(http.MethodPatch, "/api/app-config", strings.NewReader(`null`))
+	response := httptest.NewRecorder()
+
+	server.Handler().ServeHTTP(response, request)
+
+	if response.Code != http.StatusBadRequest {
+		t.Fatalf("PATCH status=%d body=%s", response.Code, response.Body.String())
+	}
+}
+
+func TestAppConfigAPIPatchRejectsInvalidBrand(t *testing.T) {
+	server := newAppConfigAPIServer(t)
+	request := httptest.NewRequest(http.MethodPatch, "/api/app-config", strings.NewReader(`{"brand":42}`))
+	response := httptest.NewRecorder()
+
+	server.Handler().ServeHTTP(response, request)
+
+	if response.Code != http.StatusBadRequest {
+		t.Fatalf("PATCH status=%d body=%s", response.Code, response.Body.String())
+	}
+}
+
+func TestAppConfigAPIReportsStorageFailure(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv("PI_CODING_AGENT_SESSION_DIR", filepath.Join(root, "sessions"))
+	configPath := filepath.Join(root, "pi-web-config.json")
+	if err := os.Mkdir(configPath, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	server := NewServer(Config{}, NewWebStore(filepath.Join(root, "web.db")), NewBroker())
+	request := httptest.NewRequest(http.MethodGet, "/api/app-config", nil)
+	response := httptest.NewRecorder()
+
+	server.Handler().ServeHTTP(response, request)
+
+	if response.Code != http.StatusInternalServerError {
+		t.Fatalf("GET status=%d body=%s", response.Code, response.Body.String())
+	}
+}
+
+func newAppConfigAPIServer(t *testing.T) *Server {
+	t.Helper()
+	root := t.TempDir()
+	t.Setenv("PI_CODING_AGENT_SESSION_DIR", filepath.Join(root, "sessions"))
+	return NewServer(Config{}, NewWebStore(filepath.Join(root, "web.db")), NewBroker())
+}
