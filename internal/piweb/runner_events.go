@@ -9,9 +9,11 @@ import (
 )
 
 type jsonStreamState struct {
-	streamedText     bool
-	streamedThinking bool
-	errorReported    bool
+	streamedText      bool
+	streamedThinking  bool
+	errorReported     bool
+	finishedToolIDs   map[string]struct{}
+	finishedToolNames map[string]int
 }
 
 func handlePiJSONEvent(line string, broker *Broker, store *Store, sessionID string, state *jsonStreamState) bool {
@@ -22,6 +24,7 @@ func handlePiJSONEvent(line string, broker *Broker, store *Store, sessionID stri
 		Error                 string          `json:"error"`
 		Message               json.RawMessage `json:"message"`
 		ToolName              string          `json:"toolName"`
+		ToolCallID            string          `json:"toolCallId"`
 		Args                  json.RawMessage `json:"args"`
 		PartialResult         json.RawMessage `json:"partialResult"`
 		Result                json.RawMessage `json:"result"`
@@ -68,6 +71,9 @@ func handlePiJSONEvent(line string, broker *Broker, store *Store, sessionID stri
 	case "message_end":
 		reportAssistantError(event.Message, broker, sessionID, state)
 		for _, msg := range convertAgentMessages(event.Message) {
+			if msg.Kind == "tool" && state.toolWasFinished(msg) {
+				continue
+			}
 			if msg.Kind == "user" {
 				continue
 			}
@@ -85,17 +91,18 @@ func handlePiJSONEvent(line string, broker *Broker, store *Store, sessionID stri
 		}
 		return true
 	case "tool_execution_start":
-		broker.Publish(sessionID, "tool.started", Message{Kind: "tool", Tool: event.ToolName, Args: string(event.Args), Status: "running", CollapsedByDefault: true})
+		broker.Publish(sessionID, "tool.started", Message{ID: event.ToolCallID, Kind: "tool", Tool: event.ToolName, Args: string(event.Args), Status: "running", CollapsedByDefault: true})
 		return true
 	case "tool_execution_update":
-		broker.Publish(sessionID, "tool.output", map[string]string{"tool": event.ToolName, "chunk": jsonChunk(event.PartialResult)})
+		broker.Publish(sessionID, "tool.output", map[string]string{"id": event.ToolCallID, "tool": event.ToolName, "chunk": jsonChunk(event.PartialResult)})
 		return true
 	case "tool_execution_end":
+		state.markToolFinished(event.ToolCallID, event.ToolName)
 		status := "ok"
 		if event.IsError {
 			status = "err"
 		}
-		msg := Message{Kind: "tool", Tool: event.ToolName, Args: string(event.Args), Status: status, Body: jsonChunk(event.Result), CollapsedByDefault: true}
+		msg := Message{ID: event.ToolCallID, Kind: "tool", Tool: event.ToolName, Args: string(event.Args), Status: status, Body: jsonChunk(event.Result), CollapsedByDefault: true}
 		_ = store.AppendMessage(sessionID, msg)
 		broker.Publish(sessionID, "tool.finished", msg)
 		return true
@@ -108,6 +115,34 @@ func handlePiJSONEvent(line string, broker *Broker, store *Store, sessionID stri
 		return true
 	}
 }
+func (state *jsonStreamState) markToolFinished(id, name string) {
+	if state.finishedToolIDs == nil {
+		state.finishedToolIDs = map[string]struct{}{}
+	}
+	if state.finishedToolNames == nil {
+		state.finishedToolNames = map[string]int{}
+	}
+	if id != "" {
+		state.finishedToolIDs[id] = struct{}{}
+		return
+	}
+	if name != "" {
+		state.finishedToolNames[name]++
+	}
+}
+
+func (state *jsonStreamState) toolWasFinished(message Message) bool {
+	if message.ID != "" {
+		_, ok := state.finishedToolIDs[message.ID]
+		return ok
+	}
+	if state.finishedToolNames[message.Tool] == 0 {
+		return false
+	}
+	state.finishedToolNames[message.Tool]--
+	return true
+}
+
 func reportAssistantError(raw json.RawMessage, broker *Broker, sessionID string, state *jsonStreamState) {
 	message := assistantErrorMessage(raw)
 	if message == "" || state.errorReported {

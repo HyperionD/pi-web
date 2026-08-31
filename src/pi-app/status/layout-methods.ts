@@ -1,4 +1,5 @@
 import { fullToolBody } from "../messages/tool-output-rendering";
+import { renderAnsiBody } from "../../lib/renderers";
 
 const SIDEBAR_WIDTH_KEY = "pi.sb.width";
 
@@ -130,13 +131,11 @@ export const layoutMethods = {
   },
 
   toggleTool(button) {
-    const card = button.closest(".tool-card");
+    const card = button?.closest?.(".tool-card");
     const body = card?.querySelector(".tc-body");
     if (!card || !body) return;
-    card.classList.toggle("collapsed", !body.hidden);
-    body.hidden = !body.hidden;
-    button.setAttribute("aria-expanded", String(!body.hidden));
-    button.querySelector(".tc-caret").textContent = body.hidden ? "▸" : "▾";
+    card.classList.remove("collapsed");
+    body.hidden = false;
     this.notifyTranscriptNodeHeightDidChange(card);
   },
 
@@ -144,7 +143,7 @@ export const layoutMethods = {
     const body = button?.closest(".tc-body");
     const fullBody = fullToolBody(body);
     if (!body || !fullBody) return;
-    body.textContent = fullBody;
+    body.innerHTML = renderAnsiBody(fullBody);
     body.dataset.largeToolBody = "rendered";
     this.notifyTranscriptNodeHeightDidChange(body);
   },

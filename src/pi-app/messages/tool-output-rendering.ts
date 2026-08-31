@@ -20,8 +20,8 @@ export function renderToolBodyPreview(body = "") {
   ].join("");
 }
 
-export function renderToolBody(body = "", { collapsed = false } = {}) {
-  if (collapsed && isLargeToolBody(body)) return renderToolBodyPreview(body);
+export function renderToolBody(body = "", { full = false } = {}) {
+  if (!full && isLargeToolBody(body)) return renderToolBodyPreview(body);
   return renderAnsiBody(body);
 }
 
@@ -32,5 +32,5 @@ export function storeFullToolBody(element, body = "") {
 }
 
 export function fullToolBody(element) {
-  return element?.__fullToolBody || "";
+  return element?.__fullToolBody || element?.dataset?.fullToolBody || "";
 }

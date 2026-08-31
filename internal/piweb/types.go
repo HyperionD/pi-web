@@ -34,6 +34,7 @@ type FileNode struct {
 }
 
 type Message struct {
+	ID                 string             `json:"id,omitempty"`
 	Kind               string             `json:"kind"`
 	Text               string             `json:"text,omitempty"`
 	Attachments        []PromptAttachment `json:"attachments,omitempty"`

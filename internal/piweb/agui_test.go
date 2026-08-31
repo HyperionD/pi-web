@@ -63,6 +63,24 @@ func TestAguiStreamPreservesWhitespaceOnlyTextDeltas(t *testing.T) {
 	}
 }
 
+func TestAguiStreamPreservesToolCallIDs(t *testing.T) {
+	res := httptest.NewRecorder()
+	stream := newAguiEventStream(res, t.Context())
+	state := newAguiStreamState("thread", "run", "session")
+
+	state.consume(Event{Type: "tool.started", Payload: Message{ID: "call-1", Tool: "bash"}}, stream)
+	state.consume(Event{Type: "tool.output", Payload: map[string]string{"id": "call-1", "tool": "bash", "chunk": "output"}}, stream)
+	state.consume(Event{Type: "tool.finished", Payload: Message{ID: "call-1", Tool: "bash", Body: "output"}}, stream)
+
+	got := res.Body.String()
+	if strings.Count(got, `"toolCallId":"call-1"`) < 3 {
+		t.Fatalf("expected tool call id in AG-UI events:\n%s", got)
+	}
+	if !strings.Contains(got, `"type":"TOOL_CALL_RESULT"`) || strings.Contains(got, `"type":"TOOL_CALL_ARGS"`) {
+		t.Fatalf("tool output must use AG-UI result events:\n%s", got)
+	}
+}
+
 func TestAguiSessionRunRejectsMissingText(t *testing.T) {
 	t.Setenv("PI_CODING_AGENT_SESSION_DIR", t.TempDir())
 	store := NewMockStore()

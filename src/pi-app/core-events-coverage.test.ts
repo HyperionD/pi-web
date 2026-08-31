@@ -86,6 +86,7 @@ describe("pi-app core events coverage", () => {
     app.appendDelta = vi.fn();
     app.appendMessage = vi.fn();
     app.appendToolOutput = vi.fn();
+    app.updateToolArgs = vi.fn();
     app.finishTool = vi.fn();
     app.notifyResponseFailure = vi.fn();
     app.finalizePiStream = vi.fn();
@@ -106,15 +107,15 @@ describe("pi-app core events coverage", () => {
     app.running = true;
     subscriber.onThinkingDelta("think again");
     app.running = false;
-    subscriber.onToolStart({ name: "bash" });
+    subscriber.onToolStart({ id: "call-0", name: "bash" });
     app.running = true;
-    subscriber.onToolStart({ name: "bash" });
+    subscriber.onToolStart({ id: "call-1", name: "bash" });
     app.running = false;
-    subscriber.onToolArgs({ name: "bash", chunk: "args" });
+    subscriber.onToolArgs({ id: "call-1", name: "bash", chunk: "args" });
     app.running = true;
-    subscriber.onToolArgs({ name: "bash", chunk: "args again" });
-    subscriber.onToolResult({ name: "bash", content: "result" });
-    subscriber.onToolEnd({ name: "bash", args: "{}", body: "body" });
+    subscriber.onToolArgs({ id: "call-1", name: "bash", chunk: "args again" });
+    subscriber.onToolResult({ id: "call-1", name: "bash", content: "result" });
+    subscriber.onToolEnd({ id: "call-1", name: "bash", args: "{}", body: "body" });
     subscriber.onRunError("boom");
     subscriber.onRunFinished();
 
@@ -123,9 +124,10 @@ describe("pi-app core events coverage", () => {
     expect(app.appendDelta).toHaveBeenCalledWith({ kind: "think", delta: "think" });
     expect(app.finalizePiStream).toHaveBeenCalledWith("hellohello again");
     expect(app.finalizePiStream).toHaveBeenCalledWith("final only");
-    expect(app.appendToolOutput).toHaveBeenCalledWith({ tool: "bash", chunk: "args" });
-    expect(app.appendToolOutput).toHaveBeenCalledWith({ tool: "bash", chunk: "result" });
-    expect(app.finishTool).toHaveBeenCalledWith({ kind: "tool", tool: "bash", args: "{}", status: "ok", resultMeta: "done", body: "body" });
+    expect(app.updateToolArgs).toHaveBeenCalledWith({ id: "call-1", tool: "bash", chunk: "args" });
+    expect(app.updateToolArgs).toHaveBeenCalledWith({ id: "call-1", tool: "bash", chunk: "args again" });
+    expect(app.appendToolOutput).toHaveBeenCalledWith({ id: "call-1", tool: "bash", chunk: "result" });
+    expect(app.finishTool).toHaveBeenCalledWith({ id: "call-1", kind: "tool", tool: "bash", args: "{}", status: "ok", resultMeta: "done", body: "body" });
     expect(app.notifyResponseFailure).toHaveBeenCalledWith("boom");
 
     app.dataset.activeSessionId = "other";

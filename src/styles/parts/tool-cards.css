@@ -11,12 +11,9 @@
   gap: 8px;
   padding: 6px var(--space-2);
   background: var(--bg-2);
-  cursor: pointer;
   user-select: none;
   border-bottom: 1px solid var(--border-dim);
 }
-.tool-card.collapsed .tc-head { border-bottom: 0; }
-.tool-card .tc-head:hover { background: var(--bg-3); }
 .tool-card .tc-glyph {
   align-items: center;
   color: var(--tool-call);
@@ -80,8 +77,6 @@
   margin-left: 6px;
   text-decoration: underline;
 }
-.tool-card .tc-caret { color: var(--fg-3); font-size: 10px; padding-right: 4px; }
-
 .inline-out {
   padding: 4px 0 4px 16px;
   border-left: 1px solid var(--border-dim);

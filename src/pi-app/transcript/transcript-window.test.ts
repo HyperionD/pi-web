@@ -107,7 +107,7 @@ describe("pi-app transcript window", () => {
     expect(app.querySelector(".tool-card[data-tool='bash'] .tc-body").textContent).toContain("finished");
   });
 
-  it("keeps live tool output collapsed until the user opens it", async () => {
+  it("keeps live tool output visible without a collapse interaction", async () => {
     const frames = [];
     vi.spyOn(window, "requestAnimationFrame").mockImplementation((callback) => {
       frames.push(callback);
@@ -122,20 +122,21 @@ describe("pi-app transcript window", () => {
     const app = await connectPiApp();
     Object.defineProperty(app.term, "clientHeight", { configurable: true, value: 600 });
     app.renderMessages([]);
-    app.appendMessage({ kind: "tool", tool: "bash", status: "running", collapsedByDefault: true });
+    app.appendMessage({ kind: "tool", tool: "bash", args: JSON.stringify({ command: "git status" }), status: "running", collapsedByDefault: true });
     const heightChanged = vi.spyOn(app.transcriptVirtualScroller, "onItemHeightDidChange");
     app.appendToolOutput({ tool: "bash", chunk: "streaming output" });
     frames.splice(0).forEach((callback) => callback(0));
 
     const body = app.querySelector(".tool-card .tc-body");
-    expect(body.hidden).toBe(true);
+    expect(body.hidden).toBe(false);
     expect(body.textContent).toContain("streaming output");
+    expect(app.querySelector(".tc-head").dataset.action).toBeUndefined();
+    expect(app.querySelector(".tc-args").textContent).toBe("git status");
     expect(heightChanged).not.toHaveBeenCalled();
 
     itemHeight = 120;
     app.toggleTool(app.querySelector(".tc-head"));
     expect(body.hidden).toBe(false);
-    expect(heightChanged).toHaveBeenCalled();
   });
 
   it("keeps expanded live tool output pinned when it grows at the bottom", async () => {
@@ -178,6 +179,19 @@ describe("pi-app transcript window", () => {
     frames.splice(0).forEach((callback) => callback(0));
 
     expect(scrollTop).toBe(1200);
+  });
+
+  it("registers server-rendered tool cards by call id", async () => {
+    const app = await connectPiApp();
+    const card = document.createElement("div");
+    card.className = "tool-card";
+    card.dataset.tool = "bash";
+    card.dataset.toolCallId = "call-1";
+    app.termInner.append(card);
+
+    app.adoptRenderedTranscript();
+
+    expect(app.latestToolCards["call-1"]).toBe(card);
   });
 
   it("clears streaming tail and cancels pending render on transcript reset", async () => {
@@ -346,18 +360,81 @@ describe("pi-app transcript window", () => {
     expect(app.transcriptItemHeight(9)).toBe(80);
   });
 
-  it("covers tool card default and expanded paths", async () => {
+  it("always renders tool cards expanded with readable arguments", async () => {
     const app = await connectPiApp();
-    const card = app.toolCard({ status: "ok", collapsedByDefault: false, body: "body" });
+    const card = app.toolCard({ tool: "bash", args: JSON.stringify({ command: "bun test" }), status: "ok", body: "body" });
+    const plainArgsCard = app.toolCard({ tool: "bash", args: "pwd", status: "ok" });
     const errorStatus = app.toolStatus({ status: "err" });
     const outputCard = app.toolCard({ tool: "pi", status: "running", body: "" });
     app.append(outputCard);
     app.appendToolOutput({ tool: "pi" });
 
-    expect(card.dataset.tool).toBe("tool");
+    expect(card.dataset.tool).toBe("bash");
     expect(card.querySelector(".tc-body").hidden).toBe(false);
-    expect(card.querySelector(".tc-caret").textContent).toBe("▾");
+    expect(card.querySelector(".tc-args").textContent).toBe("bun test");
+    expect(plainArgsCard.querySelector(".tc-args").textContent).toBe("pwd");
+    expect(card.querySelector(".tc-head").dataset.action).toBeUndefined();
     expect(errorStatus).toContain("failed");
+  });
+
+  it("routes parallel same-name tool streams by call id", async () => {
+    const app = await connectPiApp();
+    app.renderMessages([]);
+    const first = app.toolCard({ id: "call-1", tool: "bash", status: "running" });
+    const second = app.toolCard({ id: "call-2", tool: "bash", status: "running" });
+    app.append(first, second);
+
+    app.updateToolArgs({ id: "call-1", tool: "bash", chunk: '{"command":"pwd"' });
+    expect(first.querySelector(".tc-args").textContent).toBe("");
+    app.updateToolArgs({ id: "call-1", tool: "bash", chunk: "}" });
+    app.appendToolOutput({ id: "call-2", tool: "bash", chunk: "second output" });
+    await new Promise((resolve) => requestAnimationFrame(resolve));
+
+    expect(first.querySelector(".tc-args").textContent).toBe("pwd");
+    expect(first.querySelector(".tc-body").textContent).toBe("");
+    expect(second.querySelector(".tc-body").textContent).toContain("second output");
+  });
+
+  it("flushes pending streamed output before the tool ends", async () => {
+    const app = await connectPiApp();
+    app.renderMessages([]);
+    app.appendMessage({ id: "call-1", kind: "tool", tool: "bash", status: "running" });
+    app.appendToolOutput({ id: "call-1", tool: "bash", chunk: "last output" });
+
+    app.finishTool({ id: "call-1", kind: "tool", tool: "bash", status: "ok", body: "" });
+
+    expect(app.querySelector(".tool-card .tc-body").textContent).toContain("last output");
+  });
+
+  it("keeps streamed output when the tool end has no final body", async () => {
+    const app = await connectPiApp();
+    app.renderMessages([]);
+    app.appendMessage({ id: "call-1", kind: "tool", tool: "bash", status: "running" });
+    app.appendToolOutput({ id: "call-1", tool: "bash", chunk: "streamed output" });
+    await new Promise((resolve) => requestAnimationFrame(resolve));
+
+    app.finishTool({ id: "call-1", kind: "tool", tool: "bash", status: "ok", body: "" });
+
+    expect(app.querySelector(".tool-card").dataset.status).toBe("ok");
+    expect(app.querySelector(".tool-card .tc-body").textContent).toContain("streamed output");
+  });
+
+  it("previews long live tool output and keeps the full output available", async () => {
+    const app = await connectPiApp();
+    app.renderMessages([]);
+    app.appendMessage({ kind: "tool", tool: "bash", status: "running" });
+    const output = `${"head\n".repeat(4000)}tail-marker`;
+
+    app.appendToolOutput({ tool: "bash", chunk: output });
+    await new Promise((resolve) => requestAnimationFrame(resolve));
+
+    const body = app.querySelector(".tool-card .tc-body");
+    expect(body.textContent).not.toContain("tail-marker");
+    expect(body.querySelector("[data-action='show-full-tool-output']")).not.toBeNull();
+    expect(body.__fullToolBody).toBe(output);
+
+    app.showFullToolOutput(body.querySelector("[data-action='show-full-tool-output']"));
+    expect(body.textContent).toContain("tail-marker");
   });
 
   it("binds an existing scroll-bottom button", async () => {

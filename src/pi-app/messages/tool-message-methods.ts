@@ -1,6 +1,6 @@
 import { escapeHtml } from "../../lib/renderers";
 import { TERMINAL_SPINNER_HTML } from "../constants";
-import { renderToolBody, storeFullToolBody } from "./tool-output-rendering";
+import { fullToolBody, renderToolBody, storeFullToolBody } from "./tool-output-rendering";
 
 const TOOL_ICON_PATHS = {
   "book-open": `<path d="M12 7v14"/><path d="M3 18a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h5a4 4 0 0 1 4 4 4 4 0 0 1 4-4h5a1 1 0 0 1 1 1v13a1 1 0 0 1-1 1h-6a3 3 0 0 0-3 3 3 3 0 0 0-3-3z"/>`,
@@ -66,40 +66,90 @@ function toolIconName(message) {
   return TOOL_ICON_NAMES[tool];
 }
 
-function toolIconHtml(message) {
+export function toolIconHtml(message) {
   const iconName = toolIconName(message);
   const paths = iconName && TOOL_ICON_PATHS[iconName];
   if (!paths) return "●";
   return `<svg class="tc-icon" data-tool-icon="${iconName}" aria-hidden="true" viewBox="0 0 24 24">${paths}</svg>`;
 }
 
+function formatToolValue(value) {
+  if (typeof value === "string") return value;
+  if (value === null || value === undefined) return "";
+  if (Array.isArray(value)) return `[${value.map(formatToolValue).join(", ")}]`;
+  if (typeof value === "object") return "{…}";
+  return String(value);
+}
+
+export function formatToolArgs(tool, args) {
+  if (!args) return "";
+  const parsed = typeof args === "object" ? args : parseToolArgs(args);
+  if (parsed === undefined) {
+    const raw = String(args).trim();
+    return /^[{[]/.test(raw) ? "" : String(args);
+  }
+  if (!parsed) return "";
+  if (typeof parsed === "string") return parsed;
+  const preferredKeys = ["command", "path", "query", "url", "pattern", "prompt", "text"];
+  const key = preferredKeys.find((candidate) => parsed[candidate] !== undefined);
+  if (key) return formatToolValue(parsed[key]);
+  return Object.entries(parsed)
+    .slice(0, 3)
+    .map(([name, value]) => `${name}: ${formatToolValue(value)}`)
+    .join(" · ");
+}
+
+function parseToolArgs(args) {
+  try {
+    const parsed = JSON.parse(String(args));
+    return parsed && typeof parsed === "object" ? parsed : parsed;
+  } catch {
+    return undefined;
+  }
+}
+
+function latestToolCard(app, tool, id) {
+  const cards = [...app.querySelectorAll(".tool-card")].reverse();
+  if (id) {
+    const identified = cards.find((item) => item.dataset.toolCallId === id);
+    if (identified) return identified;
+  }
+  if (id) {
+    const cached = app.latestToolCards?.[id];
+    return cached?.isConnected && app.contains(cached) ? cached : undefined;
+  }
+  const latest = cards.find((item) => item.dataset.tool === tool);
+  const cached = app.latestToolCards?.[tool];
+  return latest || (cached?.isConnected && app.contains(cached) ? cached : undefined);
+}
+
 export const toolMessageMethods = {
   toolCard(message) {
     const card = document.createElement("div");
-    const collapsed = message.collapsedByDefault !== false;
-    card.className = `tool-card ${collapsed ? "collapsed" : ""}`.trim();
+    card.className = "tool-card";
     card.dataset.tool = message.tool || "tool";
+    card.dataset.toolCallId = message.id || "";
     card.dataset.status = message.status || "";
     this.latestToolCards = { ...(this.latestToolCards || {}), [card.dataset.tool]: card };
-    card.innerHTML = this.toolCardTemplate(message, collapsed, !!message.body);
+    if (message.id) this.latestToolCards[message.id] = card;
+    card.innerHTML = this.toolCardTemplate(message);
     card.querySelector(".tc-name").textContent = message.tool || "tool";
-    card.querySelector(".tc-args").textContent = message.args || "";
+    card.querySelector(".tc-args").textContent = formatToolArgs(message.tool, message.args);
     card.querySelector(".tc-meta").innerHTML = this.toolStatus(message);
-    card.querySelector(".tc-caret").textContent = collapsed ? "▸" : "▾";
     if (message.body) {
       const body = card.querySelector(".tc-body");
-      body.innerHTML = renderToolBody(message.body, { collapsed });
+      body.innerHTML = renderToolBody(message.body);
       storeFullToolBody(body, message.body);
     }
     return card;
   },
 
-  toolCardTemplate(message, collapsed, hasBody) {
+  toolCardTemplate(message) {
     return [
-      `<button type="button" class="tc-head" aria-expanded="${!collapsed}" data-action="toggle-tool">`,
+      `<div class="tc-head">`,
       `<span class="tc-glyph">${toolIconHtml(message)}</span><span class="tc-name"></span>`,
-      `<span class="tc-args"></span><span class="tc-meta"></span></button>`,
-      `<div class="tc-body"${collapsed || !hasBody ? " hidden" : ""}></div>`,
+      `<span class="tc-args"></span><span class="tc-meta"></span></div>`,
+      `<div class="tc-body"></div>`,
     ].join("");
   },
 
@@ -110,27 +160,30 @@ export const toolMessageMethods = {
   },
 
   runningToolStatus() {
-    return [
-      `${TERMINAL_SPINNER_HTML}<span style="color:var(--accent)">running</span>`,
-      `<span class="tc-caret">▾</span>`,
-    ].join("");
+    return `${TERMINAL_SPINNER_HTML}<span style="color:var(--accent)">running</span>`;
   },
 
   errorToolStatus(message) {
     const result = escapeHtml(message.resultMeta || "failed");
-    return `<span class="err">✗</span>${result}<span class="tc-caret">▾</span>`;
+    return `<span class="err">✗</span>${result}`;
   },
 
   completedToolStatus(message) {
     const duration = message.durationMs ? `${message.durationMs} ms` : "";
     const result = message.resultMeta ? ` · ${escapeHtml(message.resultMeta)}` : "";
-    return `<span class="ok">✓</span>${duration}${result}<span class="tc-caret">▾</span>`;
+    return `<span class="ok">✓</span>${duration}${result}`;
+  },
+
+  updateToolArgs(payload) {
+    const card = latestToolCard(this, payload?.tool, payload?.id);
+    if (!card || !payload?.chunk) return;
+    card.__toolArgsText = `${card.__toolArgsText || ""}${payload.chunk}`;
+    const formatted = formatToolArgs(payload.tool, card.__toolArgsText);
+    if (formatted) card.querySelector(".tc-args").textContent = formatted;
   },
 
   appendToolOutput(payload) {
-    const cards = [...this.querySelectorAll(".tool-card")];
-    const visibleCard = cards.reverse().find((item) => item.dataset.tool === payload?.tool);
-    const card = visibleCard || this.latestToolCards?.[payload?.tool];
+    const card = latestToolCard(this, payload?.tool, payload?.id);
     const body = card?.querySelector(".tc-body");
     if (!body) return;
     body.__pendingToolOutput = body.__pendingToolOutput || [];
@@ -142,26 +195,43 @@ export const toolMessageMethods = {
     if (body.__toolOutputFrame) return;
     body.__toolOutputFrame = window.requestAnimationFrame(() => {
       body.__toolOutputFrame = undefined;
-      const chunks = body.__pendingToolOutput || [];
-      body.__pendingToolOutput = [];
-      if (!chunks.length) return;
-      const prefix = body.__hasToolOutput || body.childNodes.length ? "\n" : "";
-      body.append(document.createTextNode(`${prefix}${chunks.join("\n")}`));
-      body.__hasToolOutput = true;
-      if (!body.hidden) this.notifyTranscriptNodeHeightDidChange(body);
+      this.flushToolOutput(body);
     });
   },
 
+  flushToolOutput(body) {
+    if (!body) return;
+    if (body.__toolOutputFrame) {
+      window.cancelAnimationFrame?.(body.__toolOutputFrame);
+      body.__toolOutputFrame = undefined;
+    }
+    const chunks = body.__pendingToolOutput || [];
+    body.__pendingToolOutput = [];
+    if (!chunks.length) return;
+    const stored = fullToolBody(body);
+    const current = body.__toolOutputText ?? (stored || body.textContent || "");
+    const prefix = body.__hasToolOutput || current ? "\n" : "";
+    body.__toolOutputText = `${current}${prefix}${chunks.join("\n")}`;
+    body.innerHTML = renderToolBody(body.__toolOutputText);
+    storeFullToolBody(body, body.__toolOutputText);
+    body.__hasToolOutput = true;
+    this.notifyTranscriptNodeHeightDidChange(body);
+  },
+
   finishTool(message) {
-    const cards = [...this.querySelectorAll(".tool-card")];
-    const visibleCard = cards.reverse().find((item) => item.dataset.tool === message?.tool);
-    const card = visibleCard || this.latestToolCards?.[message?.tool];
+    const card = latestToolCard(this, message?.tool, message?.id);
     if (!card) {
       this.appendMessage(message);
       return;
     }
     const body = card.querySelector(".tc-body");
-    const next = this.toolCard({ ...message, collapsedByDefault: body?.hidden !== false });
+    this.flushToolOutput(body);
+    if (!message.body && body?.__toolOutputText) {
+      card.dataset.status = message.status || "";
+      card.querySelector(".tc-meta").innerHTML = this.toolStatus(message);
+      return;
+    }
+    const next = this.toolCard(message);
     if (!this.replaceTranscriptNode(card, next)) card.replaceWith(next);
   },
 };

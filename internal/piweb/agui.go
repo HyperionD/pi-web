@@ -167,7 +167,7 @@ func (s *aguiStreamState) consume(event Event, stream *aguiEventStream) bool {
 		}
 	case "tool.output":
 		if payload, ok := event.Payload.(map[string]string); ok {
-			s.emitToolArgs(payload["tool"], payload["chunk"], stream)
+			s.emitToolResult(payload["id"], payload["tool"], payload["chunk"], stream)
 		}
 	case "tool.finished":
 		if msg, ok := event.Payload.(Message); ok {
@@ -219,20 +219,26 @@ func (s *aguiStreamState) emitToolStart(msg Message, stream *aguiEventStream) {
 	if name == "" {
 		name = "tool"
 	}
-	id := aguievents.GenerateToolCallID()
+	id := strings.TrimSpace(msg.ID)
+	if id == "" {
+		id = aguievents.GenerateToolCallID()
+	}
 	s.toolIDs[name] = append(s.toolIDs[name], id)
 	s.toolNames[id] = name
 	stream.write(aguievents.NewToolCallStartEvent(id, name))
 	if strings.TrimSpace(msg.Args) != "" {
-		s.emitToolArgs(name, msg.Args, stream)
+		s.emitToolArgs(id, name, msg.Args, stream)
 	}
 }
 
-func (s *aguiStreamState) emitToolArgs(tool, delta string, stream *aguiEventStream) {
+func (s *aguiStreamState) emitToolArgs(id, tool, delta string, stream *aguiEventStream) {
 	if strings.TrimSpace(delta) == "" {
 		return
 	}
-	id := s.currentToolID(tool)
+	tool = strings.TrimSpace(tool)
+	if id == "" {
+		id = s.currentToolID(tool)
+	}
 	if id == "" {
 		id = aguievents.GenerateToolCallID()
 		s.toolIDs[tool] = append(s.toolIDs[tool], id)
@@ -240,6 +246,39 @@ func (s *aguiStreamState) emitToolArgs(tool, delta string, stream *aguiEventStre
 		stream.write(aguievents.NewToolCallStartEvent(id, tool))
 	}
 	stream.write(aguievents.NewToolCallArgsEvent(id, delta))
+}
+
+func (s *aguiStreamState) emitToolResult(id, tool, content string, stream *aguiEventStream) {
+	if strings.TrimSpace(content) == "" {
+		return
+	}
+	tool = strings.TrimSpace(tool)
+	if id == "" {
+		id = s.currentToolID(tool)
+	}
+	if id == "" {
+		id = aguievents.GenerateToolCallID()
+		s.toolIDs[tool] = append(s.toolIDs[tool], id)
+		s.toolNames[id] = tool
+		stream.write(aguievents.NewToolCallStartEvent(id, tool))
+	}
+	stream.write(aguievents.NewToolCallResultEvent(aguievents.GenerateMessageID(), id, content))
+}
+
+func (s *aguiStreamState) removeToolID(name, id string) {
+	ids := s.toolIDs[name]
+	for index, candidate := range ids {
+		if candidate != id {
+			continue
+		}
+		ids = append(ids[:index], ids[index+1:]...)
+		if len(ids) == 0 {
+			delete(s.toolIDs, name)
+		} else {
+			s.toolIDs[name] = ids
+		}
+		return
+	}
 }
 
 func (s *aguiStreamState) currentToolID(name string) string {
@@ -269,7 +308,12 @@ func (s *aguiStreamState) emitToolFinish(msg Message, stream *aguiEventStream) {
 	if name == "" {
 		name = "tool"
 	}
-	id := s.popToolID(name)
+	id := strings.TrimSpace(msg.ID)
+	if id != "" {
+		s.removeToolID(name, id)
+	} else {
+		id = s.popToolID(name)
+	}
 	if id == "" {
 		id = aguievents.GenerateToolCallID()
 		stream.write(aguievents.NewToolCallStartEvent(id, name))

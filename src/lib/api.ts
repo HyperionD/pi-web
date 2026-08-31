@@ -270,7 +270,6 @@ export async function runAguiSessionPrompt(sessionId, text, attachments = [], su
       },
     ],
   });
-  const toolBodies = new Map<string, string>();
   const toolNames = new Map<string, string>();
   try {
     await agent.runAgent(
@@ -286,19 +285,16 @@ export async function runAguiSessionPrompt(sessionId, text, attachments = [], su
         onToolCallStartEvent: ({ event }: any) => {
           const name = event.toolCallName || "tool";
           toolNames.set(event.toolCallId, name);
-          toolBodies.set(event.toolCallId, "");
           subscriber.onToolStart?.({ id: event.toolCallId, name });
         },
         onToolCallArgsEvent: ({ event, toolCallName }: any) => {
           const name = toolCallName || toolNames.get(event.toolCallId) || "tool";
           const chunk = event.delta || "";
-          toolBodies.set(event.toolCallId, `${toolBodies.get(event.toolCallId) || ""}${chunk}`);
           subscriber.onToolArgs?.({ id: event.toolCallId, name, chunk });
         },
         onToolCallResultEvent: ({ event }: any) => {
           const name = toolNames.get(event.toolCallId) || "tool";
           const content = event.content || "";
-          toolBodies.set(event.toolCallId, content || toolBodies.get(event.toolCallId) || "");
           subscriber.onToolResult?.({ id: event.toolCallId, name, content });
         },
         onToolCallEndEvent: ({ event, toolCallName, toolCallArgs }: any) => {
@@ -307,7 +303,7 @@ export async function runAguiSessionPrompt(sessionId, text, attachments = [], su
             id: event.toolCallId,
             name,
             args: typeof toolCallArgs === "string" ? toolCallArgs : JSON.stringify(toolCallArgs || {}),
-            body: toolBodies.get(event.toolCallId) || "",
+            body: "",
           });
         },
         onRunErrorEvent: ({ event }: any) => subscriber.onRunError?.(event.message || "AG-UI run failed"),

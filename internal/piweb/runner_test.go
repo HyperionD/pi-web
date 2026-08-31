@@ -70,6 +70,62 @@ func TestHandlePiJSONEventIgnoresToolCallDeltaAsText(t *testing.T) {
 	}
 }
 
+func TestHandlePiJSONEventPreservesToolCallID(t *testing.T) {
+	broker := NewBroker()
+	store := NewMockStore()
+	state := &jsonStreamState{}
+	start := `{"type":"tool_execution_start","toolCallId":"call-1","toolName":"bash","args":{"command":"pwd"}}`
+	update := `{"type":"tool_execution_update","toolCallId":"call-1","toolName":"bash","partialResult":"ok"}`
+	finish := `{"type":"tool_execution_end","toolCallId":"call-1","toolName":"bash","args":{"command":"pwd"},"result":"ok"}`
+
+	handlePiJSONEvent(start, broker, store, "session", state)
+	handlePiJSONEvent(update, broker, store, "session", state)
+	handlePiJSONEvent(finish, broker, store, "session", state)
+
+	events := broker.Replay("session", 0)
+	if len(events) != 3 {
+		t.Fatalf("expected start, output, and finish events: %#v", events)
+	}
+	if got := events[0].Payload.(Message).ID; got != "call-1" {
+		t.Fatalf("expected tool start id, got %q", got)
+	}
+	if got := events[1].Payload.(map[string]string)["id"]; got != "call-1" {
+		t.Fatalf("expected tool output id, got %q", got)
+	}
+	if got := events[2].Payload.(Message).ID; got != "call-1" {
+		t.Fatalf("expected tool finish id, got %q", got)
+	}
+}
+
+func TestHandlePiJSONEventDoesNotDuplicateFinishedToolResult(t *testing.T) {
+	broker := NewBroker()
+	store := NewMockStore()
+	state := &jsonStreamState{}
+	start := `{"type":"tool_execution_start","toolCallId":"call-1","toolName":"bash","args":{"command":"pwd"}}`
+	finish := `{"type":"tool_execution_end","toolCallId":"call-1","toolName":"bash","args":{"command":"pwd"},"result":"ok"}`
+	messageEnd := `{"type":"message_end","message":{"role":"toolResult","toolCallId":"call-1","toolName":"bash","content":"ok"}}`
+
+	handlePiJSONEvent(start, broker, store, "session", state)
+	handlePiJSONEvent(finish, broker, store, "session", state)
+	handlePiJSONEvent(messageEnd, broker, store, "session", state)
+
+	if events := broker.Replay("session", 0); len(events) != 2 {
+		t.Fatalf("expected no duplicate tool events: %#v", events)
+	}
+}
+
+func TestHandlePiJSONEventKeepsUnmatchedSameNameToolResult(t *testing.T) {
+	broker := NewBroker()
+	store := NewMockStore()
+	state := &jsonStreamState{}
+	handlePiJSONEvent(`{"type":"tool_execution_end","toolCallId":"call-1","toolName":"bash","result":"first"}`, broker, store, "session", state)
+	handlePiJSONEvent(`{"type":"message_end","message":{"role":"toolResult","toolCallId":"call-2","toolName":"bash","content":"second"}}`, broker, store, "session", state)
+
+	if events := broker.Replay("session", 0); len(events) != 2 {
+		t.Fatalf("expected unmatched same-name result to be preserved: %#v", events)
+	}
+}
+
 func TestHandlePiJSONEventStreamsTextDelta(t *testing.T) {
 	broker := NewBroker()
 	store := NewMockStore()

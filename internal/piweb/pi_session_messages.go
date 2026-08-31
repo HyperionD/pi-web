@@ -55,7 +55,7 @@ func convertAgentMessages(raw json.RawMessage) []Message {
 		if msg.IsError {
 			status = "err"
 		}
-		return []Message{{Kind: "tool", Tool: msg.ToolName, Status: status, Body: contentText(msg.Content), CollapsedByDefault: true}}
+		return []Message{{ID: msg.ToolCallID, Kind: "tool", Tool: msg.ToolName, Status: status, Body: contentText(msg.Content), CollapsedByDefault: true}}
 	case "bashExecution":
 		status := "ok"
 		if msg.ExitCode != nil && *msg.ExitCode != 0 {

@@ -263,23 +263,23 @@ class PiApp extends HTMLElement {
         this.setMode("running");
         this.appendDelta({ kind: "think", delta });
       },
-      onToolStart: ({ name }) => {
+      onToolStart: ({ id, name }) => {
         if (this.dataset.activeSessionId !== sessionId) return;
         this.setMode("running");
-        this.appendMessage({ kind: "tool", tool: name, status: "running", collapsedByDefault: true });
+        this.appendMessage({ id, kind: "tool", tool: name, status: "running", collapsedByDefault: true });
       },
-      onToolArgs: ({ name, chunk }) => {
+      onToolArgs: ({ id, name, chunk }) => {
         if (this.dataset.activeSessionId !== sessionId || !chunk) return;
         this.setMode("running");
-        this.appendToolOutput({ tool: name, chunk });
+        this.updateToolArgs({ id, tool: name, chunk });
       },
-      onToolResult: ({ name, content }) => {
+      onToolResult: ({ id, name, content }) => {
         if (this.dataset.activeSessionId !== sessionId || !content) return;
-        this.appendToolOutput({ tool: name, chunk: content });
+        this.appendToolOutput({ id, tool: name, chunk: content });
       },
-      onToolEnd: ({ name, args, body }) => {
+      onToolEnd: ({ id, name, args, body }) => {
         if (this.dataset.activeSessionId !== sessionId) return;
-        this.finishTool({ kind: "tool", tool: name, args, status: "ok", resultMeta: "done", body });
+        this.finishTool({ id, kind: "tool", tool: name, args, status: "ok", resultMeta: "done", body });
       },
       onRunError: (message) => {
         if (this.dataset.activeSessionId !== sessionId) return;

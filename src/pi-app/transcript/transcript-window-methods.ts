@@ -141,8 +141,20 @@ export const transcriptWindowMethods = {
       (node) => !node.classList.contains("transcript-spacer"),
     );
     if (!existingNodes.length) return;
+    this.registerRenderedToolCards(existingNodes);
     this.transcriptItems = existingNodes.map((node) => this.createTranscriptItem(undefined, { nodes: [node] }));
+
     this.renderTranscriptWindow({ stickToBottom: true });
+  },
+
+  registerRenderedToolCards(nodes) {
+    for (const node of nodes) {
+      if (!node.matches?.(".tool-card")) continue;
+      const tool = node.dataset.tool;
+      const id = node.dataset.toolCallId;
+      this.latestToolCards = { ...(this.latestToolCards || {}), [tool]: node };
+      if (id) this.latestToolCards[id] = node;
+    }
   },
 
   clearStreamingTail() {

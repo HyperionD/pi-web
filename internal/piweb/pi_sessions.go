@@ -47,6 +47,7 @@ type agentMessage struct {
 	Role       string          `json:"role"`
 	Content    json.RawMessage `json:"content"`
 	ToolName   string          `json:"toolName"`
+	ToolCallID string          `json:"toolCallId"`
 	Command    string          `json:"command"`
 	Output     string          `json:"output"`
 	ExitCode   *int            `json:"exitCode"`
