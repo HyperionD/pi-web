@@ -30,6 +30,21 @@ describe("transcript scrolling styles", () => {
     expect(styles.overflowAnchor).toBe("none");
   });
 
+  it("lets the streaming tail follow the first transcript message", () => {
+    styleElement = document.createElement("style");
+    styleElement.textContent = terminalStyles;
+    document.head.append(styleElement);
+    const term = document.createElement("div");
+    term.className = "term";
+    const termInner = document.createElement("div");
+    termInner.className = "term-inner";
+    termInner.innerHTML = '<div class="msg"><span>you &gt;</span><span>hello</span></div>';
+    term.append(termInner, document.createElement("div"));
+    document.body.append(term);
+
+    expect(getComputedStyle(termInner).minHeight).not.toBe("100%");
+  });
+
   it("keeps streaming tail in the same non-anchored content layer", () => {
     expect(terminalStyles).toContain(".streaming-tail");
 
