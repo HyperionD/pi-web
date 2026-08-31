@@ -36,6 +36,17 @@ export function getWorkspaces() {
   return request("/api/workspaces");
 }
 
+export function getAppConfig() {
+  return request("/api/app-config");
+}
+
+export function saveAppConfig(config) {
+  return request("/api/app-config", {
+    method: "PATCH",
+    body: JSON.stringify(config),
+  });
+}
+
 export function getAuthProviders() {
   return request("/api/auth/providers");
 }
