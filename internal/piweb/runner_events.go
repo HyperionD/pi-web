@@ -94,7 +94,12 @@ func handlePiJSONEvent(line string, broker *Broker, store *Store, sessionID stri
 		broker.Publish(sessionID, "tool.started", Message{ID: event.ToolCallID, Kind: "tool", Tool: event.ToolName, Args: string(event.Args), Status: "running", CollapsedByDefault: true})
 		return true
 	case "tool_execution_update":
-		broker.Publish(sessionID, "tool.output", map[string]string{"id": event.ToolCallID, "tool": event.ToolName, "chunk": jsonChunk(event.PartialResult)})
+		broker.Publish(sessionID, "tool.output", map[string]any{
+			"id":    event.ToolCallID,
+			"tool":  event.ToolName,
+			"chunk": jsonChunk(event.PartialResult),
+			"mode":  "replace",
+		})
 		return true
 	case "tool_execution_end":
 		state.markToolFinished(event.ToolCallID, event.ToolName)

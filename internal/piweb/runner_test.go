@@ -89,8 +89,11 @@ func TestHandlePiJSONEventPreservesToolCallID(t *testing.T) {
 	if got := events[0].Payload.(Message).ID; got != "call-1" {
 		t.Fatalf("expected tool start id, got %q", got)
 	}
-	if got := events[1].Payload.(map[string]string)["id"]; got != "call-1" {
+	if got := events[1].Payload.(map[string]any)["id"]; got != "call-1" {
 		t.Fatalf("expected tool output id, got %q", got)
+	}
+	if got := events[1].Payload.(map[string]any)["mode"]; got != "replace" {
+		t.Fatalf("expected cumulative tool output snapshot mode, got %q", got)
 	}
 	if got := events[2].Payload.(Message).ID; got != "call-1" {
 		t.Fatalf("expected tool finish id, got %q", got)
@@ -109,8 +112,11 @@ func TestHandlePiJSONEventRendersStructuredToolResultText(t *testing.T) {
 	if len(events) != 3 {
 		t.Fatalf("unexpected tool events: %#v", events)
 	}
-	if got := events[1].Payload.(map[string]string)["chunk"]; got != "partial output" {
+	if got := events[1].Payload.(map[string]any)["chunk"]; got != "partial output" {
 		t.Fatalf("unexpected partial output: %q", got)
+	}
+	if got := events[1].Payload.(map[string]any)["mode"]; got != "replace" {
+		t.Fatalf("expected structured partial output snapshot mode, got %q", got)
 	}
 	if got := events[2].Payload.(Message).Body; got != "total output" {
 		t.Fatalf("unexpected final output: %q", got)

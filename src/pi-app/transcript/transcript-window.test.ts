@@ -96,7 +96,7 @@ describe("pi-app transcript window", () => {
 
     const bodyWithContent = document.createElement("div");
     bodyWithContent.textContent = "old";
-    bodyWithContent.__pendingToolOutput = ["new"];
+    bodyWithContent.__pendingToolOutput = [{ chunk: "new", mode: "append" }];
     app.scheduleToolOutputFlush(bodyWithContent);
     frames.splice(0).forEach((callback) => callback(0));
     expect(bodyWithContent.textContent).toBe("old\nnew");
@@ -452,6 +452,23 @@ describe("pi-app transcript window", () => {
 
     app.showFullToolOutput(body.querySelector("[data-action='show-full-tool-output']"));
     expect(body.textContent).toContain("old-start");
+  });
+
+  it("replaces cumulative tool output snapshots without duplicating them", async () => {
+    const app = await connectPiApp();
+    app.renderMessages([]);
+    app.appendMessage({ kind: "tool", tool: "subagent", status: "running" });
+
+    app.appendToolOutput({ tool: "subagent", chunk: "reviewing", mode: "replace" });
+    await new Promise((resolve) => requestAnimationFrame(resolve));
+    app.appendToolOutput({ tool: "subagent", chunk: "reviewing", mode: "replace" });
+    await new Promise((resolve) => requestAnimationFrame(resolve));
+    app.appendToolOutput({ tool: "subagent", chunk: "reviewing files", mode: "replace" });
+    await new Promise((resolve) => requestAnimationFrame(resolve));
+
+    const body = app.querySelector(".tool-card .tc-body");
+    expect(body.__toolOutputText).toBe("reviewing files");
+    expect(body.textContent).toBe("reviewing files");
   });
 
   it("binds an existing scroll-bottom button", async () => {

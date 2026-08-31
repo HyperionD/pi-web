@@ -187,7 +187,7 @@ export const toolMessageMethods = {
     const body = card?.querySelector(".tc-body");
     if (!body) return;
     body.__pendingToolOutput = body.__pendingToolOutput || [];
-    body.__pendingToolOutput.push(payload.chunk || "");
+    body.__pendingToolOutput.push({ chunk: payload.chunk || "", mode: payload.mode || "append" });
     this.scheduleToolOutputFlush(body);
   },
 
@@ -205,15 +205,22 @@ export const toolMessageMethods = {
       window.cancelAnimationFrame?.(body.__toolOutputFrame);
       body.__toolOutputFrame = undefined;
     }
-    const chunks = body.__pendingToolOutput || [];
+    const updates = body.__pendingToolOutput || [];
     body.__pendingToolOutput = [];
-    if (!chunks.length) return;
+    if (!updates.length) return;
     const stored = fullToolBody(body);
-    const current = body.__toolOutputText ?? (stored || body.textContent || "");
-    const prefix = body.__hasToolOutput || current ? "\n" : "";
-    body.__toolOutputText = `${current}${prefix}${chunks.join("\n")}`;
-    body.innerHTML = renderToolBody(body.__toolOutputText);
-    storeFullToolBody(body, body.__toolOutputText);
+    let output = body.__toolOutputText ?? (stored || body.textContent || "");
+    for (const update of updates) {
+      if (update.mode === "replace") {
+        output = update.chunk;
+        continue;
+      }
+      const prefix = body.__hasToolOutput || output ? "\n" : "";
+      output = `${output}${prefix}${update.chunk}`;
+    }
+    body.__toolOutputText = output;
+    body.innerHTML = renderToolBody(output);
+    storeFullToolBody(body, output);
     body.__hasToolOutput = true;
     this.notifyTranscriptNodeHeightDidChange(body);
   },
