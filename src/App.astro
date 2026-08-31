@@ -103,10 +103,6 @@ function toolStatus(msg) {
       <span class="sep">/</span><span class="session" data-active-session-title title={`${activeSessionTitle} · ${activeSessionID}`}>{activeSessionTitle}</span>
     </span>
     <div class="actions">
-      <button class:list={["iconbtn", "workspace-explorer-btn", treeOpen && "on"]} type="button" data-action="toggle-tree" aria-label="toggle workspace explorer" title="workspace explorer: files and git" hidden={workspaceHidden}>
-        <Folder size={14} strokeWidth={1.5} aria-hidden="true" />
-        <GitBranch size={12} strokeWidth={1.6} aria-hidden="true" />
-      </button>
       <span class="iconbtn statusbtn" style={`color:${statusColor}`} title={statusTitle}>●</span>
     </div>
   </header>
