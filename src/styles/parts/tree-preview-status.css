@@ -425,6 +425,22 @@ pre.ascii-banner .dim { color: var(--fg-3); }
   background: var(--bg-1);
   border-left: 1px solid var(--border);
 }
+.file-preview-panel { position: relative; }
+.fp-resizer {
+  position: absolute;
+  top: 0;
+  left: -2px;
+  bottom: 0;
+  width: 6px;
+  cursor: col-resize;
+  background: transparent;
+  z-index: 5;
+  transition: background var(--dur-fast);
+  user-select: none;
+  touch-action: none;
+}
+.fp-resizer:hover,
+.fp-resizer:active { background: var(--accent); opacity: 0.4; }
 .git-detail-panel { overflow: hidden; }
 .git-detail-panel .git-detail { height: 100%; }
 .file-preview-panel .fp-dialog {

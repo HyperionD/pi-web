@@ -75,6 +75,23 @@ describe("pi-app core events", () => {
     expect(app.dataset.sidebarWidth).toBe("360");
   });
 
+  it("resizes the inspector from its left edge and persists after release", async () => {
+    const app = await connectPiApp();
+    app.dataset.inspectorWidth = "560";
+    app.applyGrid = vi.fn();
+    localStorage.setItem.mockClear();
+
+    app.startInspectorResize(new PointerEvent("pointerdown", { clientX: 900 }));
+    window.dispatchEvent(new PointerEvent("pointermove", { clientX: 800 }));
+    expect(app.dataset.inspectorWidth).toBe("660");
+    expect(localStorage.setItem).not.toHaveBeenCalledWith("pi.inspector.width", "660");
+
+    window.dispatchEvent(new PointerEvent("pointerup", { clientX: 800 }));
+    expect(localStorage.setItem).toHaveBeenCalledWith("pi.inspector.width", "660");
+    window.dispatchEvent(new PointerEvent("pointermove", { clientX: 700 }));
+    expect(app.dataset.inspectorWidth).toBe("660");
+  });
+
   it("clears streaming lifecycle state through the real disconnect path", async () => {
     vi.spyOn(window, "requestAnimationFrame").mockImplementation(() => 0);
     const cancelAnimationFrame = vi.spyOn(window, "cancelAnimationFrame").mockImplementation(() => undefined);
@@ -96,7 +113,7 @@ describe("pi-app core events", () => {
     const app = await connectPiApp();
     const calls = [];
     ["submitWorkspacePath", "submitCloneWorkspace", "submitShellCommand", "saveSettingsForm", "fillSettingsForm", "fillModelControls", "syncCustomSettingInput", "setModelControlsLoading",
-      "submitPrompt", "cancelActiveSession", "handlePromptPaste", "navigateList", "pickSlash", "addFiles", "startResize",
+      "submitPrompt", "cancelActiveSession", "handlePromptPaste", "navigateList", "pickSlash", "addFiles", "startResize", "startInspectorResize",
       "shortcut", "closeSessionMenus"].forEach((name) => { app[name] = (...args) => calls.push([name, ...args]); });
     app.slashPopover.hidden = false;
     app.slashPopover.removeAttribute("hidden");
@@ -104,11 +121,13 @@ describe("pi-app core events", () => {
     const cloneForm = document.createElement("form");
     const shellForm = document.createElement("form");
     const resizer = document.createElement("div");
+    const inspectorResizer = document.createElement("div");
     pathForm.dataset.pathForm = "";
     cloneForm.dataset.cloneForm = "";
     shellForm.dataset.shellForm = "";
     resizer.className = "sb-resizer";
-    app.append(pathForm, cloneForm, shellForm, resizer);
+    inspectorResizer.className = "fp-resizer";
+    app.append(pathForm, cloneForm, shellForm, resizer, inspectorResizer);
     app.bindDomEvents();
 
     pathForm.dispatchEvent(new Event("submit"));
@@ -129,6 +148,7 @@ describe("pi-app core events", () => {
     app.attachButton.click();
     app.fileInput.dispatchEvent(new Event("change"));
     resizer.dispatchEvent(new PointerEvent("pointerdown"));
+    inspectorResizer.dispatchEvent(new PointerEvent("pointerdown"));
     window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
     window.dispatchEvent(new Event("click"));
     const tweaks = document.createElement("div");

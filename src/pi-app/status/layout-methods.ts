@@ -2,6 +2,7 @@ import { fullToolBody } from "../messages/tool-output-rendering";
 import { renderAnsiBody } from "../../lib/renderers";
 
 const SIDEBAR_WIDTH_KEY = "pi.sb.width";
+const INSPECTOR_WIDTH_KEY = "pi.inspector.width";
 
 function readStoredSidebarWidth() {
   try {
@@ -16,6 +17,21 @@ function readStoredSidebarWidth() {
 
 function storeSidebarWidth(width) {
   try { localStorage.setItem(SIDEBAR_WIDTH_KEY, String(width)); } catch {}
+}
+
+function readStoredInspectorWidth() {
+  try {
+    const storedWidthValue = localStorage.getItem(INSPECTOR_WIDTH_KEY);
+    if (!storedWidthValue) return undefined;
+    const width = Number(storedWidthValue);
+    return Number.isFinite(width) ? Math.min(720, Math.max(320, width)) : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function storeInspectorWidth(width) {
+  try { localStorage.setItem(INSPECTOR_WIDTH_KEY, String(width)); } catch {}
 }
 
 export const layoutMethods = {
@@ -90,7 +106,9 @@ export const layoutMethods = {
 
   restoreSidebar() {
     const width = readStoredSidebarWidth();
+    const inspectorWidth = readStoredInspectorWidth();
     if (width) this.dataset.sidebarWidth = String(width);
+    if (inspectorWidth) this.dataset.inspectorWidth = String(inspectorWidth);
     if (this.dataset.sidebar === "collapsed") {
       this.collapseSidebar(true);
       return;
@@ -98,13 +116,13 @@ export const layoutMethods = {
     try { this.collapseSidebar(localStorage.getItem("pi.sb.collapsed") === "1"); } catch { this.applyGrid(width); }
   },
 
-  applyGrid(width = Number(this.dataset.sidebarWidth || 280)) {
+  applyGrid(width = Number(this.dataset.sidebarWidth || 280), inspectorWidth = Number(this.dataset.inspectorWidth || 560)) {
     const body = this.querySelector(".app-body");
     if (!body) return;
     const inspectorOpen = this.dataset.preview === "on" || this.dataset.gitDetail === "on";
     const collapsed = this.dataset.sidebar === "collapsed";
     body.style.setProperty("--inspector-column", collapsed ? "2" : "3");
-    const inspectorWidth = 560;
+    this.querySelector(".fp-resizer")?.setAttribute("aria-valuenow", String(inspectorWidth));
     const expandedColumns = inspectorOpen ? `${width}px 1fr ${inspectorWidth}px` : `${width}px 1fr`;
     const collapsedColumns = inspectorOpen ? `1fr ${inspectorWidth}px` : "1fr";
     body.style.gridTemplateColumns = collapsed ? collapsedColumns : expandedColumns;
@@ -114,15 +132,31 @@ export const layoutMethods = {
     event.preventDefault();
     const startX = event.clientX;
     const startWidth = Number(this.dataset.sidebarWidth || 280);
-    const saveWidth = (width) => storeSidebarWidth(width);
     const move = (moveEvent) => {
       const width = Math.min(480, Math.max(200, startWidth + moveEvent.clientX - startX));
       this.dataset.sidebarWidth = String(width);
       this.applyGrid(width);
-      saveWidth(width);
     };
     const stopResize = () => {
       storeSidebarWidth(Number(this.dataset.sidebarWidth || startWidth));
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", stopResize);
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", stopResize);
+  },
+
+  startInspectorResize(event) {
+    event.preventDefault();
+    const startX = event.clientX;
+    const startWidth = Number(this.dataset.inspectorWidth || 560);
+    const move = (moveEvent) => {
+      const width = Math.min(720, Math.max(320, startWidth + startX - moveEvent.clientX));
+      this.dataset.inspectorWidth = String(width);
+      this.applyGrid(undefined, width);
+    };
+    const stopResize = () => {
+      storeInspectorWidth(Number(this.dataset.inspectorWidth || startWidth));
       window.removeEventListener("pointermove", move);
       window.removeEventListener("pointerup", stopResize);
     };
