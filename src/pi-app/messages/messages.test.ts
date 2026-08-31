@@ -522,7 +522,25 @@ describe("pi-app messages", () => {
 
     expect(app.termInner.textContent).toContain("reasoning");
     expect(app.termInner.textContent).toContain("partial answer");
+    expect(app.termInner.textContent).toContain("backend failed");
     expect(app.querySelector(".streaming-tail .msg.streaming")).toBeNull();
+  });
+
+  it("renders response errors as escaped messages and commits them after streaming", async () => {
+    const app = await connectPiApp();
+    app.renderMessages([]);
+
+    app.appendErrorMessage("<script>alert('xss')</script>");
+
+    const streamingError = app.querySelector(".streaming-tail .msg.error");
+    expect(streamingError?.querySelector(".prefix")?.textContent).toBe("error >");
+    expect(streamingError?.querySelector(".body")?.textContent).toBe("<script>alert('xss')</script>");
+    expect(streamingError?.querySelector(".body")?.innerHTML).not.toContain("<script>");
+
+    app.commitStreamingMessages();
+
+    expect(app.querySelector(".term-inner .msg.error .body")?.textContent).toBe("<script>alert('xss')</script>");
+    expect(app.querySelector(".streaming-tail .msg.error")).toBeNull();
   });
 
   it("commits streamed content when the session status becomes idle", async () => {

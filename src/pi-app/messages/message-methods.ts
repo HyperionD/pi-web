@@ -7,11 +7,18 @@ import {
 } from "../input/fallback-choices";
 import { PI_WEB_WELCOME_TEXT, TERMINAL_SPINNER_HTML } from "../constants";
 
+function responseErrorText(detail) {
+  if (typeof detail === "string") return detail.trim();
+  if (!detail || typeof detail !== "object") return String(detail || "").trim();
+  return String(detail.message || detail.error || "").trim();
+}
+
 export const messageMethods = {
   renderMessages(messages) {
     if (!this.termInner) return;
     this.piDeltaBuffer = "";
     this.streamingRows = {};
+    this.responseErrorMessageShown = false;
     this.termInner.replaceChildren();
     this.resetTranscriptWindow();
     this.deferTranscriptRender = false;
@@ -145,6 +152,16 @@ export const messageMethods = {
       .filter((row) => row.isConnected && this.streamingTail.contains(row) && row.matches(selector));
   },
 
+  appendErrorMessage(detail) {
+    const text = responseErrorText(detail);
+    if (!text || this.responseErrorMessageShown) return;
+    this.responseErrorMessageShown = true;
+    const messageRow = this.simpleMessage("error streaming", "error >", text);
+    messageRow.classList.add("error", "streaming");
+    this.appendStreamingNode(messageRow);
+    this.scrollTerm();
+  },
+
   finalizePiStream(text) {
     if (!this.termInner) return;
     const message = { kind: "pi", text };
@@ -253,8 +270,8 @@ export const messageMethods = {
       .filter((row) => !row.classList.contains("loading"))
       .map((row) => {
         const kind = row.dataset.kind;
-        const streamText = row.querySelector("[data-stream-text]")?.textContent;
-        const text = kind === "pi" ? row.dataset.streamText : streamText;
+        const streamBody = row.querySelector("[data-stream-text]") || row.querySelector(".body");
+        const text = kind === "pi" ? row.dataset.streamText : streamBody?.textContent;
         return kind && text ? { kind, text } : undefined;
       })
       .filter(Boolean);
@@ -287,6 +304,11 @@ export const messageMethods = {
     if (message.kind === "user") return this.userMessageNode(message);
     if (message.kind === "think") return this.thinkingMessageNode(message);
     if (message.kind === "pi") return this.assistantMessageNode(message);
+    if (message.kind === "error") {
+      const errorRow = this.simpleMessage("error", "error >", message.text);
+      errorRow.classList.add("error");
+      return errorRow;
+    }
     if (message.kind === "tool") return this.toolCard(message);
     return this.simpleMessage("pi", "pi >", JSON.stringify(message));
   },

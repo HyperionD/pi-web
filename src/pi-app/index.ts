@@ -255,6 +255,7 @@ class PiApp extends HTMLElement {
         if (this.dataset.activeSessionId !== sessionId) return;
         textBuffer = "";
         this.commitStreamingMessages?.();
+        this.appendErrorMessage?.(message);
         this.notifyResponseFailure?.(message);
         this.setMode("idle");
       },
@@ -271,6 +272,8 @@ class PiApp extends HTMLElement {
     if (!this.isCurrentSessionEvent(event)) return;
     if (event.type === "heartbeat") return;
     if (event.type === "error") {
+      this.commitStreamingMessages?.();
+      this.appendErrorMessage?.(event.payload?.error);
       this.notifyResponseFailure?.(event.payload?.error);
       return;
     }
@@ -372,6 +375,7 @@ class PiApp extends HTMLElement {
     if (!wasRunning && willRun) {
       this.responseFailureToastShown = false;
       this.responseCompletionToastShown = false;
+      this.responseErrorMessageShown = false;
     }
     if (mode === "idle") this.finishRunningTools?.();
     if (mode === "cancelled") this.finishRunningTools?.({ status: "err", resultMeta: "cancelled" });

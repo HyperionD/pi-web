@@ -55,6 +55,7 @@ describe("pi-app toast notifications", () => {
 
     expect(document.querySelector(".session-toast.error").textContent).toContain("回答失败");
     expect(document.querySelector(".session-toast.error").querySelector(".toast-prompt").textContent).toBe("explain the failure and suggest a fix");
+    expect(app.querySelector(".term-inner .msg.error .body").textContent).toBe("boom");
     expect(document.querySelector(".session-toast.error").querySelector(".toast-workspace").textContent).toBe("demo");
     expect(document.querySelector(".session-toast.success")).toBeNull();
   });

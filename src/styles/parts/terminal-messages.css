@@ -133,6 +133,8 @@
 .msg .prefix.pi { color: var(--accent); }
 .msg .prefix.think { color: var(--thinking); }
 .msg .prefix.sys { color: var(--fg-3); }
+.msg.error .prefix,
+.msg.error .body { color: var(--danger); }
 .msg .body {
   color: var(--fg-1);
   min-width: 0;
