@@ -221,6 +221,41 @@ func TestSaveAppConfigCreatesPrivateDirectoriesAndFile(t *testing.T) {
 	}
 }
 
+func TestSaveAppConfigCorrectsExistingFilePermissions(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv("PI_CODING_AGENT_SESSION_DIR", filepath.Join(root, "sessions"))
+
+	path, err := AppConfigPath()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(`{"brand":"Existing"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(path, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	before, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if mode := before.Mode().Perm(); mode == 0o600 {
+		t.Fatalf("test setup unexpectedly created private file: %o", mode)
+	}
+
+	if _, err := SaveAppConfig(map[string]any{"brand": "Updated"}); err != nil {
+		t.Fatal(err)
+	}
+
+	fileInfo, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if mode := fileInfo.Mode().Perm(); mode != 0o600 {
+		t.Fatalf("file permissions=%o", mode)
+	}
+}
+
 func TestSaveAppConfigCorrectsExistingDirectoryPermissions(t *testing.T) {
 	root := t.TempDir()
 	sessionDir := filepath.Join(root, "agent", "sessions")
