@@ -14,7 +14,6 @@ describe("app config methods", () => {
     installPiAppFixture();
     globalThis.PI_WEB_API_BASE = "http://backend.test";
     const app = document.querySelector("pi-app");
-    app.insertAdjacentHTML("afterbegin", '<span data-brand></span><input data-app-setting="brand" />');
   });
 
   afterEach(() => {
@@ -49,6 +48,94 @@ describe("app config methods", () => {
     expect(app.appConfigState.config.brand).toBe("JuunAI / web");
     expect(app.querySelector("[data-brand]").textContent).toBe("JuunAI / web");
     expect(globalThis.fetch.mock.calls[0][0]).toBe("http://backend.test/api/app-config");
+  });
+
+  it("bootstraps app config and workspaces independently", async () => {
+    const app = await connectPiApp();
+    app.renderWorkspaces = vi.fn();
+    app.loadWorkspaceMeta = vi.fn();
+    app.loadSession = vi.fn();
+    const requests = [];
+    globalThis.fetch = vi.fn(async (url) => {
+      requests.push(String(url));
+      if (String(url).endsWith("/app-config")) {
+        return ok({ config: { version: 1, brand: "Custom" }, path: "/config" });
+      }
+      return ok({ workspaces: [] });
+    });
+
+    await app.bootstrapAPI();
+
+    expect(requests).toContain("http://backend.test/api/app-config");
+    expect(requests).toContain("http://backend.test/api/workspaces");
+    expect(app.querySelector("[data-brand]").textContent).toBe("Custom");
+  });
+
+  it("keeps workspace bootstrap and the default brand when app config fails", async () => {
+    const app = await connectPiApp();
+    app.renderWorkspaces = vi.fn();
+    const requests = [];
+    globalThis.fetch = vi.fn(async (url) => {
+      requests.push(String(url));
+      if (String(url).endsWith("/app-config")) return { ok: false, status: 500, statusText: "ERR", json: async () => ({}) };
+      return ok({ workspaces: [] });
+    });
+
+    await app.bootstrapAPI();
+
+    expect(requests).toContain("http://backend.test/api/app-config");
+    expect(requests).toContain("http://backend.test/api/workspaces");
+    expect(app.querySelector("[data-brand]").textContent).toBe(DEFAULT_APP_BRAND);
+  });
+
+  it("saves app config without an active workspace", async () => {
+    const app = await connectPiApp();
+    app.apiConnected = true;
+    app.settingsState = { project: {}, global: {}, effective: {}, paths: {} };
+    app.querySelector("[data-app-setting='brand']").value = "Custom";
+    globalThis.fetch = vi.fn(async () => ok({ config: { version: 1, brand: "Custom" }, path: "/config" }));
+
+    await app.saveSettingsForm({ preventDefault: vi.fn() });
+
+    const patchCalls = globalThis.fetch.mock.calls.filter(([, options]) => options?.method === "PATCH");
+    expect(patchCalls).toHaveLength(1);
+    expect(patchCalls[0][0]).toBe("http://backend.test/api/app-config");
+    expect(JSON.parse(patchCalls[0][1].body)).toEqual({ brand: "Custom" });
+  });
+
+  it("keeps app config saves user-level when pi settings scope changes", async () => {
+    const app = await connectPiApp();
+    app.apiConnected = true;
+    app.dataset.activeWorkspaceId = "w1";
+    app.settingsState = { project: {}, global: {}, effective: {}, paths: {} };
+    app.querySelector("[data-app-setting='brand']").value = "Custom";
+    globalThis.fetch = vi.fn(async (url, options = {}) => {
+      if (options.method === "PATCH") return ok({ config: { version: 1, brand: "Custom" }, path: "/config" });
+      return ok({ settings: { project: {}, global: {}, effective: {}, paths: {} } });
+    });
+
+    await app.saveSettingsForm({ preventDefault: vi.fn() });
+    app.querySelector("[data-settings-scope]").value = "global";
+    await app.saveSettingsForm({ preventDefault: vi.fn() });
+
+    const patchCalls = globalThis.fetch.mock.calls.filter(([, options]) => options?.method === "PATCH");
+    expect(patchCalls).toHaveLength(2);
+    expect(patchCalls.map(([, options]) => JSON.parse(options.body))).toEqual([{ brand: "Custom" }, { brand: "Custom" }]);
+    expect(globalThis.fetch.mock.calls.some(([, options]) => options?.method === "PUT")).toBe(false);
+  });
+
+  it("renders a saved brand as literal text", async () => {
+    const app = await connectPiApp();
+    app.apiConnected = true;
+    app.settingsState = { project: {}, global: {}, effective: {}, paths: {} };
+    const unsafe = "<img src=x onerror=alert(1)>";
+    app.querySelector("[data-app-setting='brand']").value = unsafe;
+    globalThis.fetch = vi.fn(async () => ok({ config: { version: 1, brand: unsafe }, path: "/config" }));
+
+    await app.saveSettingsForm({ preventDefault: vi.fn() });
+
+    expect(app.querySelector("[data-brand]").textContent).toBe(unsafe);
+    expect(app.querySelector("[data-brand] img")).toBeNull();
   });
 
   it("renders brand as text rather than HTML", async () => {

@@ -25,8 +25,9 @@ function findStoredSession(workspaces, stored) {
 
 export const workspaceBootstrapMethods = {
   async bootstrapAPI() {
+    const appConfigRequest = Promise.resolve(this.loadAppConfigState?.()).catch(() => undefined);
     try {
-      const [{ workspaces }] = await Promise.all([getWorkspaces()]);
+      const [{ workspaces }] = await Promise.all([getWorkspaces(), appConfigRequest]);
       this.apiConnected = true;
       this.setConnection("ok");
 

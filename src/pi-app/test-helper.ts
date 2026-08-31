@@ -18,6 +18,7 @@ export function installPiAppFixture() {
   vi.stubGlobal("localStorage", memoryStorage());
   document.body.innerHTML = `
     <pi-app data-tree="on" data-sidebar="open">
+      <span class="brand"><span data-brand>pi.dev / web</span><span class="cursor-block"></span></span>
       <button
         class="hamburger"
         type="button"
@@ -91,6 +92,10 @@ export function installPiAppFixture() {
             <option value="global">global</option>
           </select>
           <span data-settings-path></span>
+          <section class="app-settings-section">
+            <label>pi-web 应用设置 <input data-app-setting="brand" /></label>
+            <small data-app-config-path>—</small>
+          </section>
           <div data-auth-form>
             <select data-auth-provider></select>
             <input data-auth-api-key type="password" />

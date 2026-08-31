@@ -5,6 +5,7 @@ import {
   getWorkspaceSettings,
   logoutProvider,
   saveAPIKey,
+  saveAppConfig,
   saveWorkspaceSettings,
   setSessionModel,
 } from "../../lib/api";
@@ -14,6 +15,7 @@ import {
   parseWorkspaceSettings,
   settingsScopeSchema,
 } from "./settings-schema";
+import { parseAppConfigResponse } from "./app-config-schema";
 
 function valueAt(settings, path) {
   return path.split(".").reduce((value, part) => value?.[part], settings);
@@ -75,6 +77,19 @@ export const settingsMethods = {
     this.settingsState = parseWorkspaceSettings(settings);
   },
 
+  setAppConfigLoading(loading) {
+    const control = this.querySelector("[data-app-setting='brand']");
+    if (!control) return;
+    control.disabled = loading;
+    if (loading) control.placeholder = "loading…";
+  },
+
+  fillAppConfigFormState() {
+    this.fillAppConfigForm?.();
+    const path = this.querySelector("[data-app-config-path]");
+    if (path) path.textContent = this.appConfigState?.path || "—";
+  },
+
   async openSettingsModal() {
     const workspaceId = this.dataset.activeWorkspaceId;
     const activeElement = document.activeElement;
@@ -83,25 +98,45 @@ export const settingsMethods = {
     }
     this.settingsModal?.removeAttribute("hidden");
     window.requestAnimationFrame(() => this.focusSettingsModal?.());
-    if (!workspaceId) {
-      this.setSettingsStatus("open a workspace first", true);
-      return;
-    }
     if (!this.apiConnected) {
       this.setSettingsStatus("backend disconnected", true);
       return;
     }
     this.setSettingsStatus("loading settings…");
+    this.setAppConfigLoading(true);
+    if (!workspaceId) {
+      const [appConfigResult] = await Promise.allSettled([this.loadAppConfigState()]);
+      this.fillAppConfigFormState();
+      this.setAppConfigLoading(false);
+      if (appConfigResult.status === "rejected") {
+        const message = appConfigResult.reason instanceof Error ? appConfigResult.reason.message : String(appConfigResult.reason);
+        this.setSettingsStatus(message, true);
+        this.setConnection("err");
+      } else {
+        this.setSettingsStatus("blank fields inherit from effective settings");
+      }
+      this.focusSettingsModal?.();
+      return;
+    }
     this.setModelControlsLoading("loading models…");
-    const [settingsResult, authResult, oauthResult, modelsResult] = await Promise.allSettled([
+    const [appConfigResult, settingsResult, authResult, oauthResult, modelsResult] = await Promise.allSettled([
+      this.loadAppConfigState(),
       getWorkspaceSettings(workspaceId),
       getAuthProviders(),
       getOAuthProviders(),
       getWorkspaceModels(workspaceId),
     ]);
+    this.fillAppConfigFormState();
+    this.setAppConfigLoading(false);
+    const errors = [];
+    if (appConfigResult.status === "rejected") {
+      errors.push(appConfigResult.reason instanceof Error ? appConfigResult.reason.message : String(appConfigResult.reason));
+    }
     if (settingsResult.status === "rejected") {
-      this.setSettingsStatus(settingsResult.reason instanceof Error ? settingsResult.reason.message : String(settingsResult.reason), true);
+      errors.push(settingsResult.reason instanceof Error ? settingsResult.reason.message : String(settingsResult.reason));
+      this.setSettingsStatus(errors.join("; "), true);
       this.setConnection("err");
+      this.focusSettingsModal?.();
       return;
     }
     this.settingsState = parseWorkspaceSettings(settingsResult.value.settings);
@@ -121,9 +156,9 @@ export const settingsMethods = {
       this.fillFallbackModelControls();
     }
     this.fillSettingsForm();
-    const errors = [authResult, oauthResult, modelsResult]
+    errors.push(...[authResult, oauthResult, modelsResult]
       .filter((result) => result.status === "rejected")
-      .map((result) => result.reason instanceof Error ? result.reason.message : String(result.reason));
+      .map((result) => result.reason instanceof Error ? result.reason.message : String(result.reason)));
     if (modelsResult.status === "fulfilled" && modelsResult.value?.error) errors.push(modelsResult.value.error);
     this.setSettingsStatus(errors[0] || "blank fields inherit from effective settings", errors.length > 0);
     if (errors.length > 0) this.setConnection("err");
@@ -355,18 +390,50 @@ export const settingsMethods = {
     event?.preventDefault();
     const form = this.querySelector("[data-settings-form]");
     const workspaceId = this.dataset.activeWorkspaceId;
-    if (!form || !workspaceId || !this.apiConnected) return;
+    if (!form || !this.apiConnected) return;
     const scopeValue = form.querySelector("[name='scope']")?.value || "project";
     this.setSettingsStatus("saving…");
     try {
+      const appConfigPatch = this.appConfigPatchFromForm?.() || {};
+      const appConfigRequest = Object.keys(appConfigPatch).length
+        ? saveAppConfig(appConfigPatch)
+        : Promise.resolve(undefined);
       const scope = settingsScopeSchema.parse(scopeValue);
-      const patch = parseSettingsPatch(this.settingsPatchFromForm(form));
-      const { settings } = await saveWorkspaceSettings(workspaceId, scope, patch);
-      this.settingsState = parseWorkspaceSettings(settings);
-      this.fillSettingsForm();
+      const patch = workspaceId ? parseSettingsPatch(this.settingsPatchFromForm(form)) : {};
+      const settingsRequest = workspaceId && Object.keys(patch).length
+        ? saveWorkspaceSettings(workspaceId, scope, patch)
+        : Promise.resolve(undefined);
+      const [appConfigResult, settingsResult] = await Promise.allSettled([appConfigRequest, settingsRequest]);
+      const errors = [];
+      if (appConfigResult.status === "fulfilled" && appConfigResult.value) {
+        try {
+          this.appConfigState = parseAppConfigResponse(appConfigResult.value);
+          this.applyBrand(this.appConfigState.config.brand);
+          this.fillAppConfigFormState();
+        } catch (error) {
+          errors.push(error instanceof Error ? error.message : String(error));
+        }
+      } else if (appConfigResult.status === "rejected") {
+        errors.push(appConfigResult.reason instanceof Error ? appConfigResult.reason.message : String(appConfigResult.reason));
+      }
+      if (settingsResult.status === "fulfilled" && settingsResult.value) {
+        try {
+          this.settingsState = parseWorkspaceSettings(settingsResult.value.settings);
+          this.fillSettingsForm();
+          void this.loadRuntimeStatus?.(workspaceId);
+          if ("defaultProvider" in patch || "defaultModel" in patch) void this.applyEffectiveModelToActiveSession();
+        } catch (error) {
+          errors.push(error instanceof Error ? error.message : String(error));
+        }
+      } else if (settingsResult.status === "rejected") {
+        errors.push(settingsResult.reason instanceof Error ? settingsResult.reason.message : String(settingsResult.reason));
+      }
+      if (errors.length > 0) {
+        this.setSettingsStatus(errors.join("; "), true);
+        this.setConnection("err");
+        return;
+      }
       this.setSettingsStatus("saved");
-      void this.loadRuntimeStatus?.(workspaceId);
-      if ("defaultProvider" in patch || "defaultModel" in patch) void this.applyEffectiveModelToActiveSession();
     } catch (error) {
       this.setSettingsStatus(error instanceof Error ? error.message : String(error), true);
       this.setConnection("err");

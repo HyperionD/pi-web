@@ -16,6 +16,7 @@ import { runtimeStatusMethods } from "./status/runtime-status-methods";
 import { toastMethods } from "./status/toast-methods";
 import { transcriptWindowMethods } from "./transcript/transcript-window-methods";
 import { oauthMethods } from "./workspace/oauth-methods";
+import { appConfigMethods } from "./workspace/app-config-methods";
 import { settingsMethods } from "./workspace/settings-methods";
 import { workspaceMethods } from "./workspace/workspace-methods";
 
@@ -490,6 +491,7 @@ Object.assign(
   runtimeStatusMethods,
   compactionMethods,
   settingsMethods,
+  appConfigMethods,
   oauthMethods,
 );
 

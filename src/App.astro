@@ -96,7 +96,7 @@ function toolStatus(msg) {
     <button class="sb-expand-btn" type="button" data-action="expand-sidebar" aria-label="显示侧栏" style={sidebarCollapsed ? "display:inline-flex" : "display:none"}><ChevronRight size={16} strokeWidth={1.75} aria-hidden="true" /></button>
     <button class="hamburger" type="button" data-action="open-drawer" aria-label="打开侧栏"><Menu size={16} strokeWidth={1.75} aria-hidden="true" /></button>
     <span class="brand" aria-label="pi.dev / web">
-      <span class="pi">pi.dev</span><span class="slash">/</span><span class="web">web</span><span class="cursor-block"></span>
+      <span data-brand>pi.dev / web</span><span class="cursor-block"></span>
     </span>
     <span class="crumb">
       <span class="sep">/</span><span class="ws" data-active-workspace>{activeWorkspaceName}</span>
@@ -283,6 +283,19 @@ function toolStatus(msg) {
           </label>
           <span data-settings-path>—</span>
         </div>
+        <section class="app-settings-section" aria-labelledby="app-settings-title">
+          <div class="app-settings-head">
+            <div>
+              <strong id="app-settings-title">pi-web 应用设置</strong>
+              <small>用户级配置，不随 project / global scope 切换</small>
+            </div>
+            <small class="app-settings-path">path: <code data-app-config-path>—</code></small>
+          </div>
+          <label class="settings-field">
+            <span>品牌</span>
+            <input data-app-setting="brand" autocomplete="off" placeholder="pi.dev / web" />
+          </label>
+        </section>
         <details class="auth-login" data-auth-form>
           <summary>
             <span class="auth-login-title"><span data-i18n="authTitle">Authentication</span> <em data-i18n="authMode">API key login</em></span>

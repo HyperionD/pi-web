@@ -113,6 +113,44 @@
   white-space: nowrap;
   font-family: var(--font-mono);
 }
+.app-settings-section {
+  margin: 0 12px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-1);
+  background: var(--bg-0);
+  padding: 10px 12px;
+}
+.app-settings-head {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-3);
+  margin-bottom: 10px;
+}
+.app-settings-head strong,
+.app-settings-head small {
+  display: block;
+}
+.app-settings-head strong {
+  color: var(--fg-0);
+  font-size: var(--text-sm);
+}
+.app-settings-head small {
+  color: var(--fg-3);
+  font-size: var(--text-xs);
+}
+.app-settings-path {
+  max-width: 50%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-mono);
+  text-align: right;
+}
+.app-settings-path code { color: var(--accent); }
+.app-settings-section [data-app-setting]:disabled {
+  cursor: progress;
+  opacity: 0.6;
+}
 .auth-login {
   margin: 0 12px 12px;
   border: 1px solid var(--border);
