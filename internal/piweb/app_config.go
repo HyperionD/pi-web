@@ -109,20 +109,125 @@ func readAppConfig(path string) (map[string]any, error) {
 }
 
 func normalizeStoredAppConfig(stored map[string]any) error {
-	value, ok := stored["brand"]
+	if value, ok := stored["brand"]; ok {
+		brand, err := normalizedAppBrand(value)
+		if err != nil {
+			return err
+		}
+		if brand == "" {
+			delete(stored, "brand")
+		} else {
+			stored["brand"] = brand
+		}
+	}
+
+	value, ok := stored["workspace"]
 	if !ok {
 		return nil
 	}
-	brand, err := normalizedAppBrand(value)
+	workspace, err := normalizeStoredWorkspaceConfig(value)
 	if err != nil {
 		return err
 	}
-	if brand == "" {
-		delete(stored, "brand")
+	if workspace == nil {
+		delete(stored, "workspace")
 	} else {
-		stored["brand"] = brand
+		stored["workspace"] = workspace
 	}
 	return nil
+}
+
+func normalizeStoredWorkspaceConfig(value any) (map[string]any, error) {
+	if value == nil {
+		return nil, nil
+	}
+	workspace, ok := value.(map[string]any)
+	if !ok {
+		return nil, errors.New("app config workspace must be an object or null")
+	}
+	normalized := make(map[string]any, len(workspace))
+	for key, nested := range workspace {
+		if key == "allowedRoots" {
+			roots, err := normalizeAllowedRoots(nested)
+			if err != nil {
+				return nil, err
+			}
+			normalized[key] = roots
+			continue
+		}
+		normalized[key] = cloneAppConfigValue(nested)
+	}
+	return normalized, nil
+}
+
+func normalizeAllowedRoots(value any) ([]any, error) {
+	var values []any
+	switch roots := value.(type) {
+	case []any:
+		values = roots
+	case []string:
+		values = make([]any, len(roots))
+		for index, root := range roots {
+			values[index] = root
+		}
+	default:
+		return nil, errors.New("app config workspace.allowedRoots must be an array of strings")
+	}
+
+	normalized := make([]any, 0, len(values))
+	seen := make(map[string]struct{}, len(values))
+	for index, value := range values {
+		root, ok := value.(string)
+		if !ok {
+			return nil, fmt.Errorf("app config workspace.allowedRoots[%d] must be a string", index)
+		}
+		root = strings.TrimSpace(root)
+		if root == "" {
+			return nil, fmt.Errorf("app config workspace.allowedRoots[%d] must not be empty", index)
+		}
+		expanded, err := expandAppConfigPath(root)
+		if err != nil {
+			return nil, fmt.Errorf("app config workspace.allowedRoots[%d] %q: %w", index, root, err)
+		}
+		expanded = filepath.Clean(expanded)
+		absolute, err := filepath.Abs(expanded)
+		if err != nil {
+			return nil, fmt.Errorf("app config workspace.allowedRoots[%d] %q: make absolute: %w", index, root, err)
+		}
+		realPath, err := filepath.EvalSymlinks(absolute)
+		if err != nil {
+			return nil, fmt.Errorf("app config workspace.allowedRoots[%d] %q: resolve path: %w", index, root, err)
+		}
+		realPath = filepath.Clean(realPath)
+		info, err := os.Stat(realPath)
+		if err != nil {
+			return nil, fmt.Errorf("app config workspace.allowedRoots[%d] %q: stat path: %w", index, root, err)
+		}
+		if !info.IsDir() {
+			return nil, fmt.Errorf("app config workspace.allowedRoots[%d] %q: path is not a directory", index, root)
+		}
+		if _, ok := seen[realPath]; ok {
+			continue
+		}
+		seen[realPath] = struct{}{}
+		normalized = append(normalized, realPath)
+	}
+	return normalized, nil
+}
+
+func expandAppConfigPath(path string) (string, error) {
+	prefix := "~" + string(filepath.Separator)
+	if path != "~" && !strings.HasPrefix(path, prefix) {
+		return path, nil
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", fmt.Errorf("expand home directory: %w", err)
+	}
+	if path == "~" {
+		return home, nil
+	}
+	return filepath.Join(home, strings.TrimPrefix(path, prefix)), nil
 }
 
 func applyAppConfigPatch(stored, patch map[string]any) error {
@@ -136,6 +241,29 @@ func applyAppConfigPatch(stored, patch map[string]any) error {
 				delete(stored, key)
 			} else {
 				stored[key] = brand
+			}
+			continue
+		}
+		if key == "workspace" {
+			if value == nil {
+				delete(stored, key)
+				continue
+			}
+			workspace, err := normalizeStoredWorkspaceConfig(value)
+			if err != nil {
+				return err
+			}
+			if existing, ok := stored[key]; ok && existing != nil {
+				existingWorkspace, err := normalizeStoredWorkspaceConfig(existing)
+				if err != nil {
+					return err
+				}
+				for nestedKey, nestedValue := range workspace {
+					existingWorkspace[nestedKey] = nestedValue
+				}
+				stored[key] = existingWorkspace
+			} else {
+				stored[key] = workspace
 			}
 			continue
 		}

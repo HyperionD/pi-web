@@ -344,3 +344,183 @@ func TestAppConfigPathReturnsErrorForEmptySessionDirectory(t *testing.T) {
 		t.Fatal("expected empty session directory error")
 	}
 }
+
+func TestSaveAppConfigNormalizesAllowedRoots(t *testing.T) {
+	root := t.TempDir()
+	nested := filepath.Join(root, "nested")
+	if err := os.Mkdir(nested, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PI_CODING_AGENT_SESSION_DIR", filepath.Join(t.TempDir(), "sessions"))
+
+	response, err := SaveAppConfig(map[string]any{
+		"workspace": map[string]any{"allowedRoots": []any{root, nested, root}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	workspace, ok := response.Config["workspace"].(map[string]any)
+	if !ok {
+		t.Fatalf("workspace=%#v", response.Config["workspace"])
+	}
+	roots, ok := workspace["allowedRoots"].([]any)
+	if !ok || len(roots) != 2 {
+		t.Fatalf("roots=%#v", workspace["allowedRoots"])
+	}
+	if roots[0] != root || roots[1] != nested {
+		t.Fatalf("roots=%#v", roots)
+	}
+}
+
+func TestSaveAppConfigRejectsInvalidAllowedRootsWithoutChangingConfig(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv("PI_CODING_AGENT_SESSION_DIR", filepath.Join(t.TempDir(), "sessions"))
+	if _, err := SaveAppConfig(map[string]any{
+		"brand": "Custom",
+		"workspace": map[string]any{
+			"allowedRoots": []any{root},
+			"future":       map[string]any{"enabled": true},
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err := SaveAppConfig(map[string]any{
+		"workspace": map[string]any{"allowedRoots": []any{filepath.Join(root, "missing")}},
+	})
+	if err == nil {
+		t.Fatal("expected invalid root error")
+	}
+	response, err := LoadAppConfig()
+	if err != nil {
+		t.Fatal(err)
+	}
+	workspace := response.Config["workspace"].(map[string]any)
+	roots := workspace["allowedRoots"].([]any)
+	if len(roots) != 1 || roots[0] != root {
+		t.Fatalf("roots changed: %#v", roots)
+	}
+	if response.Config["brand"] != "Custom" {
+		t.Fatalf("brand changed: %#v", response.Config["brand"])
+	}
+	future := workspace["future"].(map[string]any)
+	if future["enabled"] != true {
+		t.Fatalf("future field changed: %#v", future)
+	}
+}
+
+func TestSaveAppConfigWorkspaceAllowsMissingAndEmptyRoots(t *testing.T) {
+	t.Setenv("PI_CODING_AGENT_SESSION_DIR", filepath.Join(t.TempDir(), "sessions"))
+
+	response, err := SaveAppConfig(map[string]any{
+		"workspace": map[string]any{"future": "preserved"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	workspace := response.Config["workspace"].(map[string]any)
+	if _, ok := workspace["allowedRoots"]; ok {
+		t.Fatalf("missing roots should stay missing: %#v", workspace)
+	}
+
+	response, err = SaveAppConfig(map[string]any{
+		"workspace": map[string]any{"allowedRoots": []any{}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	workspace = response.Config["workspace"].(map[string]any)
+	roots, ok := workspace["allowedRoots"].([]any)
+	if !ok || len(roots) != 0 || workspace["future"] != "preserved" {
+		t.Fatalf("workspace=%#v", workspace)
+	}
+}
+
+func TestSaveAppConfigWorkspaceExpandsTildeAndResolvesSymlink(t *testing.T) {
+	home := t.TempDir()
+	realRoot := filepath.Join(home, "real")
+	if err := os.Mkdir(realRoot, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(home, "link")
+	if err := os.Symlink(realRoot, link); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+	t.Setenv("HOME", home)
+	t.Setenv("PI_CODING_AGENT_SESSION_DIR", filepath.Join(t.TempDir(), "sessions"))
+
+	response, err := SaveAppConfig(map[string]any{
+		"workspace": map[string]any{"allowedRoots": []any{" ~/real ", "~/link"}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	workspace := response.Config["workspace"].(map[string]any)
+	roots := workspace["allowedRoots"].([]any)
+	if len(roots) != 1 || roots[0] != realRoot {
+		t.Fatalf("roots=%#v, want %q", roots, realRoot)
+	}
+}
+
+func TestSaveAppConfigRejectsInvalidWorkspaceValues(t *testing.T) {
+	root := t.TempDir()
+	cases := []struct {
+		name  string
+		patch map[string]any
+	}{
+		{
+			name:  "non-string root",
+			patch: map[string]any{"workspace": map[string]any{"allowedRoots": []any{root, 42}}},
+		},
+		{
+			name:  "non-directory root",
+			patch: map[string]any{"workspace": map[string]any{"allowedRoots": []any{filepath.Join(root, "file")}}},
+		},
+		{
+			name:  "non-object workspace",
+			patch: map[string]any{"workspace": "not-an-object"},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv("PI_CODING_AGENT_SESSION_DIR", filepath.Join(t.TempDir(), "sessions"))
+			if tc.name == "non-directory root" {
+				if err := os.WriteFile(filepath.Join(root, "file"), []byte("file"), 0o600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if _, err := SaveAppConfig(tc.patch); err == nil {
+				t.Fatal("expected invalid workspace error")
+			}
+		})
+	}
+}
+
+func TestLoadAppConfigRejectsInvalidStoredWorkspace(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv("PI_CODING_AGENT_SESSION_DIR", filepath.Join(root, "sessions"))
+	path := filepath.Join(root, "pi-web-config.json")
+	if err := os.WriteFile(path, []byte(`{"workspace":{"allowedRoots":["missing"]}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := LoadAppConfig(); err == nil {
+		t.Fatal("expected invalid stored workspace error")
+	}
+}
+
+func TestSaveAppConfigWorkspaceNullRemovesSection(t *testing.T) {
+	t.Setenv("PI_CODING_AGENT_SESSION_DIR", filepath.Join(t.TempDir(), "sessions"))
+	if _, err := SaveAppConfig(map[string]any{
+		"workspace": map[string]any{"future": "value"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	response, err := SaveAppConfig(map[string]any{"workspace": nil})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := response.Config["workspace"]; ok {
+		t.Fatalf("workspace should be removed: %#v", response.Config["workspace"])
+	}
+}
