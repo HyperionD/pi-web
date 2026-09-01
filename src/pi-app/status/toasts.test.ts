@@ -14,6 +14,13 @@ const fallbackChoiceJson = [
   "```",
 ].join("\n");
 
+function bootstrapOkResponse(url) {
+  const body = String(url).endsWith("/app-config")
+    ? { config: { version: 1, brand: "pi.dev / web" }, path: "/config" }
+    : { workspaces: [] };
+  return { ok: true, status: 200, statusText: "OK", json: async () => body };
+}
+
 function setActiveToastContext(app) {
   app.dataset.activeWorkspaceId = "w1";
   app.dataset.activeSessionId = "s1";
@@ -28,7 +35,11 @@ function setActiveToastContext(app) {
 }
 
 describe("pi-app toast notifications", () => {
-  beforeEach(installPiAppFixture);
+  beforeEach(() => {
+    installPiAppFixture();
+    globalThis.PI_WEB_API_BASE = "http://backend.test";
+    globalThis.fetch = vi.fn(async (url) => bootstrapOkResponse(url));
+  });
   afterEach(cleanupPiAppFixture);
 
   it("shows and dismisses a green toast when a running response completes", async () => {

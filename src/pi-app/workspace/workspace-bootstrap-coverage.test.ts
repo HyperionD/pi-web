@@ -49,6 +49,25 @@ describe("workspace bootstrap coverage", () => {
     expect(app.renderWorkspaces).toHaveBeenCalledWith([]);
   });
 
+  it("shows app config load failures while continuing workspace bootstrap", async () => {
+    const app = await connectPiApp();
+    app.renderWorkspaces = vi.fn();
+    app.loadAppConfigState = vi.fn(async () => {
+      throw new Error("app config unavailable");
+    });
+    globalThis.fetch = vi.fn(async (url) => String(url).endsWith("/workspaces")
+      ? okJson({ workspaces: [] })
+      : okJson({}));
+
+    await app.bootstrapAPI();
+
+    expect(app.renderWorkspaces).toHaveBeenCalledWith([]);
+    const toast = document.querySelector(".session-toast.error");
+    expect(toast?.textContent).toContain("应用配置加载失败");
+    expect(toast?.textContent).toContain("app config unavailable");
+    expect(app.querySelector("[data-brand]").textContent).toBe("pi.dev / web");
+  });
+
   it("covers bootstrap fallback branches", async () => {
     localStorage.setItem("pi.activeSession", JSON.stringify({ workspaceId: "w-missing", sessionId: "missing" }));
     const app = await connectPiApp();

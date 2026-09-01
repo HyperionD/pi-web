@@ -25,7 +25,12 @@ function findStoredSession(workspaces, stored) {
 
 export const workspaceBootstrapMethods = {
   async bootstrapAPI() {
-    const appConfigRequest = Promise.resolve(this.loadAppConfigState?.()).catch(() => undefined);
+    const appConfigRequest = Promise.resolve()
+      .then(() => this.loadAppConfigState?.())
+      .catch((error) => {
+        this.reportAppConfigLoadFailure(error);
+        return undefined;
+      });
     try {
       const [{ workspaces }] = await Promise.all([getWorkspaces(), appConfigRequest]);
       this.apiConnected = true;
@@ -54,6 +59,15 @@ export const workspaceBootstrapMethods = {
       this.apiConnected = false;
       this.setConnection("err");
     }
+  },
+
+  reportAppConfigLoadFailure(error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (this.showSystemToast) {
+      this.showSystemToast("error", "应用配置加载失败", message, `app-config-load:${message}`);
+      return;
+    }
+    this.setConnection?.("err");
   },
 
   activateBootstrapWorkspace(workspace) {

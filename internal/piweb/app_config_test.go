@@ -3,9 +3,11 @@ package piweb
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"unicode/utf8"
 )
@@ -218,6 +220,47 @@ func TestSaveAppConfigCreatesPrivateDirectoriesAndFile(t *testing.T) {
 	}
 	if mode := fileInfo.Mode().Perm(); mode != 0o600 {
 		t.Fatalf("file permissions=%o", mode)
+	}
+}
+
+func TestSaveAppConfigSerializesConcurrentReadMergeWrites(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv("PI_CODING_AGENT_SESSION_DIR", filepath.Join(root, "sessions"))
+
+	const writers = 64
+	start := make(chan struct{})
+	errorsCh := make(chan error, writers)
+	var group sync.WaitGroup
+	group.Add(writers)
+	for index := 0; index < writers; index++ {
+		index := index
+		go func() {
+			defer group.Done()
+			<-start
+			_, err := SaveAppConfig(map[string]any{
+				fmt.Sprintf("concurrent-%d", index): fmt.Sprintf("value-%d", index),
+			})
+			errorsCh <- err
+		}()
+	}
+	close(start)
+	group.Wait()
+	close(errorsCh)
+	for err := range errorsCh {
+		if err != nil {
+			t.Fatalf("concurrent save: %v", err)
+		}
+	}
+
+	response, err := LoadAppConfig()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for index := 0; index < writers; index++ {
+		key := fmt.Sprintf("concurrent-%d", index)
+		if response.Config[key] != fmt.Sprintf("value-%d", index) {
+			t.Fatalf("lost concurrent update for %q: %#v", key, response.Config[key])
+		}
 	}
 }
 

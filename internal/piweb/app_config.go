@@ -7,11 +7,14 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"unicode"
 	"unicode/utf8"
 )
 
 const DefaultAppBrand = "pi.dev / web"
+
+var appConfigMu sync.Mutex
 
 type AppConfigResponse struct {
 	Config map[string]any `json:"config"`
@@ -30,6 +33,9 @@ func appConfigPath(sessionDir string) (string, error) {
 }
 
 func LoadAppConfig() (AppConfigResponse, error) {
+	appConfigMu.Lock()
+	defer appConfigMu.Unlock()
+
 	path, err := AppConfigPath()
 	if err != nil {
 		return AppConfigResponse{}, err
@@ -42,6 +48,9 @@ func LoadAppConfig() (AppConfigResponse, error) {
 }
 
 func SaveAppConfig(patch map[string]any) (AppConfigResponse, error) {
+	appConfigMu.Lock()
+	defer appConfigMu.Unlock()
+
 	path, err := AppConfigPath()
 	if err != nil {
 		return AppConfigResponse{}, err
