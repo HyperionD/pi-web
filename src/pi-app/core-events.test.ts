@@ -169,6 +169,7 @@ describe("pi-app core events", () => {
   it("keeps settings controls usable when model discovery fails", async () => {
     globalThis.fetch = vi.fn(async (url) => {
       const path = String(url);
+      if (path.includes("/api/app-config")) return { ok: true, json: async () => ({ config: { version: 1, brand: "pi.dev / web" }, path: "p" }) };
       if (path.includes("/settings")) return { ok: true, json: async () => ({ settings: { project: {}, global: {}, effective: { defaultProvider: "zai", defaultModel: "gpt-5.5" }, paths: { project: "p", global: "g" } } }) };
       if (path.includes("/models")) return { ok: false, status: 502, statusText: "Bad Gateway", json: async () => ({ error: "signal: killed" }) };
       if (path.includes("/auth/oauth/providers")) return { ok: true, json: async () => ({ providers: [] }) };
