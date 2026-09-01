@@ -112,11 +112,22 @@ describe("pi-app core events", () => {
   it("binds DOM and window events to current methods", async () => {
     const app = await connectPiApp();
     const calls = [];
-    ["submitWorkspacePath", "submitCloneWorkspace", "submitShellCommand", "saveSettingsForm", "fillSettingsForm", "fillModelControls", "syncCustomSettingInput", "setModelControlsLoading",
-      "submitPrompt", "cancelActiveSession", "handlePromptPaste", "navigateList", "pickSlash", "addFiles", "startResize", "startInspectorResize",
+    ["submitShellCommand", "saveSettingsForm", "fillSettingsForm", "fillModelControls", "syncCustomSettingInput", "setModelControlsLoading",
+      "submitPrompt", "cancelActiveSession", "handlePromptPaste", "navigateList", "pickSlash", "addFiles", "startResize", "startInspectorResize", "openFolderPopover", "closeFolderPopover",
       "shortcut", "closeSessionMenus"].forEach((name) => { app[name] = (...args) => calls.push([name, ...args]); });
     app.slashPopover.hidden = false;
     app.slashPopover.removeAttribute("hidden");
+    app.submitWorkspacePath = vi.fn();
+    app.submitCloneWorkspace = vi.fn();
+    const folderTrigger = document.createElement("button");
+    folderTrigger.dataset.action = "folder-open";
+    const folderPopover = document.createElement("div");
+    folderPopover.dataset.folderPopover = "";
+    folderPopover.hidden = true;
+    const folderClose = document.createElement("button");
+    folderClose.dataset.action = "folder-close";
+    folderPopover.append(folderClose);
+    app.append(folderTrigger, folderPopover);
     const pathForm = document.createElement("form");
     const cloneForm = document.createElement("form");
     const shellForm = document.createElement("form");
@@ -132,9 +143,13 @@ describe("pi-app core events", () => {
     app.append(pathForm, cloneForm, shellForm, resizer, inspectorResizer, gitInspectorResizer);
     app.bindDomEvents();
 
+    folderTrigger.click();
+    folderClose.click();
     pathForm.dispatchEvent(new Event("submit"));
     cloneForm.dispatchEvent(new Event("submit"));
     shellForm.dispatchEvent(new Event("submit"));
+    expect(app.submitWorkspacePath).not.toHaveBeenCalled();
+    expect(app.submitCloneWorkspace).not.toHaveBeenCalled();
     app.querySelector("[data-settings-form]").dispatchEvent(new Event("submit"));
     app.querySelector("[data-settings-scope]").dispatchEvent(new Event("change"));
     app.querySelector("[data-setting='defaultProvider']").dispatchEvent(new Event("change"));
@@ -162,8 +177,41 @@ describe("pi-app core events", () => {
     expect(tweaks.hidden).toBe(false);
     window.dispatchEvent(new MessageEvent("message", { data: { type: "__deactivate_edit_mode" } }));
     expect(tweaks.hidden).toBe(true);
-    expect(calls.map(([name]) => name)).toContain("submitWorkspacePath");
     expect(calls.map(([name]) => name)).toContain("navigateList");
+    expect(calls).toContainEqual(["openFolderPopover"]);
+    expect(calls).toContainEqual(["closeFolderPopover"]);
+  });
+
+  it("closes the folder picker on Escape or outside click and restores trigger focus", async () => {
+    const app = await connectPiApp();
+    app.apiConnected = true;
+    const trigger = document.createElement("button");
+    trigger.dataset.action = "folder-open";
+    const popover = document.createElement("div");
+    popover.dataset.folderPopover = "";
+    popover.hidden = true;
+    popover.innerHTML = '<button data-action="folder-close"></button><span data-folder-path></span><div data-folder-list></div><button data-action="folder-open-current"></button>';
+    app.append(trigger, popover);
+    globalThis.fetch = vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      statusText: "OK",
+      json: async () => ({ path: "/allowed", parent: "/", folders: [] }),
+    }));
+
+    trigger.click();
+    await vi.waitFor(() => expect(popover.hidden).toBe(false));
+    window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
+    expect(popover.hidden).toBe(true);
+    expect(document.activeElement).toBe(trigger);
+
+    trigger.click();
+    await vi.waitFor(() => expect(popover.hidden).toBe(false));
+    const outside = document.createElement("button");
+    document.body.append(outside);
+    outside.click();
+    expect(popover.hidden).toBe(true);
+    expect(document.activeElement).toBe(trigger);
   });
 
   it("keeps settings controls usable when model discovery fails", async () => {

@@ -21,7 +21,7 @@ describe("pi-app input actions coverage", () => {
     const app = await connectPiApp();
     const calls = [];
     [
-      "route", "refreshWorkspaces", "browseFolder", "loadFolder", "openWorkspacePath", "toggleTree", "showFileTreePanel", "showGitHistory", "loadMoreGitHistory", "selectGitCommit", "closeGitDetail", "refreshTree",
+      "route", "refreshWorkspaces", "browseFolder", "loadFolder", "openWorkspacePath", "openFolderPopover", "closeFolderPopover", "toggleTree", "showFileTreePanel", "showGitHistory", "loadMoreGitHistory", "selectGitCommit", "closeGitDetail", "refreshTree",
       "refreshGitHistory", "openFile", "closeFilePreview", "toggleFilePreviewMode", "saveFilePreview", "collapseSidebar",
       "toggleDrawer", "toggleTool", "showFullToolOutput", "toggleWorkspace", "deleteWorkspace", "deleteWorkspaceSessions",
       "newSession", "toggleSessionMenu", "renameSession", "deleteSession", "submitFallbackChoice", "openSettingsModal",
@@ -30,7 +30,7 @@ describe("pi-app input actions coverage", () => {
     app.currentFolder = "/cwd";
     app.currentFolderParent = "/";
     const actions = [
-      "route-picker", "route-workspace", "refresh-workspaces", "browse-folder", "folder-enter", "folder-up",
+      "route-picker", "route-workspace", "refresh-workspaces", "browse-folder", "folder-open", "folder-close", "folder-enter", "folder-up",
       "folder-open-current", "toggle-tree", "show-file-tree", "show-git-history", "load-more-git-history", "select-git-commit", "close-git-detail", "refresh-tree", "tree-root-menu", "open-file", "close-file-preview",
       "toggle-file-preview-mode", "save-file-preview", "collapse-sidebar", "expand-sidebar", "open-drawer", "close-drawer",
       "toggle-tool", "show-full-tool-output", "toggle-workspace", "delete-workspace", "delete-workspace-sessions", "new-session",
@@ -127,6 +127,8 @@ describe("pi-app input actions coverage", () => {
     app.append(badChip);
     badChip.querySelector("button").click();
     expect(calls.some(([name]) => name === "newSession")).toBe(true);
+    expect(calls).toContainEqual(["openFolderPopover"]);
+    expect(calls).toContainEqual(["closeFolderPopover"]);
 
     app.dataset.activeWorkspaceId = "w1";
     app.loadWorkspaceMeta = (...args) => calls.push(["loadWorkspaceMeta", ...args]);

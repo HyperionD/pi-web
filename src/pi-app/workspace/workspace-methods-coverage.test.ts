@@ -114,6 +114,39 @@ describe("workspace folder/render/bootstrap coverage", () => {
     );
   });
 
+  it("opens the folder picker popover, navigates folders, and selects the current folder", async () => {
+    const app = await connectPiApp();
+    const trigger = document.createElement("button");
+    trigger.dataset.action = "folder-open";
+    const popover = document.createElement("div");
+    popover.dataset.folderPopover = "";
+    popover.hidden = true;
+    popover.innerHTML = '<button data-action="folder-close"></button><span data-folder-path></span><div data-folder-list></div><button data-action="folder-open-current"></button>';
+    app.append(trigger, popover);
+    app.apiConnected = true;
+    globalThis.fetch = vi.fn(async (url) => String(url).includes("path=%2Fallowed%2Fchild")
+      ? okJson({ path: "/allowed/child", parent: "/allowed", folders: [] })
+      : okJson({ path: "/allowed", parent: "/", folders: [{ name: "child", path: "/allowed/child" }] }));
+
+    await app.openFolderPopover();
+
+    expect(popover.hidden).toBe(false);
+    expect(app.folderBrowsePurpose).toBe("workspace");
+    expect(globalThis.fetch).toHaveBeenCalledWith(expect.stringContaining("path=~&purpose=workspace"), expect.any(Object));
+    expect(popover.querySelector("[data-folder-path]").textContent).toBe("/allowed");
+
+    popover.querySelector("[data-folder-list] .folder-row").click();
+    await vi.waitFor(() => expect(globalThis.fetch).toHaveBeenCalledWith(
+      expect.stringContaining("path=%2Fallowed%2Fchild&purpose=workspace"),
+      expect.any(Object),
+    ));
+    expect(app.currentFolder).toBe("/allowed/child");
+
+    app.openWorkspacePath = vi.fn();
+    popover.querySelector("[data-action='folder-open-current']").click();
+    expect(app.openWorkspacePath).toHaveBeenCalledWith("/allowed/child");
+  });
+
   it("uses the allowed-root purpose for configuration root browsing", async () => {
     const app = await connectPiApp();
     app.apiConnected = true;
