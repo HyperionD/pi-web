@@ -43,6 +43,16 @@ pi-web stores the brand setting in the user-level `pi-web-config.json` file. The
 
 This brand setting does not use pi native `settings.json` or `auth.json`, project `.pi` files, browser storage, or SQLite.
 
+To restrict selectable workspaces, add `allowedRoots` to `pi-web-config.json`:
+
+```json
+"workspace": {
+  "allowedRoots": ["~/code", "/workspaces"]
+}
+```
+
+When `allowedRoots` is missing or an empty array, workspace access is unrestricted. When it is non-empty, every root must resolve to a real, existing directory. Workspace paths that escape an allowed root through a symlink are rejected. Historical workspaces outside the configured roots are hidden and rejected. Deleting `pi-web-config.json` restores the default unrestricted workspace behavior.
+
 ## Features
 
 - **Workspace management**: Open local folders, view recent workspaces, and open workspaces after cloning Git repositories.
