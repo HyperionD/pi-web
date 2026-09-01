@@ -167,23 +167,24 @@ func TestCoverageWebDBAndWorkspaceOps(t *testing.T) {
 	}
 
 	store := emptyStore("")
+	policy := WorkspacePolicy{}
 	parent := t.TempDir()
-	if _, _, err := CloneGitWorkspace(context.Background(), store, CloneWorkspaceRequest{ParentPath: filepath.Join(parent, "missing"), GitURL: "x"}); err == nil {
+	if _, _, err := CloneGitWorkspace(context.Background(), store, CloneWorkspaceRequest{ParentPath: filepath.Join(parent, "missing"), GitURL: "x"}, policy); err == nil {
 		t.Fatal("expected missing parent error")
 	}
-	if _, _, err := CloneGitWorkspace(context.Background(), store, CloneWorkspaceRequest{ParentPath: parent}); err == nil {
+	if _, _, err := CloneGitWorkspace(context.Background(), store, CloneWorkspaceRequest{ParentPath: parent}, policy); err == nil {
 		t.Fatal("expected empty git url error")
 	}
-	if _, _, err := CloneGitWorkspace(context.Background(), store, CloneWorkspaceRequest{ParentPath: parent, GitURL: "https://x/repo.git", Name: "../bad"}); err == nil {
+	if _, _, err := CloneGitWorkspace(context.Background(), store, CloneWorkspaceRequest{ParentPath: parent, GitURL: "https://x/repo.git", Name: "../bad"}, policy); err == nil {
 		t.Fatal("expected invalid destination error")
 	}
 	if err := os.Mkdir(filepath.Join(parent, "repo"), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err := CloneGitWorkspace(context.Background(), store, CloneWorkspaceRequest{ParentPath: parent, GitURL: "https://x/repo.git", Name: "repo"}); err == nil {
+	if _, _, err := CloneGitWorkspace(context.Background(), store, CloneWorkspaceRequest{ParentPath: parent, GitURL: "https://x/repo.git", Name: "repo"}, policy); err == nil {
 		t.Fatal("expected destination exists error")
 	}
-	if _, output, err := CloneGitWorkspace(context.Background(), store, CloneWorkspaceRequest{ParentPath: parent, GitURL: "not-a-repo", Name: "other"}); err == nil || output == "" {
+	if _, output, err := CloneGitWorkspace(context.Background(), store, CloneWorkspaceRequest{ParentPath: parent, GitURL: "not-a-repo", Name: "other"}, policy); err == nil || output == "" {
 		t.Fatalf("expected clone failure with output, output=%q err=%v", output, err)
 	}
 }
@@ -655,7 +656,7 @@ done
 	}
 	cloneParent := t.TempDir()
 	cloneStore := emptyStore("")
-	cloned, _, err := CloneGitWorkspace(context.Background(), cloneStore, CloneWorkspaceRequest{ParentPath: cloneParent, GitURL: bare})
+	cloned, _, err := CloneGitWorkspace(context.Background(), cloneStore, CloneWorkspaceRequest{ParentPath: cloneParent, GitURL: bare}, WorkspacePolicy{})
 	if err != nil || cloned.ID == "" {
 		t.Fatalf("clone success workspace=%+v err=%v", cloned, err)
 	}

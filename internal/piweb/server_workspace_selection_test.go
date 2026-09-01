@@ -1,7 +1,9 @@
 package piweb
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -22,6 +24,33 @@ func saveAllowedRootsForTest(t *testing.T, roots ...string) {
 		"workspace": map[string]any{"allowedRoots": values},
 	}); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestCloneGitWorkspaceRejectsForbiddenDestinationBeforeClone(t *testing.T) {
+	t.Setenv("PI_CODING_AGENT_SESSION_DIR", t.TempDir())
+	allowed := t.TempDir()
+	outside := t.TempDir()
+	marker := filepath.Join(t.TempDir(), "clone-ran")
+	bin := t.TempDir()
+	git := filepath.Join(bin, "git")
+	if err := os.WriteFile(git, []byte("#!/bin/sh\ntouch \"$CLONE_MARKER\"\nmkdir -p \"$3\"\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("CLONE_MARKER", marker)
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	policy := WorkspacePolicy{allowedRoots: []string{allowed}, restricted: true}
+
+	_, _, err := CloneGitWorkspace(context.Background(), emptyStore(""), CloneWorkspaceRequest{
+		ParentPath: outside,
+		GitURL:     "https://example.com/repo.git",
+		Name:       "repo",
+	}, policy)
+	if !errors.Is(err, ErrWorkspaceForbidden) {
+		t.Fatalf("clone error = %v, want %v", err, ErrWorkspaceForbidden)
+	}
+	if _, err := os.Stat(marker); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("git clone marker error = %v, clone should not execute", err)
 	}
 }
 

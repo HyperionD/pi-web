@@ -50,11 +50,7 @@ func (b *cappedOutputBuffer) Result() string {
 	return output
 }
 
-func CloneGitWorkspace(ctx context.Context, store *Store, req CloneWorkspaceRequest, policies ...WorkspacePolicy) (Workspace, string, error) {
-	policy := WorkspacePolicy{}
-	if len(policies) > 0 {
-		policy = policies[0]
-	}
+func CloneGitWorkspace(ctx context.Context, store *Store, req CloneWorkspaceRequest, policy WorkspacePolicy) (Workspace, string, error) {
 	gitURL := strings.TrimSpace(req.GitURL)
 	if gitURL == "" {
 		return Workspace{}, "", errors.New("git url is required")
