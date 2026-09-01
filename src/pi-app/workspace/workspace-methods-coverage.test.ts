@@ -140,11 +140,44 @@ describe("workspace folder/render/bootstrap coverage", () => {
       expect.stringContaining("path=%2Fallowed%2Fchild&purpose=workspace"),
       expect.any(Object),
     ));
-    expect(app.currentFolder).toBe("/allowed/child");
+    await vi.waitFor(() => expect(app.currentFolder).toBe("/allowed/child"));
 
     app.openWorkspacePath = vi.fn();
     popover.querySelector("[data-action='folder-open-current']").click();
     expect(app.openWorkspacePath).toHaveBeenCalledWith("/allowed/child");
+  });
+
+  it("renders server-controlled folder values as text without HTML nodes", async () => {
+    const app = await connectPiApp();
+    const popover = document.createElement("div");
+    const path = document.createElement("span");
+    const list = document.createElement("div");
+    path.dataset.folderPath = "";
+    list.dataset.folderList = "";
+    popover.append(path, list);
+    app.append(popover);
+
+    const maliciousPath = '"><img src=x onerror="alert(1)">/allowed';
+    const maliciousName = '<img src=x onerror="alert(1)">child';
+    const maliciousError = '<svg onload="alert(1)">forbidden</svg>';
+    app.renderFolderListing({
+      path: maliciousPath,
+      displayPath: maliciousPath,
+      folders: [{ name: maliciousName, path: maliciousPath, displayPath: maliciousPath }],
+    });
+
+    expect(path.textContent).toBe(maliciousPath);
+    expect(path.querySelector("*")).toBeNull();
+    const row = list.querySelector(".folder-row");
+    expect(row.querySelector(".folder-name").textContent).toBe(maliciousName);
+    expect(row.querySelector(".folder-name").querySelector("*")).toBeNull();
+    expect(row.querySelector(".folder-path").textContent).toBe(maliciousPath);
+    expect(row.querySelector(".folder-path").querySelector("*")).toBeNull();
+
+    app.renderFolderError(new Error(maliciousError));
+    const error = list.querySelector(".folder-error");
+    expect(error.textContent).toBe(maliciousError);
+    expect(error.querySelector("*")).toBeNull();
   });
 
   it("uses the allowed-root purpose for configuration root browsing", async () => {

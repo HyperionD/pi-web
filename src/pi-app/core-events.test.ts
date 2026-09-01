@@ -111,6 +111,8 @@ describe("pi-app core events", () => {
 
   it("binds DOM and window events to current methods", async () => {
     const app = await connectPiApp();
+    expect(app.querySelector("[data-path-form]")).toBeNull();
+    expect(app.querySelector("[data-clone-form]")).toBeNull();
     const calls = [];
     ["submitShellCommand", "saveSettingsForm", "fillSettingsForm", "fillModelControls", "syncCustomSettingInput", "setModelControlsLoading",
       "submitPrompt", "cancelActiveSession", "handlePromptPaste", "navigateList", "pickSlash", "addFiles", "startResize", "startInspectorResize", "openFolderPopover", "closeFolderPopover",
@@ -201,12 +203,17 @@ describe("pi-app core events", () => {
 
     trigger.click();
     await vi.waitFor(() => expect(popover.hidden).toBe(false));
+    const closeButton = popover.querySelector("[data-action='folder-close']");
+    closeButton.focus();
+    expect(document.activeElement).toBe(closeButton);
     window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
     expect(popover.hidden).toBe(true);
     expect(document.activeElement).toBe(trigger);
 
     trigger.click();
     await vi.waitFor(() => expect(popover.hidden).toBe(false));
+    closeButton.focus();
+    expect(document.activeElement).toBe(closeButton);
     const outside = document.createElement("button");
     document.body.append(outside);
     outside.click();
@@ -215,11 +222,12 @@ describe("pi-app core events", () => {
   });
 
   it("keeps settings controls usable when model discovery fails", async () => {
+    const maliciousStatus = '<img src=x onerror="alert(1)">model discovery failed';
     globalThis.fetch = vi.fn(async (url) => {
       const path = String(url);
       if (path.includes("/api/app-config")) return { ok: true, json: async () => ({ config: { version: 1, brand: "pi.dev / web" }, path: "p" }) };
       if (path.includes("/settings")) return { ok: true, json: async () => ({ settings: { project: {}, global: {}, effective: { defaultProvider: "zai", defaultModel: "gpt-5.5" }, paths: { project: "p", global: "g" } } }) };
-      if (path.includes("/models")) return { ok: false, status: 502, statusText: "Bad Gateway", json: async () => ({ error: "signal: killed" }) };
+      if (path.includes("/models")) return { ok: false, status: 502, statusText: "Bad Gateway", json: async () => ({ error: maliciousStatus }) };
       if (path.includes("/auth/oauth/providers")) return { ok: true, json: async () => ({ providers: [] }) };
       if (path.includes("/auth/providers")) return { ok: true, json: async () => ({ providers: [] }) };
       return { ok: true, json: async () => ({}) };
@@ -234,7 +242,9 @@ describe("pi-app core events", () => {
     expect(model.disabled).toBe(false);
     expect([...provider.options].map((option) => option.value)).toContain("zai");
     expect([...model.options].map((option) => option.value)).toContain("gpt-5.5");
-    expect(app.querySelector("[data-settings-status]").textContent).toBe("signal: killed");
+    const status = app.querySelector("[data-settings-status]");
+    expect(status.textContent).toBe(maliciousStatus);
+    expect(status.querySelector("*")).toBeNull();
   });
 
   it("sends on plain Enter while preserving Shift+Enter and slash choices", async () => {
