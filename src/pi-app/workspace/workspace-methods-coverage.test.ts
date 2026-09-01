@@ -21,13 +21,11 @@ describe("workspace folder/render/bootstrap coverage", () => {
     const app = await connectPiApp();
     const recent = document.createElement("div");
     const count = document.createElement("span");
-    const path = document.createElement("span");
-    const list = document.createElement("div");
+    const path = app.querySelector("[data-folder-path]");
+    const list = app.querySelector("[data-folder-list]");
     recent.dataset.recentWorkspaces = "";
     count.dataset.workspaceCount = "";
-    path.dataset.folderPath = "";
-    list.dataset.folderList = "";
-    app.append(recent, count, path, list);
+    app.append(recent, count);
     app.dataset.activeWorkspaceId = "w2";
 
     const workspaces = [
@@ -76,10 +74,8 @@ describe("workspace folder/render/bootstrap coverage", () => {
       return okJson({});
     });
 
-    const browser = document.createElement("div");
-    browser.dataset.folderBrowser = "";
+    const browser = app.querySelector("[data-folder-browser]");
     browser.hidden = true;
-    app.append(browser);
     app.currentFolder = "";
     await app.browseFolder();
     await app.loadFolder("");
@@ -110,13 +106,8 @@ describe("workspace folder/render/bootstrap coverage", () => {
 
   it("opens the folder picker popover, navigates folders, and selects the current folder", async () => {
     const app = await connectPiApp();
-    const trigger = document.createElement("button");
-    trigger.dataset.action = "folder-open";
-    const popover = document.createElement("div");
-    popover.dataset.folderPopover = "";
-    popover.hidden = true;
-    popover.innerHTML = '<button data-action="folder-close"></button><span data-folder-path></span><div data-folder-list></div><button data-action="folder-open-current"></button>';
-    app.append(trigger, popover);
+    const trigger = app.querySelector("[data-action='folder-open']");
+    const popover = app.querySelector("[data-folder-popover]");
     app.apiConnected = true;
     globalThis.fetch = vi.fn(async (url) => String(url).includes("path=%2Fallowed%2Fchild")
       ? okJson({ path: "/allowed/child", parent: "/allowed", folders: [] })
@@ -128,6 +119,8 @@ describe("workspace folder/render/bootstrap coverage", () => {
     expect(app.folderBrowsePurpose).toBe("workspace");
     expect(globalThis.fetch).toHaveBeenCalledWith(expect.stringContaining("path=~&purpose=workspace"), expect.any(Object));
     expect(popover.querySelector("[data-folder-path]").textContent).toBe("/allowed");
+    expect(popover.querySelector("[data-folder-loading]").hidden).toBe(true);
+    expect(popover.querySelector("[data-action='folder-open-current']").disabled).toBe(false);
 
     popover.querySelector("[data-folder-list] .folder-row").click();
     await vi.waitFor(() => expect(globalThis.fetch).toHaveBeenCalledWith(
@@ -141,15 +134,88 @@ describe("workspace folder/render/bootstrap coverage", () => {
     expect(app.openWorkspacePath).toHaveBeenCalledWith("/allowed/child");
   });
 
+  it("keeps folder loading feedback and ignores stale responses after closing", async () => {
+    const app = await connectPiApp();
+    const picker = app.querySelector('[data-view="picker"]');
+    const trigger = app.querySelector("[data-action='folder-open']");
+    const popover = app.querySelector("[data-folder-popover]");
+    const loading = app.querySelector("[data-folder-loading]");
+    const up = app.querySelector("[data-action='folder-up']");
+    const confirm = app.querySelector("[data-action='folder-open-current']");
+    picker.hidden = false;
+    app.dataset.route = "picker";
+    app.apiConnected = true;
+    let resolveListing;
+    globalThis.fetch = vi.fn(() => new Promise((resolve) => { resolveListing = resolve; }));
+
+    const opening = app.openFolderPopover();
+    expect(popover.hidden).toBe(false);
+    expect(loading.hidden).toBe(false);
+    expect(up.disabled).toBe(true);
+    expect(confirm.disabled).toBe(true);
+
+    app.closeFolderPopover();
+    expect(popover.hidden).toBe(true);
+    resolveListing(okJson({ path: "/stale", parent: "/", folders: [{ name: "stale", path: "/stale" }] }));
+    await opening;
+
+    expect(app.currentFolder).toBe("~");
+    expect(document.activeElement).toBe(trigger);
+    expect(popover.querySelector("[data-folder-list] .folder-row")).toBeNull();
+    expect(loading.hidden).toBe(true);
+  });
+
+  it("focuses the current folder picker after the latest request only", async () => {
+    const app = await connectPiApp();
+    const picker = app.querySelector('[data-view="picker"]');
+    const popover = app.querySelector("[data-folder-popover]");
+    picker.hidden = false;
+    app.dataset.route = "picker";
+    app.apiConnected = true;
+    const responses = [];
+    globalThis.fetch = vi.fn(() => new Promise((resolve) => responses.push(resolve)));
+
+    const first = app.openFolderPopover();
+    app.closeFolderPopover();
+    const second = app.openFolderPopover();
+    responses[0](okJson({ path: "/stale", parent: "/", folders: [{ name: "stale", path: "/stale" }] }));
+    await first;
+    expect(app.currentFolder).toBe("~");
+    expect(document.activeElement).not.toBe(popover.querySelector("[data-folder-list] .folder-row"));
+
+    if (responses[1]) responses[1](okJson({ path: "/current", parent: "/", folders: [{ name: "current", path: "/current" }] }));
+    await second;
+    expect(app.currentFolder).toBe("/current");
+    expect(document.activeElement).toBe(popover.querySelector("[data-folder-list] .folder-row"));
+  });
+
+  it("does not refocus a picker when opening it again during loading", async () => {
+    const app = await connectPiApp();
+    const picker = app.querySelector('[data-view="picker"]');
+    const popover = app.querySelector("[data-folder-popover]");
+    const confirm = app.querySelector("[data-action='folder-open-current']");
+    picker.hidden = false;
+    app.dataset.route = "picker";
+    app.apiConnected = true;
+    let resolveListing;
+    globalThis.fetch = vi.fn(() => new Promise((resolve) => { resolveListing = resolve; }));
+
+    const first = app.openFolderPopover();
+    await app.openFolderPopover();
+
+    expect(globalThis.fetch).toHaveBeenCalledTimes(1);
+    expect(document.activeElement).not.toBe(confirm);
+    resolveListing(okJson({ path: "/current", parent: "/", folders: [] }));
+    await first;
+    expect(popover.hidden).toBe(false);
+
+    expect(document.activeElement).toBe(confirm);
+  });
+
   it("renders server-controlled folder values as text without HTML nodes", async () => {
     const app = await connectPiApp();
-    const popover = document.createElement("div");
-    const path = document.createElement("span");
-    const list = document.createElement("div");
-    path.dataset.folderPath = "";
-    list.dataset.folderList = "";
-    popover.append(path, list);
-    app.append(popover);
+    const path = app.querySelector("[data-folder-path]");
+    const list = app.querySelector("[data-folder-list]");
 
     const maliciousPath = '"><img src=x onerror="alert(1)">/allowed';
     const maliciousName = '<img src=x onerror="alert(1)">child';
@@ -190,9 +256,7 @@ describe("workspace folder/render/bootstrap coverage", () => {
   it("shows the backend error when folder browsing is forbidden", async () => {
     const app = await connectPiApp();
     app.apiConnected = true;
-    const list = document.createElement("div");
-    list.dataset.folderList = "";
-    app.append(list);
+    const list = app.querySelector("[data-folder-list]");
     globalThis.fetch = vi.fn(async () => ({
       ok: false,
       status: 403,

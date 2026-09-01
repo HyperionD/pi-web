@@ -7,16 +7,37 @@ import {
 import { requestErrorMessage } from "./workspace-methods";
 
 export const workspaceFolderMethods = {
-  async openFolderPopover(purpose = "workspace") {
+  beginFolderPicker(purpose) {
+    const token = Symbol(`folder-picker:${purpose}`);
+    this.folderPickerToken = token;
     this.folderBrowsePurpose = purpose;
+    return token;
+  },
+
+  setFolderLoading(loading) {
+    const browser = this.querySelector("[data-folder-browser]");
+    const loadingLabel = this.querySelector("[data-folder-loading]");
+    browser?.setAttribute("aria-busy", String(loading));
+    loadingLabel?.toggleAttribute("hidden", !loading);
+    this.querySelectorAll("[data-folder-browser] [data-action='folder-enter'], [data-folder-browser] [data-action='folder-up'], [data-folder-browser] [data-action='folder-open-current']")
+      .forEach((button) => { button.disabled = loading; });
+    if (!loading) {
+      const upButton = this.querySelector("[data-folder-browser] [data-action='folder-up']");
+      if (upButton) upButton.disabled = (this.currentFolderParent || this.currentFolder) === this.currentFolder;
+    }
+  },
+
+  async openFolderPopover(purpose = "workspace") {
     const popover = this.querySelector("[data-folder-popover]");
+    if (popover && !popover.hidden && this.folderLoadPending) return;
+    const pickerToken = this.beginFolderPicker(purpose);
     const browser = this.querySelector("[data-folder-browser]");
     const trigger = this.querySelector("[data-action='folder-open']");
     popover?.removeAttribute("hidden");
     browser?.removeAttribute("hidden");
     trigger?.setAttribute("aria-expanded", "true");
     await this.loadFolder("~", purpose);
-    this.focusFolderPopover();
+    if (this.folderPickerToken === pickerToken && popover && !popover.hidden) this.focusFolderPopover();
   },
 
   closeFolderPopover() {
@@ -24,9 +45,15 @@ export const workspaceFolderMethods = {
     if (!popover || popover.hidden) return;
     const trigger = this.querySelector("[data-action='folder-open']");
     const wasAllowedRoot = this.folderBrowsePurpose === "allowed-root";
+    this.folderPickerToken = Symbol("closed-folder-picker");
+    this.folderLoadPending = false;
+    this.setFolderLoading(false);
     popover.setAttribute("hidden", "");
     trigger?.setAttribute("aria-expanded", "false");
-    if (wasAllowedRoot) this.restoreAllowedRootPicker?.();
+    if (wasAllowedRoot) {
+      this.restoreAllowedRootPicker?.();
+      return;
+    }
     if (!trigger?.closest('[data-view="picker"]')?.hasAttribute("hidden")) trigger?.focus();
   },
 
@@ -36,7 +63,8 @@ export const workspaceFolderMethods = {
 
   async browseFolder(purpose = "workspace") {
     if (purpose === "workspace") return this.openFolderPopover("workspace");
-    this.folderBrowsePurpose = purpose;
+    if (this.folderLoadPending) return;
+    const pickerToken = this.beginFolderPicker(purpose);
     if (purpose === "allowed-root" && this.dataset.route !== "picker") {
       this.allowedRootPickerReturnRoute = this.dataset.route || "workspace";
       this.allowedRootPickerSettingsWasOpen = !!this.settingsModal && !this.settingsModal.hidden;
@@ -52,7 +80,7 @@ export const workspaceFolderMethods = {
     browser?.removeAttribute("hidden");
     trigger?.setAttribute("aria-expanded", "true");
     await this.loadFolder(this.currentFolder || "~", purpose);
-    this.focusFolderPopover();
+    if (this.folderPickerToken === pickerToken && popover && !popover.hidden) this.focusFolderPopover();
   },
 
   async loadFolder(path = "~", purpose = this.folderBrowsePurpose || "workspace") {
@@ -61,18 +89,30 @@ export const workspaceFolderMethods = {
       return;
     }
     if (this.folderLoadPending) return;
+    const requestToken = Symbol("folder-load");
+    const pickerToken = this.folderPickerToken;
+    const isCurrent = () => pickerToken
+      ? this.folderPickerToken === pickerToken && this.folderBrowsePurpose === purpose
+      : !this.folderPickerToken;
+    this.folderLoadToken = requestToken;
     this.folderLoadPending = true;
+    this.setFolderLoading(true);
 
     try {
       const listing = await listFolders(path || "~", purpose);
+      if (!isCurrent()) return;
       this.currentFolder = listing.path;
       this.currentFolderParent = listing.parent || listing.path;
       this.renderFolderListing(listing);
     } catch (error) {
+      if (!isCurrent()) return;
       this.renderFolderError(error);
       this.setConnection("err");
     } finally {
-      this.folderLoadPending = false;
+      if (this.folderLoadToken === requestToken) {
+        this.folderLoadPending = false;
+        this.setFolderLoading(false);
+      }
     }
   },
 

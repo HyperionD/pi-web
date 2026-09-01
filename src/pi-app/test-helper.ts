@@ -26,7 +26,20 @@ export function installPiAppFixture() {
         aria-label="open sidebar"
         aria-expanded="false"
       >≡</button>
-      <section data-view="picker" hidden></section>
+      <section data-view="picker" hidden>
+        <div class="folder-picker-anchor">
+          <button class="open-folder-btn" type="button" data-action="folder-open" aria-haspopup="dialog" aria-expanded="false">选择文件夹</button>
+          <div class="folder-popover" data-folder-popover role="dialog" aria-label="选择工作区" hidden>
+            <div class="folder-popover-head"><strong>选择工作区</strong><button type="button" data-action="folder-close" aria-label="关闭目录选择器">×</button></div>
+            <div class="folder-browser" data-folder-browser>
+              <div class="folder-browser-head"><button type="button" data-action="folder-up">上一级</button><span data-folder-path>~</span></div>
+              <div class="folder-list" data-folder-list></div>
+              <span data-folder-loading hidden aria-live="polite">加载中…</span>
+              <button type="button" class="folder-confirm" data-action="folder-open-current">选择此文件夹</button>
+            </div>
+          </div>
+        </div>
+      </section>
       <section class="app-body" data-view="workspace">
         <div class="sidebar-wrap">
           <aside class="sidebar">

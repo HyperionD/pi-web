@@ -192,13 +192,13 @@ export const inputMethods = {
     if (action === "folder-open") void this.openFolderPopover("workspace");
     if (action === "folder-close") this.closeFolderPopover();
     const folderPickerTarget = actionTarget?.closest("[data-folder-browser], [data-folder-popover]");
-    if (action === "folder-enter" && folderPickerTarget) {
+    if (action === "folder-enter" && folderPickerTarget && !this.folderLoadPending) {
       void this.loadFolder(actionTarget.dataset.path);
     }
-    if (action === "folder-up" && folderPickerTarget) {
+    if (action === "folder-up" && folderPickerTarget && !this.folderLoadPending) {
       void this.loadFolder(this.currentFolderParent);
     }
-    if (action === "folder-open-current" && folderPickerTarget) {
+    if (action === "folder-open-current" && folderPickerTarget && !this.folderLoadPending) {
       if (this.folderBrowsePurpose === "allowed-root") {
         this.addAllowedRootFromFolder?.(this.currentFolder);
         this.closeFolderPopover();

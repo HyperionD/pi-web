@@ -131,7 +131,10 @@ export const appConfigMethods = {
     this.dataset.route = returnRoute;
     this.querySelector('[data-view="picker"]')?.toggleAttribute("hidden", returnRoute !== "picker");
     this.querySelector('[data-view="workspace"]')?.toggleAttribute("hidden", returnRoute !== "workspace");
-    if (settingsWasOpen) this.settingsModal?.removeAttribute("hidden");
+    if (settingsWasOpen) {
+      this.settingsModal?.removeAttribute("hidden");
+      this.querySelector("[data-allowed-root-add]")?.focus();
+    }
   },
 
   appConfigPatchFromForm() {

@@ -161,9 +161,6 @@ describe("pi-app input actions coverage", () => {
       path: "/config",
     };
     const picker = app.querySelector('[data-view="picker"]');
-    picker.innerHTML = `<div data-folder-browser hidden>
-      <span data-folder-path></span><button data-action="folder-open-current">select</button><div data-folder-list></div>
-    </div>`;
     app.querySelector("[data-settings-modal]").removeAttribute("hidden");
     app.fillAppConfigForm();
     globalThis.fetch = vi.fn(async () => ok({ path: "/selected", folders: [] }));
@@ -181,6 +178,28 @@ describe("pi-app input actions coverage", () => {
     expect(app.querySelector("[data-app-setting='allowed-roots']").value).toBe("/existing\n/selected");
     expect(picker.hidden).toBe(true);
     expect(app.querySelector("[data-settings-modal]").hidden).toBe(false);
+    expect(document.activeElement).toBe(app.querySelector("[data-allowed-root-add]"));
+  });
+
+  it("restores allowed-root settings focus when Escape closes the picker", async () => {
+    const app = await connectPiApp();
+    app.apiConnected = true;
+    app.dataset.route = "workspace";
+    app.appConfigState = { config: { version: 1, brand: "x", workspace: { allowedRoots: [] } } };
+    const settings = app.querySelector("[data-settings-modal]");
+    const addButton = app.querySelector("[data-allowed-root-add]");
+    settings.removeAttribute("hidden");
+    app.fillAppConfigForm();
+    globalThis.fetch = vi.fn(async () => ok({ path: "/selected", parent: "/", folders: [] }));
+
+    addButton.click();
+    await vi.waitFor(() => expect(app.currentFolder).toBe("/selected"));
+    app.querySelector("[data-action='folder-close']").focus();
+    window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
+
+    expect(settings.hidden).toBe(false);
+    expect(app.dataset.route).toBe("workspace");
+    expect(document.activeElement).toBe(addButton);
   });
 
   it("submits fallback choices and renders slash command variants", async () => {

@@ -236,10 +236,20 @@
   border-radius: 4px;
   padding: 4px 8px;
 }
-.folder-browser-head button:hover,
-.folder-row:hover {
+.folder-browser-head button:hover:not(:disabled),
+.folder-row:hover:not(:disabled) {
   color: var(--accent);
   border-color: var(--accent);
+}
+.folder-browser button:disabled {
+  cursor: not-allowed;
+  opacity: .5;
+}
+.folder-loading {
+  display: block;
+  padding: 8px;
+  color: var(--fg-3);
+  font-size: 12px;
 }
 .folder-list {
   max-height: 260px;

@@ -194,13 +194,11 @@ describe("pi-app core events", () => {
   it("closes the folder picker on Escape or outside click and restores trigger focus", async () => {
     const app = await connectPiApp();
     app.apiConnected = true;
-    const trigger = document.createElement("button");
-    trigger.dataset.action = "folder-open";
-    const popover = document.createElement("div");
-    popover.dataset.folderPopover = "";
-    popover.hidden = true;
-    popover.innerHTML = '<button data-action="folder-close"></button><span data-folder-path></span><div data-folder-list></div><button data-action="folder-open-current"></button>';
-    app.append(trigger, popover);
+    const picker = app.querySelector('[data-view="picker"]');
+    picker.hidden = false;
+    app.dataset.route = "picker";
+    const trigger = app.querySelector("[data-action='folder-open']");
+    const popover = app.querySelector("[data-folder-popover]");
     globalThis.fetch = vi.fn(async () => ({
       ok: true,
       status: 200,
@@ -208,13 +206,16 @@ describe("pi-app core events", () => {
       json: async () => ({ path: "/allowed", parent: "/", folders: [] }),
     }));
 
+    expect(trigger.getAttribute("aria-expanded")).toBe("false");
     trigger.click();
     await vi.waitFor(() => expect(popover.hidden).toBe(false));
+    expect(trigger.getAttribute("aria-expanded")).toBe("true");
     const closeButton = popover.querySelector("[data-action='folder-close']");
     closeButton.focus();
     expect(document.activeElement).toBe(closeButton);
     window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
     expect(popover.hidden).toBe(true);
+    expect(trigger.getAttribute("aria-expanded")).toBe("false");
     expect(document.activeElement).toBe(trigger);
 
     trigger.click();
