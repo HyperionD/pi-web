@@ -333,9 +333,12 @@ describe("pi-app input methods coverage", () => {
   it("starts workspace and app-config bootstrap requests while both are pending", async () => {
     const app = await connectPiApp();
     let releaseAppConfig;
+    let releaseWorkspaces;
     let appConfigStarted = false;
     let workspacesStarted = false;
+    let bootstrapFinished = false;
     const appConfig = new Promise((resolve) => { releaseAppConfig = resolve; });
+    const workspaces = new Promise((resolve) => { releaseWorkspaces = resolve; });
     globalThis.fetch = vi.fn((url) => {
       if (String(url).endsWith("/app-config")) {
         appConfigStarted = true;
@@ -343,7 +346,7 @@ describe("pi-app input methods coverage", () => {
       }
       if (String(url).endsWith("/workspaces")) {
         workspacesStarted = true;
-        return Promise.resolve(ok({ workspaces: [] }));
+        return workspaces;
       }
       return Promise.resolve(ok({}));
     });
@@ -351,13 +354,18 @@ describe("pi-app input methods coverage", () => {
     app.loadWorkspaceMeta = vi.fn();
     app.loadSession = vi.fn();
 
-    const bootstrap = app.bootstrapAPI();
+    const bootstrap = app.bootstrapAPI().finally(() => { bootstrapFinished = true; });
     await Promise.resolve();
 
     expect(appConfigStarted).toBe(true);
     expect(workspacesStarted).toBe(true);
+    expect(bootstrapFinished).toBe(false);
     releaseAppConfig(ok({ config: { version: 1, brand: "Custom" }, path: "/config" }));
+    await Promise.resolve();
+    expect(bootstrapFinished).toBe(false);
+    releaseWorkspaces(ok({ workspaces: [] }));
     await bootstrap;
+    expect(bootstrapFinished).toBe(true);
   });
 
   it("reports each save failure without showing saved", async () => {
@@ -378,7 +386,7 @@ describe("pi-app input methods coverage", () => {
     const status = app.querySelector("[data-settings-status]");
     expect(status.textContent).toContain("brand save failed");
     expect(status.textContent).toContain("settings save failed");
-    expect(status.textContent).not.toBe("saved");
+    expect(status.textContent).not.toContain("saved");
     expect(status.classList.contains("err")).toBe(true);
   });
 
