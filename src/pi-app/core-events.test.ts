@@ -1,6 +1,9 @@
 // @ts-nocheck
+import { readFileSync } from "node:fs";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanupPiAppFixture, connectPiApp, installPiAppFixture } from "./test-helper";
+
+const appTemplate = readFileSync("src/App.astro", "utf8");
 
 describe("pi-app core events", () => {
   beforeEach(installPiAppFixture);
@@ -111,8 +114,10 @@ describe("pi-app core events", () => {
 
   it("binds DOM and window events to current methods", async () => {
     const app = await connectPiApp();
-    expect(app.querySelector("[data-path-form]")).toBeNull();
-    expect(app.querySelector("[data-clone-form]")).toBeNull();
+    expect(appTemplate).not.toContain("data-path-form");
+    expect(appTemplate).not.toContain("data-clone-form");
+    expect(appTemplate).not.toContain("gitUrl");
+    expect(appTemplate).not.toContain("克隆并打开");
     const calls = [];
     ["submitShellCommand", "saveSettingsForm", "fillSettingsForm", "fillModelControls", "syncCustomSettingInput", "setModelControlsLoading",
       "submitPrompt", "cancelActiveSession", "handlePromptPaste", "navigateList", "pickSlash", "addFiles", "startResize", "startInspectorResize", "openFolderPopover", "closeFolderPopover",
@@ -130,25 +135,22 @@ describe("pi-app core events", () => {
     folderClose.dataset.action = "folder-close";
     folderPopover.append(folderClose);
     app.append(folderTrigger, folderPopover);
-    const pathForm = document.createElement("form");
-    const cloneForm = document.createElement("form");
     const shellForm = document.createElement("form");
     const resizer = document.createElement("div");
     const inspectorResizer = document.createElement("div");
     const gitInspectorResizer = document.createElement("div");
-    pathForm.dataset.pathForm = "";
-    cloneForm.dataset.cloneForm = "";
     shellForm.dataset.shellForm = "";
     resizer.className = "sb-resizer";
     inspectorResizer.className = "fp-resizer";
     gitInspectorResizer.className = "fp-resizer";
-    app.append(pathForm, cloneForm, shellForm, resizer, inspectorResizer, gitInspectorResizer);
+    app.append(shellForm, resizer, inspectorResizer, gitInspectorResizer);
     app.bindDomEvents();
 
     folderTrigger.click();
     folderClose.click();
-    pathForm.dispatchEvent(new Event("submit"));
-    cloneForm.dispatchEvent(new Event("submit"));
+    const temporaryForm = document.createElement("form");
+    app.append(temporaryForm);
+    temporaryForm.dispatchEvent(new Event("submit"));
     shellForm.dispatchEvent(new Event("submit"));
     expect(app.submitWorkspacePath).not.toHaveBeenCalled();
     expect(app.submitCloneWorkspace).not.toHaveBeenCalled();
