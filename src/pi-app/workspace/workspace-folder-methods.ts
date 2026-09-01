@@ -19,6 +19,8 @@ export const workspaceFolderMethods = {
     const loadingLabel = this.querySelector("[data-folder-loading]");
     browser?.setAttribute("aria-busy", String(loading));
     loadingLabel?.toggleAttribute("hidden", !loading);
+    const trigger = this.querySelector("[data-action='folder-open']");
+    if (trigger) trigger.disabled = loading;
     this.querySelectorAll("[data-folder-browser] [data-action='folder-enter'], [data-folder-browser] [data-action='folder-up'], [data-folder-browser] [data-action='folder-open-current']")
       .forEach((button) => { button.disabled = loading; });
     if (!loading) {

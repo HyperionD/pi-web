@@ -49,6 +49,26 @@ describe("pi-app workspace navigation", () => {
     expect(app.querySelector("[data-session='s2'] .meta").hidden).toBe(true);
   });
 
+  it("keeps the folder popover trigger and recent workspaces together", async () => {
+    const app = await connectPiApp();
+    const picker = app.querySelector('[data-view="picker"]');
+    const recent = document.createElement("div");
+    recent.dataset.recentWorkspaces = "";
+    picker.append(recent);
+    app.openWorkspace = vi.fn();
+    app.renderWorkspaces([
+      { id: "w1", name: "one", path: "/one", sessionCount: 0, sessions: [] },
+    ]);
+
+    expect(picker.querySelector("[data-folder-popover]")).not.toBeNull();
+    expect(picker.querySelector("[data-action='folder-open']")).not.toBeNull();
+    expect(picker.querySelector("[data-recent-workspaces]")).not.toBeNull();
+
+    picker.querySelector(".recent-row").click();
+
+    expect(app.openWorkspace).toHaveBeenCalledWith("w1");
+  });
+
   it("returns to picker when the active workspace becomes forbidden", async () => {
     globalThis.PI_WEB_API_BASE = "http://backend.test";
     const app = await connectPiApp();

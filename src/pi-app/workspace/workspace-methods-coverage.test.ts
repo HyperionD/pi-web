@@ -1,6 +1,10 @@
 // @ts-nocheck
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanupPiAppFixture, connectPiApp, installPiAppFixture } from "../test-helper";
+
+const pickerStyles = readFileSync(resolve(process.cwd(), "src/styles/parts/workspace-picker.css"), "utf8");
 
 function okJson(body) {
   return { ok: true, status: 200, statusText: "OK", json: async () => body };
@@ -104,6 +108,15 @@ describe("workspace folder/render/bootstrap coverage", () => {
     );
   });
 
+  it("does not throw when opening the picker without an API connection", async () => {
+    const app = await connectPiApp();
+    app.setConnection = vi.fn();
+
+    await expect(app.openFolderPopover()).resolves.toBeUndefined();
+
+    expect(app.setConnection).toHaveBeenCalledWith("err");
+  });
+
   it("opens the folder picker popover, navigates folders, and selects the current folder", async () => {
     const app = await connectPiApp();
     const trigger = app.querySelector("[data-action='folder-open']");
@@ -120,6 +133,7 @@ describe("workspace folder/render/bootstrap coverage", () => {
     expect(globalThis.fetch).toHaveBeenCalledWith(expect.stringContaining("path=~&purpose=workspace"), expect.any(Object));
     expect(popover.querySelector("[data-folder-path]").textContent).toBe("/allowed");
     expect(popover.querySelector("[data-folder-loading]").hidden).toBe(true);
+    expect(trigger.disabled).toBe(false);
     expect(popover.querySelector("[data-action='folder-open-current']").disabled).toBe(false);
 
     popover.querySelector("[data-folder-list] .folder-row").click();
@@ -151,6 +165,7 @@ describe("workspace folder/render/bootstrap coverage", () => {
     const opening = app.openFolderPopover();
     expect(popover.hidden).toBe(false);
     expect(loading.hidden).toBe(false);
+    expect(trigger.disabled).toBe(true);
     expect(up.disabled).toBe(true);
     expect(confirm.disabled).toBe(true);
 
@@ -159,6 +174,7 @@ describe("workspace folder/render/bootstrap coverage", () => {
     resolveListing(okJson({ path: "/stale", parent: "/", folders: [{ name: "stale", path: "/stale" }] }));
     await opening;
 
+    expect(trigger.disabled).toBe(false);
     expect(app.currentFolder).toBe("~");
     expect(document.activeElement).toBe(trigger);
     expect(popover.querySelector("[data-folder-list] .folder-row")).toBeNull();
@@ -266,7 +282,17 @@ describe("workspace folder/render/bootstrap coverage", () => {
 
     await app.loadFolder("/forbidden");
 
-    expect(list.textContent).toContain("outside allowed roots");
+    const error = list.querySelector(".folder-error");
+    expect(error.textContent).toBe("outside allowed roots");
+  });
+
+  it("uses an anchored responsive popover without legacy form styles", () => {
+    expect(pickerStyles).not.toMatch(/\.input-row\b/);
+    expect(pickerStyles).not.toMatch(/\.clone-row\b/);
+    expect(pickerStyles).toContain(".folder-picker-anchor");
+    expect(pickerStyles).toMatch(/\.folder-popover\s*\{[^}]*position:\s*absolute;/s);
+    expect(pickerStyles).toContain("@media (max-width: 640px)");
+    expect(pickerStyles).toMatch(/\.folder-popover\s*\{[^}]*position:\s*fixed;/s);
   });
 
   it("handles folder and delete failure branches", async () => {

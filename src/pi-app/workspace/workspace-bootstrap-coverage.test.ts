@@ -76,6 +76,20 @@ describe("workspace bootstrap coverage", () => {
     expect(app.renderWorkspaces.mock.calls.at(-1)[0]).toHaveLength(1);
   });
 
+  it("keeps the ordinary picker open button without browsing during bootstrap", async () => {
+    const app = await connectPiApp();
+    app.dataset.route = "picker";
+    app.browseFolder = vi.fn();
+    globalThis.fetch = vi.fn(async (url) => String(url).endsWith("/workspaces")
+      ? okJson({ workspaces: [] })
+      : okJson({}));
+
+    await app.bootstrapAPI();
+
+    expect(app.browseFolder).not.toHaveBeenCalled();
+    expect(app.querySelector("[data-action='folder-open']")).not.toBeNull();
+  });
+
   it("recovers settings forbidden errors and clears the persisted active session", async () => {
     const app = await connectPiApp();
     app.apiConnected = true;
