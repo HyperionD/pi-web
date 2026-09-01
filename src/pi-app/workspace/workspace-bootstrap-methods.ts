@@ -6,8 +6,22 @@ import {
   getWorkspaces,
 } from "../../lib/api";
 import { readStoredActiveSession, storeActiveSession } from "../sessions/session-storage";
+import { isForbiddenWorkspaceError, requestErrorMessage } from "./workspace-methods";
 
 const SESSION_MESSAGE_PAGE_SIZE = 120;
+
+function normalizedPath(path) {
+  const value = String(path || "").trim().replace(/\/+$/, "");
+  return value || "/";
+}
+
+function pathIsWithinRoot(path, root) {
+  const normalizedPathValue = normalizedPath(path);
+  const normalizedRoot = normalizedPath(root);
+  return normalizedRoot === "/"
+    ? normalizedPathValue.startsWith("/")
+    : normalizedPathValue === normalizedRoot || normalizedPathValue.startsWith(`${normalizedRoot}/`);
+}
 
 function findStoredSession(workspaces, stored) {
   if (!stored?.sessionId) return undefined;
@@ -24,6 +38,30 @@ function findStoredSession(workspaces, stored) {
 }
 
 export const workspaceBootstrapMethods = {
+  filterAllowedWorkspaces(workspaces) {
+    const roots = this.appConfigState?.config?.workspace?.allowedRoots;
+    if (!Array.isArray(roots) || !roots.length) return workspaces;
+    return workspaces.filter((workspace) => roots.some((root) => pathIsWithinRoot(workspace.path, root)));
+  },
+
+  recoverForbiddenWorkspace(error) {
+    if (!isForbiddenWorkspaceError(error)) return false;
+    const message = requestErrorMessage(error);
+    this.dataset.activeWorkspaceId = "";
+    this.dataset.activeSessionId = "";
+    this.sessionLoadToken = Symbol("forbidden-workspace");
+    this.eventSource?.close?.();
+    this.eventSource = null;
+    this.backgroundSessionWatches?.forEach((watch) => watch.source?.close?.());
+    this.backgroundSessionWatches?.clear?.();
+    this.running = false;
+    this.compacting = false;
+    this.syncActiveWorkspaceRows?.();
+    this.showSystemToast?.("error", "工作区不可访问", message, `workspace-forbidden:${message}`);
+    this.route("picker");
+    return true;
+  },
+
   async bootstrapAPI() {
     const appConfigRequest = Promise.resolve()
       .then(() => this.loadAppConfigState?.())
@@ -36,7 +74,7 @@ export const workspaceBootstrapMethods = {
       this.apiConnected = true;
       this.setConnection("ok");
 
-      const workspaceList = workspaces || [];
+      const workspaceList = this.filterAllowedWorkspaces(workspaces || []);
       const storedSession = findStoredSession(workspaceList, readStoredActiveSession());
       const activeWorkspace = storedSession?.workspace || workspaceList[0];
       const activeSession = storedSession?.session || activeWorkspace?.sessions?.[0];
@@ -55,7 +93,8 @@ export const workspaceBootstrapMethods = {
         await this.loadWorkspaceMeta(activeWorkspace.id);
       }
       if (activeSession) await this.loadSession(activeSession.id);
-    } catch {
+    } catch (error) {
+      if (this.recoverForbiddenWorkspace(error)) return;
       this.apiConnected = false;
       this.setConnection("err");
     }
@@ -91,7 +130,9 @@ export const workspaceBootstrapMethods = {
       const [{ files }, git] = await Promise.all([getWorkspaceFiles(workspaceId), getGitStatus(workspaceId)]);
       this.renderWorkspaceTree(files, git?.files || {}, options.selectedPath);
       this.renderGitStatus(git);
-    } catch {}
+    } catch (error) {
+      this.recoverForbiddenWorkspace(error);
+    }
   },
 
   renderWorkspaceTree(files, statusMap = {}, selectedPathOverride = undefined) {
@@ -114,7 +155,9 @@ export const workspaceBootstrapMethods = {
     try {
       const { commands } = await getWorkspaceCommands(workspaceId);
       this.renderSlashCommands(commands || []);
-    } catch {}
+    } catch (error) {
+      this.recoverForbiddenWorkspace(error);
+    }
   },
 
   async refreshWorkspaces() {
@@ -123,12 +166,12 @@ export const workspaceBootstrapMethods = {
     if (button) button.disabled = true;
     try {
       const { workspaces } = await getWorkspaces();
-      const workspaceList = workspaces || [];
+      const workspaceList = this.filterAllowedWorkspaces(workspaces || []);
       const activeWorkspaceId = this.dataset.activeWorkspaceId;
       this.renderWorkspaces(workspaceList);
       if (activeWorkspaceId) this.openActiveWorkspaceGroup(activeWorkspaceId);
-    } catch {
-      this.setConnection("err");
+    } catch (error) {
+      if (!this.recoverForbiddenWorkspace(error)) this.setConnection("err");
     } finally {
       if (button) button.disabled = false;
     }
@@ -154,8 +197,9 @@ export const workspaceBootstrapMethods = {
       const loaded = await getSession(sessionId, { limit: SESSION_MESSAGE_PAGE_SIZE });
       if (this.sessionLoadToken !== loadToken) return;
       this.applyLoadedSession(loaded.session, loaded.messages || [], loaded.status, loaded);
-    } catch {
-      if (this.sessionLoadToken === loadToken) this.setConnection("err");
+    } catch (error) {
+      if (this.sessionLoadToken !== loadToken) return;
+      if (!this.recoverForbiddenWorkspace(error)) this.setConnection("err");
     }
   },
 
@@ -205,8 +249,8 @@ export const workspaceBootstrapMethods = {
       this.prependLoadedMessages(loaded.messages || []);
       this.sessionHistoryCursor = loaded.cursor || "";
       this.sessionHistoryHasMore = !!loaded.hasMore;
-    } catch {
-      this.setConnection("err");
+    } catch (error) {
+      if (!this.recoverForbiddenWorkspace(error)) this.setConnection("err");
     } finally {
       if (this.dataset.activeSessionId === sessionId) this.sessionHistoryLoading = false;
     }

@@ -5,27 +5,39 @@ import {
   listFolders,
   openWorkspace as openWorkspaceRequest,
 } from "../../lib/api";
+import { requestErrorMessage } from "./workspace-methods";
 
 export const workspaceFolderMethods = {
-  async browseFolder() {
+  async browseFolder(purpose = "workspace") {
+    this.folderBrowsePurpose = purpose;
     this.querySelector("[data-folder-browser]")?.removeAttribute("hidden");
-    await this.loadFolder(this.currentFolder || "~");
+    await this.loadFolder(this.currentFolder || "~", purpose);
   },
 
-  async loadFolder(path = "~") {
+  async loadFolder(path = "~", purpose = this.folderBrowsePurpose || "workspace") {
     if (!this.apiConnected) {
       this.setConnection("err");
       return;
     }
 
     try {
-      const listing = await listFolders(path || "~");
+      const listing = await listFolders(path || "~", purpose);
       this.currentFolder = listing.path;
       this.currentFolderParent = listing.parent || listing.path;
       this.renderFolderListing(listing);
-    } catch {
+    } catch (error) {
+      this.renderFolderError(error);
       this.setConnection("err");
     }
+  },
+
+  renderFolderError(error) {
+    const list = this.querySelector("[data-folder-list]");
+    if (!list) return;
+    const message = document.createElement("div");
+    message.className = "folder-error";
+    message.textContent = requestErrorMessage(error);
+    list.replaceChildren(message);
   },
 
   renderFolderListing(listing) {
@@ -63,8 +75,9 @@ export const workspaceFolderMethods = {
     if (!path) return;
     await openWorkspaceRequest(path);
     const { workspaces } = await getWorkspaces();
-    this.renderWorkspaces(workspaces || []);
-    const workspace = (workspaces || []).find((item) => item.path === path) || workspaces?.[0];
+    const workspaceList = this.filterAllowedWorkspaces?.(workspaces || []) || workspaces || [];
+    this.renderWorkspaces(workspaceList);
+    const workspace = workspaceList.find((item) => item.path === path) || workspaceList[0];
     if (workspace) await this.openWorkspace(workspace.id);
   },
 
@@ -81,12 +94,15 @@ export const workspaceFolderMethods = {
       const cloned = await cloneWorkspaceRequest(this.currentFolder || "~", gitUrl, name);
       form.reset();
       const { workspaces } = await getWorkspaces();
-      this.renderWorkspaces(workspaces || []);
-      const workspace = cloned.workspace || workspaces?.[0];
+      const workspaceList = this.filterAllowedWorkspaces?.(workspaces || []) || workspaces || [];
+      this.renderWorkspaces(workspaceList);
+      const workspace = cloned.workspace || workspaceList[0];
       if (workspace) await this.openWorkspace(workspace.id);
     } catch (error) {
-      alert(error instanceof Error ? error.message : String(error));
-      this.setConnection("err");
+      if (!this.recoverForbiddenWorkspace?.(error)) {
+        alert(requestErrorMessage(error));
+        this.setConnection("err");
+      }
     } finally {
       if (button) button.disabled = false;
     }
@@ -101,8 +117,12 @@ export const workspaceFolderMethods = {
       try {
         await this.openWorkspacePath(path);
         return;
-      } catch {
-        this.setConnection("err");
+      } catch (error) {
+        if (!this.recoverForbiddenWorkspace?.(error)) {
+          this.setConnection("err");
+          this.route("workspace");
+        }
+        return;
       }
     }
     this.route("workspace");
@@ -115,8 +135,8 @@ export const workspaceFolderMethods = {
       await deleteWorkspaceRequest(workspaceId);
       const { workspaces } = await getWorkspaces();
       this.renderWorkspaces(workspaces || []);
-    } catch {
-      this.setConnection("err");
+    } catch (error) {
+      if (!this.recoverForbiddenWorkspace?.(error)) this.setConnection("err");
     }
   },
 

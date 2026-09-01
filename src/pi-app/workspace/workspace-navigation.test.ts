@@ -49,6 +49,30 @@ describe("pi-app workspace navigation", () => {
     expect(app.querySelector("[data-session='s2'] .meta").hidden).toBe(true);
   });
 
+  it("returns to picker when the active workspace becomes forbidden", async () => {
+    globalThis.PI_WEB_API_BASE = "http://backend.test";
+    const app = await connectPiApp();
+    app.apiConnected = true;
+    app.dataset.activeWorkspaceId = "w-forbidden";
+    app.dataset.activeSessionId = "s-forbidden";
+    app.browseFolder = vi.fn();
+    globalThis.fetch = vi.fn(async () => ({
+      ok: false,
+      status: 403,
+      statusText: "Forbidden",
+      json: async () => ({ error: "outside allowed roots" }),
+    }));
+
+    await expect(app.refreshWorkspaces()).resolves.toBeUndefined();
+
+    expect(app.querySelector('[data-view="picker"]').hidden).toBe(false);
+    expect(app.dataset.activeWorkspaceId).toBe("");
+    expect(app.dataset.activeSessionId).toBe("");
+    expect([...document.querySelectorAll(".session-toast.error")].some((toast) =>
+      toast.textContent.includes("outside allowed roots"))).toBe(true);
+    expect(globalThis.fetch).not.toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ method: "DELETE" }));
+  });
+
   it("keeps workspace rendering no-ops safe without optional containers", async () => {
     const app = await connectPiApp();
     const bare = document.createElement("div");

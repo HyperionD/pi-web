@@ -101,6 +101,50 @@ describe("workspace folder/render/bootstrap coverage", () => {
     expect(app.setConnection).not.toHaveBeenCalledWith("err");
   });
 
+  it("uses the restricted purpose for ordinary folder browsing", async () => {
+    const app = await connectPiApp();
+    app.apiConnected = true;
+    globalThis.fetch = vi.fn(async () => okJson({ path: "/allowed", folders: [] }));
+
+    await app.loadFolder("/allowed");
+
+    expect(globalThis.fetch).toHaveBeenCalledWith(
+      expect.stringContaining("purpose=workspace"),
+      expect.any(Object),
+    );
+  });
+
+  it("uses the allowed-root purpose for configuration root browsing", async () => {
+    const app = await connectPiApp();
+    app.apiConnected = true;
+    globalThis.fetch = vi.fn(async () => okJson({ path: "/allowed", folders: [] }));
+
+    await app.loadFolder("/allowed", "allowed-root");
+
+    expect(globalThis.fetch).toHaveBeenCalledWith(
+      expect.stringContaining("purpose=allowed-root"),
+      expect.any(Object),
+    );
+  });
+
+  it("shows the backend error when folder browsing is forbidden", async () => {
+    const app = await connectPiApp();
+    app.apiConnected = true;
+    const list = document.createElement("div");
+    list.dataset.folderList = "";
+    app.append(list);
+    globalThis.fetch = vi.fn(async () => ({
+      ok: false,
+      status: 403,
+      statusText: "Forbidden",
+      json: async () => ({ error: "outside allowed roots" }),
+    }));
+
+    await app.loadFolder("/forbidden");
+
+    expect(list.textContent).toContain("outside allowed roots");
+  });
+
   it("handles folder, clone, path, and delete failure branches", async () => {
     const app = await connectPiApp();
     app.apiConnected = false;
@@ -193,6 +237,21 @@ describe("workspace folder/render/bootstrap coverage", () => {
     expect(button.disabled).toBe(false);
   });
 
+  it("does not render workspaces outside configured allowed roots", async () => {
+    const app = await connectPiApp();
+    app.apiConnected = true;
+    app.appConfigState = { config: { workspace: { allowedRoots: ["/allowed"] } } };
+    globalThis.fetch = vi.fn(async () => okJson({ workspaces: [
+      { id: "inside", name: "inside", path: "/allowed/project", sessions: [] },
+      { id: "outside", name: "outside", path: "/other/project", sessions: [] },
+    ] }));
+
+    await app.refreshWorkspaces();
+
+    expect(app.querySelector("[data-workspace-group='inside']")).not.toBeNull();
+    expect(app.querySelector("[data-workspace-group='outside']")).toBeNull();
+  });
+
   it("covers picker bootstrap, refresh guards, and folder edge branches", async () => {
     const app = await connectPiApp();
     const browser = document.createElement("div");
@@ -238,7 +297,7 @@ describe("workspace folder/render/bootstrap coverage", () => {
     delete app.browseFolder;
     app.loadFolder = vi.fn();
     await app.browseFolder();
-    expect(app.loadFolder).toHaveBeenCalledWith("~");
+    expect(app.loadFolder).toHaveBeenCalledWith("~", "workspace");
 
     const pathOnly = app.folderRow({ name: "plain", path: "/plain" });
     expect(pathOnly.querySelector(".folder-path").textContent).toBe("/plain");

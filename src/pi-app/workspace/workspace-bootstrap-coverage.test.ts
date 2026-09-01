@@ -68,6 +68,26 @@ describe("workspace bootstrap coverage", () => {
     expect(app.querySelector("[data-brand]").textContent).toBe("pi.dev / web");
   });
 
+  it("returns to picker when a session becomes forbidden", async () => {
+    const app = await connectPiApp();
+    app.apiConnected = true;
+    app.dataset.activeWorkspaceId = "w-forbidden";
+    app.dataset.activeSessionId = "s-forbidden";
+    app.browseFolder = vi.fn();
+    globalThis.fetch = vi.fn(async () => ({
+      ok: false,
+      status: 403,
+      statusText: "Forbidden",
+      json: async () => ({ error: "outside allowed roots" }),
+    }));
+
+    await app.loadSession("s-forbidden");
+
+    expect(app.querySelector('[data-view="picker"]').hidden).toBe(false);
+    expect(app.dataset.activeWorkspaceId).toBe("");
+    expect(app.dataset.activeSessionId).toBe("");
+  });
+
   it("covers bootstrap fallback branches", async () => {
     localStorage.setItem("pi.activeSession", JSON.stringify({ workspaceId: "w-missing", sessionId: "missing" }));
     const app = await connectPiApp();
