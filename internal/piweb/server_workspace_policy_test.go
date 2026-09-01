@@ -4,6 +4,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"testing"
 )
 
@@ -139,6 +140,39 @@ func TestSessionStatusEndpointRemainsUnregistered(t *testing.T) {
 	response := serveRequest(server, http.MethodGet, "/api/sessions/8e7c-44ff/status", nil)
 	if response.Code != http.StatusNotFound {
 		t.Fatalf("status endpoint: got %d, want %d", response.Code, http.StatusNotFound)
+	}
+}
+
+func TestSessionRoutesReturnInternalServerErrorWhenWorkspacePolicyLoadFails(t *testing.T) {
+	server, allowed, _ := serverWithAllowedAndForbiddenWorkspace(t)
+	session, err := server.store.CreateSession(allowed.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	configPath, err := AppConfigPath()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(configPath, []byte(`{"workspace":{"allowedRoots":[42]}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := LoadWorkspacePolicy(); err == nil {
+		t.Fatal("LoadWorkspacePolicy succeeded with invalid allowedRoots")
+	}
+
+	cases := []struct {
+		method string
+		suffix string
+	}{
+		{http.MethodGet, "/context-usage"},
+		{http.MethodPost, "/model"},
+	}
+	for _, tc := range cases {
+		requestPath := "/api/sessions/" + session.ID + tc.suffix
+		response := serveRequest(server, tc.method, requestPath, nil)
+		if response.Code != http.StatusInternalServerError {
+			t.Errorf("%s %s: got %d, want %d", tc.method, requestPath, response.Code, http.StatusInternalServerError)
+		}
 	}
 }
 

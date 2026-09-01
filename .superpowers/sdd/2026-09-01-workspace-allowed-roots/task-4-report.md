@@ -43,3 +43,15 @@ brief 列出的其他后端文件已执行 `gofmt`，无额外语义修改；sta
 - `go test ./internal/piweb -run 'TestWorkspaceRoutesRejectForbiddenWorkspace|TestSessionRoutesRejectForbiddenWorkspace|TestAuthorizedSessionStatusRoutesRemainReachable|TestSessionStatusEndpointRemainsUnregistered' -count=1` — PASS
 - `go test ./internal/piweb -count=1` — PASS
 - `go test -race ./internal/piweb -run 'TestWorkspaceRoutesRejectForbiddenWorkspace|TestSessionRoutesRejectForbiddenWorkspace|TestAuthorizedSessionStatusRoutesRemainReachable|TestSessionStatusEndpointRemainsUnregistered' -count=1` — PASS
+
+## Fix round 2 追加报告
+
+- `internal/piweb/server_workspace_policy_test.go` 增加 invalid non-empty `allowedRoots`（`[42]`）配置，确认 `LoadWorkspacePolicy` 返回错误，并断言现有 `context-usage` 与 `model` session routes 返回 500。
+- 保留既有 forbidden、404、allowed 断言；未修改生产代码、static、前端或无关文件。
+
+### Fix round 2 验证
+
+- `go test ./internal/piweb -run 'TestSessionRoutesReturnInternalServerErrorWhenWorkspacePolicyLoadFails' -count=1` — PASS
+- `go test ./internal/piweb -run 'TestWorkspaceRoutesRejectForbiddenWorkspace|TestSessionRoutesRejectForbiddenWorkspace|TestAuthorizedSessionStatusRoutesRemainReachable|TestSessionStatusEndpointRemainsUnregistered|TestSessionRoutesReturnInternalServerErrorWhenWorkspacePolicyLoadFails' -count=1` — PASS
+- `go test ./internal/piweb -count=1` — PASS
+- `go test -race ./internal/piweb -run 'TestWorkspaceRoutesRejectForbiddenWorkspace|TestSessionRoutesRejectForbiddenWorkspace|TestAuthorizedSessionStatusRoutesRemainReachable|TestSessionStatusEndpointRemainsUnregistered|TestSessionRoutesReturnInternalServerErrorWhenWorkspacePolicyLoadFails' -count=1` — PASS
