@@ -14,8 +14,9 @@ function allowedRootsFromState(state) {
 }
 
 export const appConfigMethods = {
-  async loadAppConfigState() {
+  async loadAppConfigState(bootstrapGeneration) {
     const state = parseAppConfigResponse(await getAppConfig());
+    if (bootstrapGeneration && this.bootstrapGeneration !== bootstrapGeneration) return undefined;
     this.appConfigState = state;
     this.applyBrand(state.config.brand);
     return state;

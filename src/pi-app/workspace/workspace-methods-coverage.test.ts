@@ -429,6 +429,9 @@ describe("workspace folder/render/bootstrap coverage", () => {
     expect(pickerStyles).toContain("@media (max-width: 640px)");
     expect(pickerStyles).toMatch(/@media \(max-width: 640px\)[\s\S]*\.folder-popover\s*\{[^}]*max-width:\s*calc\(100vw - 32px\);/s);
     expect(pickerStyles).toMatch(/\.folder-list\s*\{[^}]*max-height:\s*300px;[^}]*overflow:\s*auto;/s);
+    expect(pickerStyles).toMatch(/\.folder-browser\s*\{[^}]*display:\s*flex;[^}]*flex-direction:\s*column;/s);
+    expect(pickerStyles).toMatch(/\.folder-list\s*\{[^}]*min-height:\s*0;[^}]*flex:/s);
+    expect(pickerStyles).toMatch(/\.folder-confirm\s*\{[^}]*flex:\s*0 0 auto;/s);
   });
 
   it("handles folder and delete failure branches", async () => {

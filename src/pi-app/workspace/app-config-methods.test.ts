@@ -96,6 +96,27 @@ describe("app config methods", () => {
     expect(app.querySelector("[data-brand]").textContent).toBe("Custom");
   });
 
+  it("ignores stale app config success from an older bootstrap generation", async () => {
+    const app = await connectPiApp();
+    app.renderWorkspaces = vi.fn();
+    let resolveConfig;
+    globalThis.fetch = vi.fn(async (url) => String(url).endsWith("/app-config")
+      ? new Promise((resolve) => { resolveConfig = resolve; })
+      : ok({ workspaces: [] }));
+
+    const bootstrap = app.bootstrapAPI();
+    await vi.waitFor(() => expect(globalThis.fetch).toHaveBeenCalledWith(
+      expect.stringContaining("/app-config"),
+      expect.any(Object),
+    ));
+    app.bootstrapGeneration = Symbol("newer-bootstrap");
+    resolveConfig(ok({ config: { version: 1, brand: "stale" }, path: "/config" }));
+    await bootstrap;
+
+    expect(app.appConfigState).toBeUndefined();
+    expect(app.querySelector("[data-brand]").textContent).toBe("pi.dev / web");
+  });
+
   it("keeps workspace bootstrap and the default brand when app config fails", async () => {
     const app = await connectPiApp();
     app.renderWorkspaces = vi.fn();
@@ -335,6 +356,26 @@ describe("app config methods", () => {
     app.fillAppConfigForm();
 
     expect(app.appConfigPatchFromForm()).toEqual({});
+  });
+
+  it("tracks the allowed-root dialog trigger with aria-expanded", async () => {
+    const app = await connectPiApp();
+    const settings = app.querySelector("[data-settings-modal]");
+    const addButton = app.querySelector("[data-allowed-root-add]");
+    app.apiConnected = true;
+    app.appConfigState = { config: { workspace: { allowedRoots: [] } } };
+    settings.removeAttribute("hidden");
+    app.fillAppConfigForm();
+    globalThis.fetch = vi.fn(async () => ok({ path: "/selected", folders: [] }));
+
+    expect(addButton.getAttribute("aria-haspopup")).toBe("dialog");
+    expect(addButton.getAttribute("aria-expanded")).toBe("false");
+    addButton.click();
+    await vi.waitFor(() => expect(app.currentFolder).toBe("/selected"));
+    expect(addButton.getAttribute("aria-expanded")).toBe("true");
+
+    app.closeFolderPopover();
+    expect(addButton.getAttribute("aria-expanded")).toBe("false");
   });
 
   it("returns from the allowed-root popover to settings on cancel and completion", async () => {

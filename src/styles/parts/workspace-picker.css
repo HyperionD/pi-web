@@ -82,6 +82,8 @@
   font-size: var(--text-sm);
   font-weight: 600;
   padding: 8px 12px;
+  flex: 0 0 auto;
+  margin: 8px;
 }
 .folder-confirm:hover { filter: brightness(1.1); }
 .folder-confirm:disabled { cursor: not-allowed; opacity: .55; }
@@ -136,6 +138,8 @@
 .shell-row button:hover { border-color: var(--accent); background: var(--bg-4); }
 
 .folder-browser {
+  display: flex;
+  flex-direction: column;
   margin: 0 16px 14px;
   border: 1px solid var(--border);
   background: var(--bg-1);
@@ -175,6 +179,8 @@
   font-size: 12px;
 }
 .folder-list {
+  min-height: 0;
+  flex: 1 1 auto;
   max-height: 300px;
   overflow: auto;
   padding: 4px;

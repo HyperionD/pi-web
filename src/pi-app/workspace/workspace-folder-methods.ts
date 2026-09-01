@@ -50,7 +50,7 @@ export const workspaceFolderMethods = {
     this.setFolderOpening(false);
     this.querySelector("[data-folder-popover]")?.setAttribute("hidden", "");
     this.folderPickerTrigger?.setAttribute("aria-expanded", "false");
-    this.querySelectorAll("[data-action='route-picker'], [data-action='folder-open']")
+    this.querySelectorAll("[data-action='route-picker'], [data-action='folder-open'], [data-allowed-root-add]")
       .forEach((trigger) => trigger.setAttribute("aria-expanded", "false"));
     this.folderPickerTrigger = undefined;
     this.folderPickerTriggerRect = undefined;
@@ -220,12 +220,19 @@ export const workspaceFolderMethods = {
   async openWorkspacePath(path, openingToken) {
     if (!path) return;
     const isCurrentOpening = () => openingToken === undefined || this.folderOpeningToken === openingToken;
-    await openWorkspaceRequest(path);
+    const opened = await openWorkspaceRequest(path);
     if (!isCurrentOpening()) return;
     const { workspaces } = await getWorkspaces();
     if (!isCurrentOpening()) return;
-    const workspaceList = this.renderFilteredWorkspaces(workspaces || []);
-    const workspace = workspaceList.find((item) => item.path === path) || workspaceList[0];
+    const openedWorkspace = opened?.workspace || opened;
+    const candidates = [...(workspaces || [])];
+    if (openedWorkspace?.id && !candidates.some((item) => item.id === openedWorkspace.id)) {
+      candidates.push(openedWorkspace);
+    }
+    const workspaceList = this.renderFilteredWorkspaces(candidates);
+    const workspace = openedWorkspace?.id
+      ? workspaceList.find((item) => item.id === openedWorkspace.id)
+      : workspaceList.find((item) => item.path === path);
     if (workspace) await this.openWorkspace(workspace.id);
   },
 

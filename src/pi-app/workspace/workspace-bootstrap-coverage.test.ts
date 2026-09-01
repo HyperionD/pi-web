@@ -34,6 +34,95 @@ describe("workspace bootstrap coverage", () => {
     expect(app.renderWorkspaces).toHaveBeenCalledWith([]);
   });
 
+  it("activates the workspace returned by the open request instead of the first listed workspace", async () => {
+    const app = await connectPiApp();
+    app.apiConnected = true;
+    app.renderWorkspaces = vi.fn();
+    app.openWorkspace = vi.fn();
+    globalThis.fetch = vi.fn(async (url) => String(url).endsWith("/workspaces/open")
+      ? okJson({ id: "target", name: "target", path: "/selected" })
+      : okJson({ workspaces: [{ id: "other", path: "/other", sessions: [] }] }));
+
+    await app.openWorkspacePath("/selected");
+
+    expect(app.openWorkspace).toHaveBeenCalledWith("target");
+  });
+
+  it("ignores a stale bootstrap success after a newer generation starts", async () => {
+    const app = await connectPiApp();
+    app.loadAppConfigState = vi.fn(async () => undefined);
+    app.renderWorkspaces = vi.fn();
+    let resolveWorkspaces;
+    let requestCount = 0;
+    globalThis.fetch = vi.fn(() => {
+      requestCount += 1;
+      return requestCount === 1
+        ? new Promise((resolve) => { resolveWorkspaces = resolve; })
+        : Promise.resolve(okJson({ workspaces: [] }));
+    });
+
+    const bootstrap = app.bootstrapAPI();
+    await vi.waitFor(() => expect(globalThis.fetch).toHaveBeenCalled());
+    const newerBootstrap = app.bootstrapAPI();
+    resolveWorkspaces(okJson({ workspaces: [{ id: "stale", path: "/stale", sessions: [] }] }));
+    await Promise.all([bootstrap, newerBootstrap]);
+
+    expect(app.renderWorkspaces).not.toHaveBeenCalledWith([
+      expect.objectContaining({ id: "stale" }),
+    ]);
+  });
+
+  it("clears the active workspace when refresh returns no allowed workspace", async () => {
+    const app = await connectPiApp();
+    app.apiConnected = true;
+    app.dataset.activeWorkspaceId = "outside";
+    app.dataset.activeSessionId = "stale-session";
+    const workspaceLabel = document.createElement("span");
+    workspaceLabel.dataset.activeWorkspace = "";
+    const sessionLabel = document.createElement("span");
+    sessionLabel.dataset.activeSessionTitle = "";
+    app.append(workspaceLabel, sessionLabel);
+    const closeEventSource = vi.fn();
+    app.eventSource = { close: closeEventSource };
+    app.workspaceFiles = [{ name: "stale.ts" }];
+    const dispatchTreeUpdate = vi.spyOn(window, "dispatchEvent");
+    localStorage.setItem("pi.activeSession", JSON.stringify({ workspaceId: "outside", sessionId: "stale-session" }));
+    globalThis.fetch = vi.fn(async () => okJson({ workspaces: [] }));
+
+    await app.refreshWorkspaces();
+
+    expect(app.dataset.activeWorkspaceId).toBe("");
+    expect(app.dataset.activeSessionId).toBe("");
+    expect(app.querySelector("[data-main='empty']").hidden).toBe(false);
+    expect(app.querySelector("[data-active-workspace]")?.textContent).toBe("工作区");
+    expect(app.querySelector("[data-active-session-title]")?.textContent).toBe("无会话");
+    expect(localStorage.getItem("pi.activeSession")).toBeNull();
+    expect(closeEventSource).toHaveBeenCalled();
+    expect(app.workspaceFiles).toEqual([]);
+    expect(dispatchTreeUpdate).toHaveBeenCalledWith(expect.objectContaining({
+      type: "pi-workspace-tree:update",
+      detail: { files: [], statusMap: {}, selectedPath: "" },
+    }));
+  });
+
+  it("clears forbidden workspace labels before showing the empty view", async () => {
+    const app = await connectPiApp();
+    app.dataset.activeWorkspaceId = "forbidden";
+    app.dataset.activeSessionId = "session";
+    const workspaceLabel = document.createElement("span");
+    workspaceLabel.dataset.activeWorkspace = "";
+    workspaceLabel.textContent = "secret workspace";
+    const sessionLabel = document.createElement("span");
+    sessionLabel.dataset.activeSessionTitle = "";
+    sessionLabel.textContent = "secret session";
+    app.append(workspaceLabel, sessionLabel);
+
+    app.recoverForbiddenWorkspace(Object.assign(new Error("outside allowed roots"), { status: 403 }));
+
+    expect(workspaceLabel.textContent).toBe("工作区");
+    expect(sessionLabel.textContent).toBe("无会话");
+  });
+
   it("shows app config load failures while continuing workspace bootstrap", async () => {
     const app = await connectPiApp();
     app.renderWorkspaces = vi.fn();

@@ -47,18 +47,10 @@ export const workspaceBootstrapMethods = {
   recoverForbiddenWorkspace(error) {
     if (!isForbiddenWorkspaceError(error)) return false;
     const message = requestErrorMessage(error);
+    this.bootstrapGeneration = Symbol("forbidden-workspace");
     clearStoredActiveSession();
     this.closeSettingsModal?.();
-    this.dataset.activeWorkspaceId = "";
-    this.dataset.activeSessionId = "";
-    this.sessionLoadToken = Symbol("forbidden-workspace");
-    this.eventSource?.close?.();
-    this.eventSource = null;
-    this.backgroundSessionWatches?.forEach((watch) => watch.source?.close?.());
-    this.backgroundSessionWatches?.clear?.();
-    this.running = false;
-    this.compacting = false;
-    this.syncActiveWorkspaceRows?.();
+    this.clearActiveWorkspaceView();
     this.showSystemToast?.("error", "工作区不可访问", message, `workspace-forbidden:${message}`);
     this.resetFolderPopover?.();
     this.route("workspace");
@@ -73,19 +65,25 @@ export const workspaceBootstrapMethods = {
   },
 
   async bootstrapAPI() {
+    const bootstrapGeneration = Symbol("workspace-bootstrap");
+    this.bootstrapGeneration = bootstrapGeneration;
+    const isCurrentBootstrap = () => this.bootstrapGeneration === bootstrapGeneration;
     const appConfigRequest = Promise.resolve()
-      .then(() => this.loadAppConfigState?.())
+      .then(() => this.loadAppConfigState?.(bootstrapGeneration))
       .catch((error) => {
-        this.reportAppConfigLoadFailure(error);
+        if (isCurrentBootstrap()) this.reportAppConfigLoadFailure(error);
         return undefined;
       });
     try {
       const [{ workspaces }] = await Promise.all([getWorkspaces(), appConfigRequest]);
+      if (!isCurrentBootstrap()) return;
       this.apiConnected = true;
       this.setConnection("ok");
 
       const workspaceList = this.renderFilteredWorkspaces(workspaces || []);
-      const storedSession = findStoredSession(workspaceList, readStoredActiveSession());
+      const stored = readStoredActiveSession();
+      const storedSession = findStoredSession(workspaceList, stored);
+      if (stored?.sessionId && !storedSession) clearStoredActiveSession();
       const activeWorkspace = storedSession?.workspace || workspaceList[0];
       const activeSession = storedSession?.session || activeWorkspace?.sessions?.[0];
 
@@ -94,6 +92,13 @@ export const workspaceBootstrapMethods = {
 
       if (activeSession) this.route("workspace");
       else {
+        if (activeWorkspace) {
+          clearStoredActiveSession();
+          this.dataset.activeSessionId = "";
+          this.resetActiveSessionDisplay();
+        } else {
+          this.clearActiveWorkspaceView();
+        }
         this.route("workspace");
         this.showEmptyMain?.();
       }
@@ -106,9 +111,46 @@ export const workspaceBootstrapMethods = {
       }
       if (activeSession) await this.loadSession(activeSession.id);
     } catch (error) {
+      if (!isCurrentBootstrap()) return;
       if (this.recoverForbiddenWorkspace(error)) return;
       this.apiConnected = false;
       this.setConnection("err");
+    }
+  },
+
+  clearActiveWorkspaceView() {
+    clearStoredActiveSession();
+    this.eventSource?.close?.();
+    this.eventSource = null;
+    this.eventStreamId = undefined;
+    this.backgroundSessionWatches?.forEach((watch) => watch.source?.close?.());
+    this.backgroundSessionWatches?.clear?.();
+    this.sessionLoadToken = Symbol("cleared-workspace");
+    this.workspaceMetaLoadToken = Symbol("cleared-workspace");
+    this.workspaceCommandsLoadToken = Symbol("cleared-workspace");
+    this.workspaceFiles = [];
+    this.workspaceFileStatuses = {};
+    window.dispatchEvent(new CustomEvent("pi-workspace-tree:update", {
+      detail: { files: [], statusMap: {}, selectedPath: "" },
+    }));
+    this.dataset.activeWorkspaceId = "";
+    this.dataset.activeSessionId = "";
+    this.resetActiveSessionState?.();
+    this.renderMessages?.([]);
+    this.resetActiveSessionDisplay();
+    this.syncActiveWorkspaceRows?.();
+    this.showEmptyMain?.();
+  },
+
+  resetActiveSessionDisplay() {
+    const workspace = this.querySelector("[data-active-workspace]");
+    if (workspace) workspace.textContent = "工作区";
+    const emptyWorkspace = this.querySelector("[data-empty-workspace]");
+    if (emptyWorkspace) emptyWorkspace.textContent = "工作区";
+    const session = this.querySelector("[data-active-session-title]");
+    if (session) {
+      session.textContent = "无会话";
+      session.title = "无会话";
     }
   },
 
@@ -186,13 +228,18 @@ export const workspaceBootstrapMethods = {
 
   async refreshWorkspaces() {
     if (!this.apiConnected) return;
+    this.bootstrapGeneration = Symbol("workspace-refresh");
     const button = this.querySelector("[data-action='refresh-workspaces']");
     if (button) button.disabled = true;
     try {
       const { workspaces } = await getWorkspaces();
       const workspaceList = this.renderFilteredWorkspaces(workspaces || []);
       const activeWorkspaceId = this.dataset.activeWorkspaceId;
-      if (activeWorkspaceId) this.openActiveWorkspaceGroup(activeWorkspaceId);
+      if (activeWorkspaceId && !workspaceList.some((workspace) => workspace.id === activeWorkspaceId)) {
+        this.clearActiveWorkspaceView();
+      } else if (activeWorkspaceId) {
+        this.openActiveWorkspaceGroup(activeWorkspaceId);
+      }
     } catch (error) {
       if (!this.recoverForbiddenWorkspace(error)) this.setConnection("err");
     } finally {
@@ -213,6 +260,7 @@ export const workspaceBootstrapMethods = {
   },
 
   async loadSession(sessionId) {
+    this.bootstrapGeneration = Symbol("session-load");
     const loadToken = Symbol(sessionId);
     const workspaceId = this.findSessionRow(sessionId)?.dataset.workspace || this.dataset.activeWorkspaceId;
     this.sessionLoadToken = loadToken;

@@ -106,7 +106,7 @@ export function installPiAppFixture() {
             <small data-app-config-path>—</small>
             <textarea data-app-setting="allowed-roots"></textarea>
             <div data-allowed-roots-list></div>
-            <button type="button" data-allowed-root-add>add root</button>
+            <button type="button" data-allowed-root-add aria-haspopup="dialog" aria-expanded="false">add root</button>
             <small data-allowed-roots-hint></small>
           </section>
           <div data-auth-form>
