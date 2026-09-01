@@ -54,3 +54,21 @@
 ### Commit
 
 待提交新 fix commit。
+
+## Fix Round 2
+
+### 修复
+
+- `loadWorkspaceSettingsState` 为每次请求生成 workspace settings token，并同时校验请求 workspace ID 与当前 active workspace；过期或切换后的旧请求不再应用结果，也不触发 forbidden recovery、状态清理或返回 picker。
+- 未修改 `static`、后端或 Task 5 app-config 文件。
+
+### TDD 与验证
+
+- 红灯：新增 deferred 旧 workspace 403 回归测试；当前实现收到延迟错误后将 active workspace 清空，测试失败。
+- 绿灯回归：`bunx vitest run src/pi-app/workspace/workspace-bootstrap-coverage.test.ts -t 'deferred forbidden settings response'`；结果 `1 passed`。
+- Task 6 focused：`bunx vitest run src/pi-app/workspace/workspace-methods-coverage.test.ts src/pi-app/workspace/workspace-navigation.test.ts src/pi-app/workspace/workspace-bootstrap-coverage.test.ts src/pi-app/input/input-actions-coverage.test.ts`；结果 `4 passed`，`34 passed`。
+- TypeScript：`bun run typecheck`；`tsc --noEmit` 通过。
+
+### Commit
+
+本次新 fix commit。

@@ -118,6 +118,43 @@ describe("workspace bootstrap coverage", () => {
       toast.textContent.includes("outside allowed roots"))).toBe(true);
   });
 
+  it("ignores a deferred forbidden settings response after switching workspaces", async () => {
+    const app = await connectPiApp();
+    app.loadAppConfigState = vi.fn(async () => undefined);
+    app.loadWorkspaceCommands = vi.fn();
+    app.loadRuntimeStatus = vi.fn();
+    app.loadWorkspaceMeta = vi.fn();
+    app.dataset.route = "workspace";
+    let rejectSettings;
+    const settingsRequest = new Promise((_, reject) => {
+      rejectSettings = reject;
+    });
+    globalThis.fetch = vi.fn(async (url) => {
+      const value = String(url);
+      if (value.endsWith("/workspaces")) {
+        return okJson({ workspaces: [{ id: "w-old", name: "old", path: "/old", sessions: [] }] });
+      }
+      if (value.includes("/settings")) return settingsRequest;
+      return okJson({});
+    });
+
+    const bootstrap = app.bootstrapAPI();
+    await vi.waitFor(() => expect(globalThis.fetch).toHaveBeenCalledWith(
+      expect.stringContaining("/settings"),
+      expect.any(Object),
+    ));
+    expect(app.dataset.activeWorkspaceId).toBe("w-old");
+    app.dataset.activeWorkspaceId = "w-new";
+    app.dataset.activeSessionId = "s-new";
+    rejectSettings(new Error("403 Forbidden"));
+    await bootstrap;
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(app.dataset.activeWorkspaceId).toBe("w-new");
+    expect(app.dataset.activeSessionId).toBe("s-new");
+    expect(app.querySelector('[data-view="picker"]').hidden).toBe(true);
+  });
+
   it("returns to picker when a session becomes forbidden", async () => {
     const app = await connectPiApp();
     app.apiConnected = true;

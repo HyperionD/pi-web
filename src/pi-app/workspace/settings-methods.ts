@@ -73,10 +73,17 @@ function settingsValueChanged(scopedSettings, effective, path, value) {
 export const settingsMethods = {
   async loadWorkspaceSettingsState(workspaceId = this.dataset.activeWorkspaceId) {
     if (!workspaceId || !this.apiConnected) return;
+    const loadToken = Symbol(workspaceId);
+    this.workspaceSettingsLoadToken = loadToken;
+    const isCurrentLoad = () => (
+      this.dataset.activeWorkspaceId === workspaceId && this.workspaceSettingsLoadToken === loadToken
+    );
     try {
       const { settings } = await getWorkspaceSettings(workspaceId);
+      if (!isCurrentLoad()) return;
       this.settingsState = parseWorkspaceSettings(settings);
     } catch (error) {
+      if (!isCurrentLoad()) return;
       if (!this.recoverForbiddenWorkspace?.(error)) throw error;
     }
   },
