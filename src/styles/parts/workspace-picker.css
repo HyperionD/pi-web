@@ -188,9 +188,12 @@
 @media (max-width: 640px) {
   .folder-popover {
     position: fixed;
+    top: 16px;
     left: 16px;
     right: 16px;
     width: auto;
+    max-height: calc(100vh - 32px);
+    overflow-y: auto;
   }
 }
 .shell-row button {

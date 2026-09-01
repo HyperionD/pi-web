@@ -292,7 +292,9 @@ describe("workspace folder/render/bootstrap coverage", () => {
     expect(pickerStyles).toContain(".folder-picker-anchor");
     expect(pickerStyles).toMatch(/\.folder-popover\s*\{[^}]*position:\s*absolute;/s);
     expect(pickerStyles).toContain("@media (max-width: 640px)");
-    expect(pickerStyles).toMatch(/\.folder-popover\s*\{[^}]*position:\s*fixed;/s);
+    expect(pickerStyles).toMatch(/\.folder-popover\s*\{[^}]*position:\s*fixed;[^}]*top:\s*16px;/s);
+    expect(pickerStyles).toMatch(/\.folder-popover\s*\{[^}]*max-height:\s*calc\(100vh - 32px\);[^}]*overflow-y:\s*auto;/s);
+    expect(pickerStyles).toMatch(/\.folder-list\s*\{[^}]*overflow:\s*auto;/s);
   });
 
   it("handles folder and delete failure branches", async () => {
