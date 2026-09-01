@@ -1,6 +1,6 @@
 // @ts-nocheck
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { getAppConfig, saveAppConfig } from "../../lib/api";
+import { getAppConfig, listFolders, saveAppConfig } from "../../lib/api";
 import { cleanupPiAppFixture, connectPiApp, installPiAppFixture } from "../test-helper";
 import { appConfigMethods } from "./app-config-methods";
 import { DEFAULT_APP_BRAND, parseAppConfigResponse } from "./app-config-schema";
@@ -33,6 +33,31 @@ describe("app config methods", () => {
 
   it("rejects a malformed top-level response", () => {
     expect(() => parseAppConfigResponse(null)).toThrow("value:");
+  });
+
+  it("preserves multiple allowed roots in the app config response", () => {
+    const response = parseAppConfigResponse({
+      config: { version: 1, brand: "x", workspace: { allowedRoots: ["/a", "/b"] } },
+      path: "/config",
+    });
+
+    expect(response.config.workspace.allowedRoots).toEqual(["/a", "/b"]);
+  });
+
+  it("rejects an invalid workspace allowed-roots response", () => {
+    expect(() => parseAppConfigResponse({
+      config: { version: 1, brand: "x", workspace: { allowedRoots: ["/a", 42] } },
+      path: "/config",
+    })).toThrow("workspace.allowedRoots");
+  });
+
+  it("passes allowed-root purpose through folder listing requests", async () => {
+    globalThis.fetch = vi.fn(async () => ok({}));
+    await listFolders("/a", "allowed-root");
+
+    expect(globalThis.fetch.mock.calls[0][0]).toBe(
+      "http://backend.test/api/system/folders?path=%2Fa&purpose=allowed-root",
+    );
   });
 
   it("loads the server brand without a workspace id", async () => {
@@ -101,6 +126,67 @@ describe("app config methods", () => {
     expect(patchCalls).toHaveLength(1);
     expect(patchCalls[0][0]).toBe("http://backend.test/api/app-config");
     expect(JSON.parse(patchCalls[0][1].body)).toEqual({ brand: "Custom" });
+  });
+
+  it("renders one row per allowed root and exposes unrestricted empty state", async () => {
+    const app = await connectPiApp();
+    Object.assign(app, appConfigMethods);
+    app.appConfigState = {
+      config: { version: 1, brand: "x", workspace: { allowedRoots: ["/a", "/b"] } },
+      path: "/config",
+    };
+
+    app.fillAppConfigForm();
+
+    expect(app.querySelectorAll("[data-allowed-root-row]")).toHaveLength(2);
+    expect(app.querySelector("[data-app-setting='allowed-roots']").value).toBe("/a\n/b");
+    app.appConfigState.config.workspace.allowedRoots = [];
+    app.fillAppConfigForm();
+    expect(app.querySelector("[data-allowed-roots-hint]").textContent).toContain("不限制");
+  });
+
+  it("adds and removes allowed-root rows", async () => {
+    const app = await connectPiApp();
+    Object.assign(app, appConfigMethods);
+    app.renderAllowedRootRows(["/a"]);
+
+    app.addAllowedRootRow();
+    expect(app.querySelectorAll("[data-allowed-root-row]")).toHaveLength(2);
+    app.querySelector("[data-allowed-root-row]:last-child input").value = "/b";
+    app.removeAllowedRootRow(app.querySelector("[data-allowed-root-row]:last-child"));
+
+    expect(app.appConfigPatchFromForm().workspace.allowedRoots).toEqual(["/a"]);
+  });
+
+  it("sends only the workspace allowed-roots app-config patch and applies the response", async () => {
+    const app = await connectPiApp();
+    app.apiConnected = true;
+    app.settingsState = { project: {}, global: {}, effective: {}, paths: {} };
+    app.querySelector("[data-app-setting='allowed-roots']").value = "/a\n /b ";
+    globalThis.fetch = vi.fn(async () => ok({
+      config: { version: 1, brand: "x", workspace: { allowedRoots: ["/a", "/b"] } },
+      path: "/config",
+    }));
+
+    await app.saveSettingsForm(new Event("submit"));
+
+    const patchCalls = globalThis.fetch.mock.calls.filter(([, options]) => options?.method === "PATCH");
+    expect(patchCalls).toHaveLength(1);
+    expect(JSON.parse(patchCalls[0][1].body)).toEqual({ workspace: { allowedRoots: ["/a", "/b"] } });
+    expect(app.appConfigState.config.workspace.allowedRoots).toEqual(["/a", "/b"]);
+  });
+
+  it("sends an empty allowed-roots list to restore unrestricted workspace access", async () => {
+    const app = await connectPiApp();
+    Object.assign(app, appConfigMethods);
+    app.appConfigState = {
+      config: { version: 1, brand: "x", workspace: { allowedRoots: ["/a"] } },
+      path: "/config",
+    };
+    app.fillAppConfigForm();
+    app.querySelector("[data-app-setting='allowed-roots']").value = "";
+
+    expect(app.appConfigPatchFromForm()).toEqual({ workspace: { allowedRoots: [] } });
   });
 
   it("keeps app config saves user-level when pi settings scope changes", async () => {

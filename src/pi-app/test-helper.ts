@@ -95,6 +95,10 @@ export function installPiAppFixture() {
           <section class="app-settings-section">
             <label>pi-web 应用设置 <input data-app-setting="brand" /></label>
             <small data-app-config-path>—</small>
+            <textarea data-app-setting="allowed-roots"></textarea>
+            <div data-allowed-roots-list></div>
+            <button type="button" data-allowed-root-add>add root</button>
+            <small data-allowed-roots-hint></small>
           </section>
           <div data-auth-form>
             <select data-auth-provider></select>
