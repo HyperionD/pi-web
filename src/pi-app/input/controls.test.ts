@@ -256,13 +256,12 @@ describe("pi-app controls", () => {
     expect(spinner.dataset.frame).toBe("1");
   });
 
-  it("switches between picker and workspace routes", async () => {
+  it("keeps the main workspace route when picker navigation is requested", async () => {
     const app = await connectPiApp();
     app.route("picker");
-    expect(app.querySelector('[data-view="picker"]').hidden).toBe(false);
-    expect(app.querySelector('[data-view="workspace"]').hidden).toBe(true);
-    app.route("workspace");
-    expect(app.querySelector('[data-view="picker"]').hidden).toBe(true);
+
+    expect(app.dataset.route).toBe("workspace");
+    expect(app.querySelector('[data-view="picker"]')).toBeNull();
     expect(app.querySelector('[data-view="workspace"]').hidden).toBe(false);
   });
 

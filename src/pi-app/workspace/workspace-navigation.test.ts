@@ -49,22 +49,36 @@ describe("pi-app workspace navigation", () => {
     expect(app.querySelector("[data-session='s2'] .meta").hidden).toBe(true);
   });
 
-  it("keeps the folder popover trigger and recent workspaces together", async () => {
+  it("keeps the sidebar workspace trigger and recent workspaces in the main route", async () => {
     const app = await connectPiApp();
-    const picker = app.querySelector('[data-view="picker"]');
     const recent = document.createElement("div");
     recent.dataset.recentWorkspaces = "";
-    picker.append(recent);
+    app.append(recent);
     app.openWorkspace = vi.fn();
+    app.apiConnected = true;
+    globalThis.fetch = vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      statusText: "OK",
+      json: async () => ({ path: "/allowed", parent: "/", folders: [] }),
+    }));
+    app.dataset.route = "workspace";
     app.renderWorkspaces([
       { id: "w1", name: "one", path: "/one", sessionCount: 0, sessions: [] },
     ]);
 
-    expect(picker.querySelector("[data-folder-popover]")).not.toBeNull();
-    expect(picker.querySelector("[data-action='folder-open']")).not.toBeNull();
-    expect(picker.querySelector("[data-recent-workspaces]")).not.toBeNull();
+    const trigger = app.querySelector("[data-action='route-picker']");
+    const event = { target: trigger, clientX: 90, clientY: 112 };
+    app.handleAppClick(event);
 
-    picker.querySelector(".recent-row").click();
+    await vi.waitFor(() => expect(app.querySelector("[data-folder-popover]").hidden).toBe(false));
+    expect(app.dataset.route).toBe("workspace");
+    expect(app.querySelector('[data-view="picker"]')).toBeNull();
+    expect(globalThis.fetch).toHaveBeenCalledWith(
+      expect.stringContaining("purpose=workspace"),
+      expect.any(Object),
+    );
+    recent.querySelector(".recent-row").click();
 
     expect(app.openWorkspace).toHaveBeenCalledWith("w1");
   });
@@ -75,6 +89,10 @@ describe("pi-app workspace navigation", () => {
     app.apiConnected = true;
     app.dataset.activeWorkspaceId = "w-forbidden";
     app.dataset.activeSessionId = "s-forbidden";
+    const emptyMain = document.createElement("main");
+    emptyMain.dataset.main = "empty";
+    emptyMain.hidden = true;
+    app.append(emptyMain);
     app.browseFolder = vi.fn();
     globalThis.fetch = vi.fn(async () => ({
       ok: false,
@@ -85,7 +103,11 @@ describe("pi-app workspace navigation", () => {
 
     await expect(app.refreshWorkspaces()).resolves.toBeUndefined();
 
-    expect(app.querySelector('[data-view="picker"]').hidden).toBe(false);
+    expect(app.dataset.route).toBe("workspace");
+    expect(emptyMain.hidden).toBe(false);
+    expect(app.querySelector('[data-view="picker"]')).toBeNull();
+    expect(app.querySelector("[data-folder-popover]").hidden).toBe(true);
+    expect(app.querySelector("[data-action='folder-open']").getAttribute("aria-expanded")).toBe("false");
     expect(app.dataset.activeWorkspaceId).toBe("");
     expect(app.dataset.activeSessionId).toBe("");
     expect([...document.querySelectorAll(".session-toast.error")].some((toast) =>

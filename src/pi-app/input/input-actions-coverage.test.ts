@@ -152,6 +152,23 @@ describe("pi-app input actions coverage", () => {
     expect(event.preventDefault).toHaveBeenCalled();
   });
 
+  it("opens the workspace popover from the sidebar without changing the route", async () => {
+    const app = await connectPiApp();
+    const trigger = app.querySelector("[data-action='route-picker']");
+    const event = { target: trigger, clientX: 90, clientY: 112 };
+    app.dataset.route = "workspace";
+    app.openFolderPopover = vi.fn();
+
+    app.handleAppClick(event);
+
+    expect(app.dataset.route).toBe("workspace");
+    expect(app.querySelector('[data-view="picker"]')).toBeNull();
+    expect(app.openFolderPopover).toHaveBeenCalledWith(
+      "workspace",
+      expect.objectContaining({ clientX: 90, clientY: 112 }),
+    );
+  });
+
   it("prevents duplicate folder confirmations while opening a workspace", async () => {
     const app = await connectPiApp();
     const popover = app.querySelector("[data-folder-popover]");
@@ -248,16 +265,22 @@ describe("pi-app input actions coverage", () => {
     app.openWorkspacePath = vi.fn(async () => {
       throw Object.assign(new Error("outside allowed roots"), { status: 403 });
     });
+    const emptyMain = document.createElement("main");
+    emptyMain.dataset.main = "empty";
+    emptyMain.hidden = true;
+    app.append(emptyMain);
 
     confirm.click();
-    await vi.waitFor(() => expect(app.querySelector('[data-view="picker"]').hidden).toBe(false));
+    await vi.waitFor(() => expect(app.dataset.route).toBe("workspace"));
 
+    expect(emptyMain.hidden).toBe(false);
+    expect(app.querySelector('[data-view="picker"]')).toBeNull();
     expect(popover.hidden).toBe(true);
     expect(trigger.getAttribute("aria-expanded")).toBe("false");
     expect(confirm.disabled).toBe(true);
   });
 
-  it("opens the real allowed-root picker and adds the selected folder", async () => {
+  it("opens the allowed-root popover and adds the selected folder", async () => {
     const app = await connectPiApp();
     app.apiConnected = true;
     app.dataset.route = "workspace";
@@ -265,8 +288,8 @@ describe("pi-app input actions coverage", () => {
       config: { version: 1, brand: "x", workspace: { allowedRoots: ["/existing"] } },
       path: "/config",
     };
-    const picker = app.querySelector('[data-view="picker"]');
-    app.querySelector("[data-settings-modal]").removeAttribute("hidden");
+    const settings = app.querySelector("[data-settings-modal]");
+    settings.removeAttribute("hidden");
     app.fillAppConfigForm();
     globalThis.fetch = vi.fn(async () => ok({ path: "/selected", folders: [] }));
 
@@ -277,16 +300,19 @@ describe("pi-app input actions coverage", () => {
     ));
     await vi.waitFor(() => expect(app.currentFolder).toBe("/selected"));
 
-    picker.querySelector("[data-action='folder-open-current']").click();
+    expect(app.dataset.route).toBe("workspace");
+    expect(settings.hidden).toBe(true);
+    const popover = app.querySelector("[data-folder-popover]");
+    popover.querySelector("[data-action='folder-open-current']").click();
 
     expect(app.querySelectorAll("[data-allowed-root-row]")).toHaveLength(2);
     expect(app.querySelector("[data-app-setting='allowed-roots']").value).toBe("/existing\n/selected");
-    expect(picker.hidden).toBe(true);
-    expect(app.querySelector("[data-settings-modal]").hidden).toBe(false);
+    expect(popover.hidden).toBe(true);
+    expect(settings.hidden).toBe(false);
     expect(document.activeElement).toBe(app.querySelector("[data-allowed-root-add]"));
   });
 
-  it("restores allowed-root settings focus when Escape closes the picker", async () => {
+  it("restores allowed-root settings focus when Escape closes the popover", async () => {
     const app = await connectPiApp();
     app.apiConnected = true;
     app.dataset.route = "workspace";
@@ -299,6 +325,8 @@ describe("pi-app input actions coverage", () => {
 
     addButton.click();
     await vi.waitFor(() => expect(app.currentFolder).toBe("/selected"));
+    expect(app.dataset.route).toBe("workspace");
+    expect(settings.hidden).toBe(true);
     app.querySelector("[data-action='folder-close']").focus();
     window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
 

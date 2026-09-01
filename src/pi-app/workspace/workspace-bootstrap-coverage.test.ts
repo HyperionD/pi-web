@@ -76,9 +76,13 @@ describe("workspace bootstrap coverage", () => {
     expect(app.renderWorkspaces.mock.calls.at(-1)[0]).toHaveLength(1);
   });
 
-  it("keeps the ordinary picker open button without browsing during bootstrap", async () => {
+  it("keeps the workspace route without browsing during an empty bootstrap", async () => {
     const app = await connectPiApp();
-    app.dataset.route = "picker";
+    const emptyMain = document.createElement("main");
+    emptyMain.dataset.main = "empty";
+    emptyMain.hidden = true;
+    app.append(emptyMain);
+    app.dataset.route = "workspace";
     app.browseFolder = vi.fn();
     globalThis.fetch = vi.fn(async (url) => String(url).endsWith("/workspaces")
       ? okJson({ workspaces: [] })
@@ -87,13 +91,20 @@ describe("workspace bootstrap coverage", () => {
     await app.bootstrapAPI();
 
     expect(app.browseFolder).not.toHaveBeenCalled();
-    expect(app.querySelector("[data-action='folder-open']")).not.toBeNull();
+    expect(app.dataset.route).toBe("workspace");
+    expect(emptyMain.hidden).toBe(false);
+    expect(app.querySelector('[data-view="picker"]')).toBeNull();
+    expect(app.querySelector("[data-action='route-picker']")).not.toBeNull();
   });
 
-  it("clears folder popover state before returning to picker after forbidden recovery", async () => {
+  it("clears folder popover state before returning to the empty workspace view", async () => {
     const app = await connectPiApp();
     const trigger = app.querySelector("[data-action='folder-open']");
     const popover = app.querySelector("[data-folder-popover]");
+    const emptyMain = document.createElement("main");
+    emptyMain.dataset.main = "empty";
+    emptyMain.hidden = true;
+    app.append(emptyMain);
     app.folderOpeningPending = true;
     app.folderBrowsePurpose = "workspace";
     popover.hidden = false;
@@ -101,6 +112,9 @@ describe("workspace bootstrap coverage", () => {
 
     expect(app.recoverForbiddenWorkspace(new Error("403 Forbidden"))).toBe(true);
 
+    expect(app.dataset.route).toBe("workspace");
+    expect(emptyMain.hidden).toBe(false);
+    expect(app.querySelector('[data-view="picker"]')).toBeNull();
     expect(popover.hidden).toBe(true);
     expect(trigger.getAttribute("aria-expanded")).toBe("false");
     expect(app.folderOpeningPending).toBe(false);
@@ -111,6 +125,10 @@ describe("workspace bootstrap coverage", () => {
     app.apiConnected = true;
     app.dataset.activeWorkspaceId = "w-forbidden";
     app.dataset.activeSessionId = "s-forbidden";
+    const emptyMain = document.createElement("main");
+    emptyMain.dataset.main = "empty";
+    emptyMain.hidden = true;
+    app.append(emptyMain);
     localStorage.setItem("pi.activeSession", JSON.stringify({
       workspaceId: "w-forbidden",
       sessionId: "s-forbidden",
@@ -125,7 +143,11 @@ describe("workspace bootstrap coverage", () => {
 
     await expect(app.loadWorkspaceSettingsState("w-forbidden")).resolves.toBeUndefined();
 
-    expect(app.querySelector('[data-view="picker"]').hidden).toBe(false);
+    expect(app.dataset.route).toBe("workspace");
+    expect(emptyMain.hidden).toBe(false);
+    expect(app.querySelector('[data-view="picker"]')).toBeNull();
+    expect(app.querySelector("[data-folder-popover]").hidden).toBe(true);
+    expect(app.querySelector("[data-action='folder-open']").getAttribute("aria-expanded")).toBe("false");
     expect(app.dataset.activeWorkspaceId).toBe("");
     expect(app.dataset.activeSessionId).toBe("");
     expect(localStorage.getItem("pi.activeSession")).toBeNull();
@@ -167,14 +189,19 @@ describe("workspace bootstrap coverage", () => {
 
     expect(app.dataset.activeWorkspaceId).toBe("w-new");
     expect(app.dataset.activeSessionId).toBe("s-new");
-    expect(app.querySelector('[data-view="picker"]').hidden).toBe(true);
+    expect(app.dataset.route).toBe("workspace");
+    expect(app.querySelector('[data-view="picker"]')).toBeNull();
   });
 
-  it("returns to picker when a session becomes forbidden", async () => {
+  it("shows the empty main when a session becomes forbidden", async () => {
     const app = await connectPiApp();
     app.apiConnected = true;
     app.dataset.activeWorkspaceId = "w-forbidden";
     app.dataset.activeSessionId = "s-forbidden";
+    const emptyMain = document.createElement("main");
+    emptyMain.dataset.main = "empty";
+    emptyMain.hidden = true;
+    app.append(emptyMain);
     localStorage.setItem("pi.activeSession", JSON.stringify({
       workspaceId: "w-forbidden",
       sessionId: "s-forbidden",
@@ -189,7 +216,11 @@ describe("workspace bootstrap coverage", () => {
 
     await app.loadSession("s-forbidden");
 
-    expect(app.querySelector('[data-view="picker"]').hidden).toBe(false);
+    expect(app.dataset.route).toBe("workspace");
+    expect(emptyMain.hidden).toBe(false);
+    expect(app.querySelector('[data-view="picker"]')).toBeNull();
+    expect(app.querySelector("[data-folder-popover]").hidden).toBe(true);
+    expect(app.querySelector("[data-action='folder-open']").getAttribute("aria-expanded")).toBe("false");
     expect(app.dataset.activeWorkspaceId).toBe("");
     expect(app.dataset.activeSessionId).toBe("");
     expect(localStorage.getItem("pi.activeSession")).toBeNull();
@@ -202,6 +233,7 @@ describe("workspace bootstrap coverage", () => {
     app.apiConnected = true;
     app.dataset.activeWorkspaceId = "w-old";
     app.dataset.activeSessionId = "s-old";
+    app.dataset.route = "workspace";
     let rejectFiles;
     globalThis.fetch = vi.fn(async (url) => String(url).includes("/files")
       ? new Promise((_, reject) => { rejectFiles = reject; })
@@ -219,7 +251,8 @@ describe("workspace bootstrap coverage", () => {
 
     expect(app.dataset.activeWorkspaceId).toBe("w-new");
     expect(app.dataset.activeSessionId).toBe("s-new");
-    expect(app.querySelector('[data-view="picker"]').hidden).toBe(true);
+    expect(app.dataset.route).toBe("workspace");
+    expect(app.querySelector('[data-view="picker"]')).toBeNull();
   });
 
   it("ignores delayed forbidden commands after switching workspaces", async () => {
@@ -227,6 +260,7 @@ describe("workspace bootstrap coverage", () => {
     app.apiConnected = true;
     app.dataset.activeWorkspaceId = "w-old";
     app.dataset.activeSessionId = "s-old";
+    app.dataset.route = "workspace";
     let rejectCommands;
     globalThis.fetch = vi.fn(async () => new Promise((_, reject) => { rejectCommands = reject; }));
 
@@ -239,7 +273,8 @@ describe("workspace bootstrap coverage", () => {
 
     expect(app.dataset.activeWorkspaceId).toBe("w-new");
     expect(app.dataset.activeSessionId).toBe("s-new");
-    expect(app.querySelector('[data-view="picker"]').hidden).toBe(true);
+    expect(app.dataset.route).toBe("workspace");
+    expect(app.querySelector('[data-view="picker"]')).toBeNull();
   });
 
   it("ignores delayed forbidden history after switching sessions", async () => {
@@ -247,6 +282,7 @@ describe("workspace bootstrap coverage", () => {
     app.apiConnected = true;
     app.dataset.activeWorkspaceId = "w-old";
     app.dataset.activeSessionId = "s-old";
+    app.dataset.route = "workspace";
     app.sessionHistoryCursor = "cursor";
     app.sessionHistoryHasMore = true;
     let rejectHistory;
@@ -261,7 +297,8 @@ describe("workspace bootstrap coverage", () => {
 
     expect(app.dataset.activeWorkspaceId).toBe("w-new");
     expect(app.dataset.activeSessionId).toBe("s-new");
-    expect(app.querySelector('[data-view="picker"]').hidden).toBe(true);
+    expect(app.dataset.route).toBe("workspace");
+    expect(app.querySelector('[data-view="picker"]')).toBeNull();
   });
 
   it("ignores delayed forbidden settings after switching workspaces", async () => {
@@ -269,6 +306,7 @@ describe("workspace bootstrap coverage", () => {
     app.apiConnected = true;
     app.dataset.activeWorkspaceId = "w-old";
     app.dataset.activeSessionId = "s-old";
+    app.dataset.route = "workspace";
     let rejectSettings;
     globalThis.fetch = vi.fn(async (url) => {
       const value = String(url);
@@ -290,7 +328,8 @@ describe("workspace bootstrap coverage", () => {
 
     expect(app.dataset.activeWorkspaceId).toBe("w-new");
     expect(app.dataset.activeSessionId).toBe("s-new");
-    expect(app.querySelector('[data-view="picker"]').hidden).toBe(true);
+    expect(app.dataset.route).toBe("workspace");
+    expect(app.querySelector('[data-view="picker"]')).toBeNull();
   });
 
   it("covers bootstrap fallback branches", async () => {

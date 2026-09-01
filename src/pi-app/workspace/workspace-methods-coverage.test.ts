@@ -186,6 +186,25 @@ describe("workspace folder/render/bootstrap coverage", () => {
     expect(app.openWorkspacePath).toHaveBeenCalledWith("/allowed/child", expect.any(Symbol));
   });
 
+  it("positions the folder popover inside the viewport and uses trigger bounds for keyboard events", async () => {
+    const app = await connectPiApp();
+    const trigger = app.querySelector("[data-action='folder-open']");
+    const popover = app.querySelector("[data-folder-popover]");
+    Object.defineProperty(window, "innerWidth", { configurable: true, value: 1024 });
+    Object.defineProperty(window, "innerHeight", { configurable: true, value: 768 });
+    Object.defineProperty(popover, "offsetWidth", { configurable: true, value: 300 });
+    Object.defineProperty(popover, "offsetHeight", { configurable: true, value: 200 });
+    trigger.getBoundingClientRect = () => ({ left: 40, top: 80, right: 120, bottom: 112, width: 80, height: 32 });
+
+    app.positionFolderPopover({ clientX: 1000, clientY: 760 }, trigger);
+    expect(popover.style.left).toBe("708px");
+    expect(popover.style.top).toBe("552px");
+
+    app.positionFolderPopover({ clientX: 0, clientY: 0 }, trigger);
+    expect(popover.style.left).toBe("40px");
+    expect(popover.style.top).toBe("112px");
+  });
+
   it("toggles an open workspace popover without reloading or losing navigation", async () => {
     const app = await connectPiApp();
     const trigger = app.querySelector("[data-action='folder-open']");
@@ -221,14 +240,12 @@ describe("workspace folder/render/bootstrap coverage", () => {
 
   it("keeps folder loading feedback and ignores stale responses after closing", async () => {
     const app = await connectPiApp();
-    const picker = app.querySelector('[data-view="picker"]');
     const trigger = app.querySelector("[data-action='folder-open']");
     const popover = app.querySelector("[data-folder-popover]");
     const loading = app.querySelector("[data-folder-loading]");
     const up = app.querySelector("[data-action='folder-up']");
     const confirm = app.querySelector("[data-action='folder-open-current']");
-    picker.hidden = false;
-    app.dataset.route = "picker";
+    app.dataset.route = "workspace";
     app.apiConnected = true;
     let resolveListing;
     globalThis.fetch = vi.fn(() => new Promise((resolve) => { resolveListing = resolve; }));
@@ -252,12 +269,10 @@ describe("workspace folder/render/bootstrap coverage", () => {
     expect(loading.hidden).toBe(true);
   });
 
-  it("focuses the current folder picker after the latest request only", async () => {
+  it("focuses the current folder popover after the latest request only", async () => {
     const app = await connectPiApp();
-    const picker = app.querySelector('[data-view="picker"]');
     const popover = app.querySelector("[data-folder-popover]");
-    picker.hidden = false;
-    app.dataset.route = "picker";
+    app.dataset.route = "workspace";
     app.apiConnected = true;
     const responses = [];
     globalThis.fetch = vi.fn(() => new Promise((resolve) => responses.push(resolve)));
@@ -276,13 +291,11 @@ describe("workspace folder/render/bootstrap coverage", () => {
     expect(document.activeElement).toBe(popover.querySelector("[data-folder-list] .folder-row"));
   });
 
-  it("does not refocus a picker when opening it again during loading", async () => {
+  it("does not refocus a popover when opening it again during loading", async () => {
     const app = await connectPiApp();
-    const picker = app.querySelector('[data-view="picker"]');
     const popover = app.querySelector("[data-folder-popover]");
     const confirm = app.querySelector("[data-action='folder-open-current']");
-    picker.hidden = false;
-    app.dataset.route = "picker";
+    app.dataset.route = "workspace";
     app.apiConnected = true;
     let resolveListing;
     globalThis.fetch = vi.fn(() => new Promise((resolve) => { resolveListing = resolve; }));
@@ -400,10 +413,14 @@ describe("workspace folder/render/bootstrap coverage", () => {
     expect(app.activateWorkspaceForSession).toHaveBeenCalledWith("w1", { loadContext: true, forceLoadContext: true });
   });
 
-  it("does not browse on picker bootstrap and refreshes the tree button", async () => {
+  it("boots an empty workspace view without browsing and refreshes the tree button", async () => {
     const app = document.querySelector("pi-app");
     await customElements.whenDefined("pi-app");
-    app.dataset.route = "picker";
+    const emptyMain = document.createElement("main");
+    emptyMain.dataset.main = "empty";
+    emptyMain.hidden = true;
+    app.append(emptyMain);
+    app.dataset.route = "workspace";
     app.browseFolder = vi.fn();
     app.renderWorkspaces = vi.fn();
     app.loadWorkspaceMeta = vi.fn();
@@ -412,6 +429,8 @@ describe("workspace folder/render/bootstrap coverage", () => {
     await app.bootstrapAPI();
     expect(app.browseFolder).not.toHaveBeenCalled();
     expect(globalThis.fetch).not.toHaveBeenCalledWith(expect.stringContaining("/system/folders"), expect.anything());
+    expect(app.querySelector('[data-view="picker"]')).toBeNull();
+    expect(emptyMain.hidden).toBe(false);
 
     const button = document.createElement("button");
     button.dataset.action = "refresh-tree";
@@ -457,12 +476,12 @@ describe("workspace folder/render/bootstrap coverage", () => {
     expect(app.renderWorkspaces).toHaveBeenLastCalledWith([workspaces[0]]);
   });
 
-  it("covers picker bootstrap, refresh guards, and folder edge branches", async () => {
+  it("covers workspace bootstrap, refresh guards, and folder edge branches", async () => {
     const app = await connectPiApp();
     const browser = document.createElement("div");
     browser.dataset.folderBrowser = "";
     app.append(browser);
-    app.dataset.route = "picker";
+    app.dataset.route = "workspace";
     app.browseFolder = vi.fn();
     app.renderWorkspaces = vi.fn();
     app.setConnection = vi.fn();
@@ -472,6 +491,7 @@ describe("workspace folder/render/bootstrap coverage", () => {
 
     await app.bootstrapAPI();
     expect(app.browseFolder).not.toHaveBeenCalled();
+    expect(app.querySelector('[data-view="picker"]')).toBeNull();
 
     app.apiConnected = false;
     await app.refreshWorkspaces();

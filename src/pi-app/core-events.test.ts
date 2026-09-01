@@ -187,16 +187,31 @@ describe("pi-app core events", () => {
     window.dispatchEvent(new MessageEvent("message", { data: { type: "__deactivate_edit_mode" } }));
     expect(tweaks.hidden).toBe(true);
     expect(calls.map(([name]) => name)).toContain("navigateList");
-    expect(calls).toContainEqual(["openFolderPopover", "workspace"]);
+    expect(calls.some(([name, purpose]) => name === "openFolderPopover" && purpose === "workspace")).toBe(true);
     expect(calls).toContainEqual(["closeFolderPopover"]);
   });
 
-  it("closes the folder picker on Escape or outside click and restores trigger focus", async () => {
+  it("opens the sidebar workspace popover without entering a picker route", async () => {
+    const app = await connectPiApp();
+    const trigger = app.querySelector("[data-action='route-picker']");
+    const event = { target: trigger, clientX: 90, clientY: 112 };
+    app.openFolderPopover = vi.fn();
+    app.dataset.route = "workspace";
+
+    app.handleAppClick(event);
+
+    expect(app.dataset.route).toBe("workspace");
+    expect(app.querySelector('[data-view="picker"]')).toBeNull();
+    expect(app.openFolderPopover).toHaveBeenCalledWith(
+      "workspace",
+      expect.objectContaining({ clientX: 90, clientY: 112 }),
+    );
+  });
+
+  it("closes the folder popover on Escape or outside click and restores trigger focus", async () => {
     const app = await connectPiApp();
     app.apiConnected = true;
-    const picker = app.querySelector('[data-view="picker"]');
-    picker.hidden = false;
-    app.dataset.route = "picker";
+    app.dataset.route = "workspace";
     const trigger = app.querySelector("[data-action='folder-open']");
     const popover = app.querySelector("[data-folder-popover]");
     globalThis.fetch = vi.fn(async () => ({
