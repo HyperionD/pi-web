@@ -8,6 +8,7 @@ import (
 	"io/fs"
 	"log/slog"
 	"net/http"
+	"os"
 	"time"
 )
 
@@ -269,4 +270,23 @@ func writeStoreError(w http.ResponseWriter, err error) {
 		return
 	}
 	writeError(w, http.StatusInternalServerError, err)
+}
+
+func writeWorkspaceSelectionError(w http.ResponseWriter, err error) {
+	writeError(w, workspaceSelectionErrorStatus(err), err)
+}
+
+func workspaceSelectionErrorStatus(err error) int {
+	if errors.Is(err, ErrWorkspaceForbidden) {
+		return http.StatusForbidden
+	}
+	if errors.Is(err, ErrWorkspacePolicyInvalid) || isFilesystemError(err) {
+		return http.StatusInternalServerError
+	}
+	return http.StatusBadRequest
+}
+
+func isFilesystemError(err error) bool {
+	var pathError *os.PathError
+	return errors.As(err, &pathError) || errors.Is(err, fs.ErrPermission) || errors.Is(err, fs.ErrInvalid)
 }

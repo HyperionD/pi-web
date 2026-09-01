@@ -8,6 +8,11 @@ import (
 	"strings"
 )
 
+const (
+	folderPurposeWorkspace   = "workspace"
+	folderPurposeAllowedRoot = "allowed-root"
+)
+
 func ExpandUserPath(path string) (string, error) {
 	path = strings.TrimSpace(path)
 	if path == "" || path == "~" {

@@ -17,20 +17,76 @@ func (s *Server) listFolders(w http.ResponseWriter, r *http.Request) {
 	if path == "" {
 		path = "~"
 	}
+	purpose := r.URL.Query().Get("purpose")
+	if purpose == "" {
+		purpose = folderPurposeWorkspace
+	}
+	if purpose != folderPurposeWorkspace && purpose != folderPurposeAllowedRoot {
+		writeError(w, http.StatusBadRequest, errors.New("invalid folder purpose"))
+		return
+	}
+	var policy WorkspacePolicy
+	if purpose == folderPurposeWorkspace {
+		var err error
+		policy, err = LoadWorkspacePolicy()
+		if err != nil {
+			writeWorkspaceSelectionError(w, err)
+			return
+		}
+		if policy.restricted {
+			if err := policy.CheckFolderPath(path); err != nil {
+				writeWorkspaceSelectionError(w, err)
+				return
+			}
+		}
+	}
 	folders, err := ListFolders(path)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, err)
+		if policy.restricted {
+			writeWorkspaceSelectionError(w, err)
+		} else {
+			writeError(w, http.StatusBadRequest, err)
+		}
 		return
 	}
 	writeJSON(w, http.StatusOK, folders)
 }
 func (s *Server) workspaces(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, map[string]any{"workspaces": s.withLiveSessions(s.store.Workspaces())})
+	policy, err := LoadWorkspacePolicy()
+	if err != nil {
+		writeWorkspaceSelectionError(w, err)
+		return
+	}
+	workspaces := s.store.Workspaces()
+	if policy.restricted {
+		filtered := make([]Workspace, 0, len(workspaces))
+		for _, workspace := range workspaces {
+			if err := policy.CheckExistingDirectory(workspace.Path); err != nil {
+				if errors.Is(err, ErrWorkspaceForbidden) {
+					continue
+				}
+				writeWorkspaceSelectionError(w, err)
+				return
+			}
+			filtered = append(filtered, workspace)
+		}
+		workspaces = filtered
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"workspaces": s.withLiveSessions(workspaces)})
 }
 func (s *Server) openWorkspace(w http.ResponseWriter, r *http.Request) {
 	var req OpenWorkspaceRequest
 	if err := readJSON(r, &req); err != nil {
 		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	policy, err := LoadWorkspacePolicy()
+	if err != nil {
+		writeWorkspaceSelectionError(w, err)
+		return
+	}
+	if err := policy.CheckExistingDirectory(req.Path); err != nil {
+		writeWorkspaceSelectionError(w, err)
 		return
 	}
 	workspace, err := s.store.OpenWorkspace(req.Path)
@@ -46,9 +102,15 @@ func (s *Server) cloneWorkspace(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
-	workspace, output, err := CloneGitWorkspace(s.context(), s.store, req)
+	policy, err := LoadWorkspacePolicy()
 	if err != nil {
-		writeError(w, http.StatusBadRequest, errors.New(strings.TrimSpace(err.Error()+"\n"+output)))
+		writeWorkspaceSelectionError(w, err)
+		return
+	}
+	workspace, output, err := CloneGitWorkspace(s.context(), s.store, req, policy)
+	if err != nil {
+		message := errors.New(strings.TrimSpace(err.Error() + "\n" + output))
+		writeError(w, workspaceSelectionErrorStatus(err), message)
 		return
 	}
 	writeJSON(w, http.StatusCreated, map[string]any{"workspace": workspace, "output": output})

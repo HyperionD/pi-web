@@ -50,13 +50,10 @@ func (b *cappedOutputBuffer) Result() string {
 	return output
 }
 
-func CloneGitWorkspace(ctx context.Context, store *Store, req CloneWorkspaceRequest) (Workspace, string, error) {
-	parent, err := ValidateWorkspacePath(req.ParentPath)
-	if err != nil {
-		return Workspace{}, "", err
-	}
-	if stat, err := os.Stat(parent); err != nil || !stat.IsDir() {
-		return Workspace{}, "", errors.New("parent path must be an existing directory")
+func CloneGitWorkspace(ctx context.Context, store *Store, req CloneWorkspaceRequest, policies ...WorkspacePolicy) (Workspace, string, error) {
+	policy := WorkspacePolicy{}
+	if len(policies) > 0 {
+		policy = policies[0]
 	}
 	gitURL := strings.TrimSpace(req.GitURL)
 	if gitURL == "" {
@@ -69,7 +66,11 @@ func CloneGitWorkspace(ctx context.Context, store *Store, req CloneWorkspaceRequ
 	if destinationName == "" || strings.ContainsAny(destinationName, `/\`) || strings.Contains(destinationName, "\x00") || destinationName == "." || destinationName == ".." {
 		return Workspace{}, "", errors.New("clone destination name is invalid")
 	}
-	destination := filepath.Join(parent, destinationName)
+	destination, err := policy.ValidateCloneDestination(req.ParentPath, destinationName)
+	if err != nil {
+		return Workspace{}, "", err
+	}
+	parent := filepath.Dir(destination)
 	if _, err := os.Stat(destination); err == nil {
 		return Workspace{}, "", fmt.Errorf("destination already exists: %s", destination)
 	} else if !errors.Is(err, os.ErrNotExist) {
@@ -78,7 +79,7 @@ func CloneGitWorkspace(ctx context.Context, store *Store, req CloneWorkspaceRequ
 
 	cloneCtx, cancel := context.WithTimeout(ctx, cloneTimeout)
 	defer cancel()
-	cmd := exec.CommandContext(cloneCtx, "git", "clone", gitURL, destinationName)
+	cmd := exec.CommandContext(cloneCtx, "git", "clone", gitURL, filepath.Base(destination))
 	cmd.Dir = parent
 	output, err := cmd.CombinedOutput()
 	if cloneCtx.Err() == context.DeadlineExceeded {
