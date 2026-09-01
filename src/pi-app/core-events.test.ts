@@ -120,6 +120,7 @@ describe("pi-app core events", () => {
     expect(appTemplate).not.toContain("data-clone-form");
     expect(appTemplate).not.toContain("gitUrl");
     expect(appTemplate).not.toContain("克隆并打开");
+    expect(appTemplate).not.toContain('data-view="picker"');
     const calls = [];
     ["submitShellCommand", "saveSettingsForm", "fillSettingsForm", "fillModelControls", "syncCustomSettingInput", "setModelControlsLoading",
       "submitPrompt", "cancelActiveSession", "handlePromptPaste", "navigateList", "pickSlash", "addFiles", "startResize", "startInspectorResize", "openFolderPopover", "closeFolderPopover",
@@ -208,11 +209,42 @@ describe("pi-app core events", () => {
     );
   });
 
+  it("opens and positions the root workspace popover through a real sidebar click", async () => {
+    const app = await connectPiApp();
+    const trigger = app.querySelector("[data-action='route-picker']");
+    const popover = app.querySelector("[data-folder-popover]");
+    app.apiConnected = true;
+    Object.defineProperty(window, "innerWidth", { configurable: true, value: 1024 });
+    Object.defineProperty(window, "innerHeight", { configurable: true, value: 768 });
+    Object.defineProperty(popover, "offsetWidth", { configurable: true, value: 300 });
+    Object.defineProperty(popover, "offsetHeight", { configurable: true, value: 200 });
+    trigger.getBoundingClientRect = () => ({ left: 40, top: 80, right: 120, bottom: 112, width: 80, height: 32 });
+    globalThis.fetch = vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      statusText: "OK",
+      json: async () => ({ path: "/allowed", parent: "/", folders: [] }),
+    }));
+
+    trigger.dispatchEvent(new MouseEvent("click", { bubbles: true, clientX: 1000, clientY: 760 }));
+
+    await vi.waitFor(() => expect(popover.hidden).toBe(false));
+    expect(app.dataset.route).toBe("workspace");
+    expect(popover.parentElement).toBe(app);
+    expect(popover.closest('[data-view="picker"]')).toBeNull();
+    expect(popover.style.left).toBe("708px");
+    expect(popover.style.top).toBe("552px");
+    expect(globalThis.fetch).toHaveBeenCalledWith(
+      expect.stringContaining("purpose=workspace"),
+      expect.any(Object),
+    );
+  });
+
   it("closes the folder popover on Escape or outside click and restores trigger focus", async () => {
     const app = await connectPiApp();
     app.apiConnected = true;
     app.dataset.route = "workspace";
-    const trigger = app.querySelector("[data-action='folder-open']");
+    const trigger = app.querySelector("[data-action='route-picker']");
     const popover = app.querySelector("[data-folder-popover]");
     globalThis.fetch = vi.fn(async () => ({
       ok: true,

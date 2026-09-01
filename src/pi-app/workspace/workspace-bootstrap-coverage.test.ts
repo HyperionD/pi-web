@@ -78,10 +78,8 @@ describe("workspace bootstrap coverage", () => {
 
   it("keeps the workspace route without browsing during an empty bootstrap", async () => {
     const app = await connectPiApp();
-    const emptyMain = document.createElement("main");
-    emptyMain.dataset.main = "empty";
-    emptyMain.hidden = true;
-    app.append(emptyMain);
+    const emptyMain = app.querySelector("[data-main='empty']");
+    expect(emptyMain.hidden).toBe(true);
     app.dataset.route = "workspace";
     app.browseFolder = vi.fn();
     globalThis.fetch = vi.fn(async (url) => String(url).endsWith("/workspaces")
@@ -99,12 +97,9 @@ describe("workspace bootstrap coverage", () => {
 
   it("clears folder popover state before returning to the empty workspace view", async () => {
     const app = await connectPiApp();
-    const trigger = app.querySelector("[data-action='folder-open']");
+    const trigger = app.querySelector("[data-action='route-picker']");
     const popover = app.querySelector("[data-folder-popover]");
-    const emptyMain = document.createElement("main");
-    emptyMain.dataset.main = "empty";
-    emptyMain.hidden = true;
-    app.append(emptyMain);
+    const emptyMain = app.querySelector("[data-main='empty']");
     app.folderOpeningPending = true;
     app.folderBrowsePurpose = "workspace";
     popover.hidden = false;
@@ -125,10 +120,7 @@ describe("workspace bootstrap coverage", () => {
     app.apiConnected = true;
     app.dataset.activeWorkspaceId = "w-forbidden";
     app.dataset.activeSessionId = "s-forbidden";
-    const emptyMain = document.createElement("main");
-    emptyMain.dataset.main = "empty";
-    emptyMain.hidden = true;
-    app.append(emptyMain);
+    const emptyMain = app.querySelector("[data-main='empty']");
     localStorage.setItem("pi.activeSession", JSON.stringify({
       workspaceId: "w-forbidden",
       sessionId: "s-forbidden",
@@ -147,7 +139,7 @@ describe("workspace bootstrap coverage", () => {
     expect(emptyMain.hidden).toBe(false);
     expect(app.querySelector('[data-view="picker"]')).toBeNull();
     expect(app.querySelector("[data-folder-popover]").hidden).toBe(true);
-    expect(app.querySelector("[data-action='folder-open']").getAttribute("aria-expanded")).toBe("false");
+    expect(app.querySelector("[data-action='route-picker']").getAttribute("aria-expanded")).toBe("false");
     expect(app.dataset.activeWorkspaceId).toBe("");
     expect(app.dataset.activeSessionId).toBe("");
     expect(localStorage.getItem("pi.activeSession")).toBeNull();
@@ -185,7 +177,7 @@ describe("workspace bootstrap coverage", () => {
     app.dataset.activeSessionId = "s-new";
     rejectSettings(new Error("403 Forbidden"));
     await bootstrap;
-    await new Promise((resolve) => setTimeout(resolve, 0));
+    await vi.waitFor(() => expect(app.dataset.activeWorkspaceId).toBe("w-new"));
 
     expect(app.dataset.activeWorkspaceId).toBe("w-new");
     expect(app.dataset.activeSessionId).toBe("s-new");
@@ -198,10 +190,7 @@ describe("workspace bootstrap coverage", () => {
     app.apiConnected = true;
     app.dataset.activeWorkspaceId = "w-forbidden";
     app.dataset.activeSessionId = "s-forbidden";
-    const emptyMain = document.createElement("main");
-    emptyMain.dataset.main = "empty";
-    emptyMain.hidden = true;
-    app.append(emptyMain);
+    const emptyMain = app.querySelector("[data-main='empty']");
     localStorage.setItem("pi.activeSession", JSON.stringify({
       workspaceId: "w-forbidden",
       sessionId: "s-forbidden",
@@ -220,7 +209,7 @@ describe("workspace bootstrap coverage", () => {
     expect(emptyMain.hidden).toBe(false);
     expect(app.querySelector('[data-view="picker"]')).toBeNull();
     expect(app.querySelector("[data-folder-popover]").hidden).toBe(true);
-    expect(app.querySelector("[data-action='folder-open']").getAttribute("aria-expanded")).toBe("false");
+    expect(app.querySelector("[data-action='route-picker']").getAttribute("aria-expanded")).toBe("false");
     expect(app.dataset.activeWorkspaceId).toBe("");
     expect(app.dataset.activeSessionId).toBe("");
     expect(localStorage.getItem("pi.activeSession")).toBeNull();
@@ -355,9 +344,11 @@ describe("workspace bootstrap coverage", () => {
     await app.loadSession("missing");
     expect(app.setConnection).toHaveBeenCalledWith("err");
     app.setConnection.mockClear();
-    globalThis.fetch = vi.fn(() => new Promise((_, reject) => setTimeout(() => reject(new Error("stale")), 0)));
+    let rejectStale;
+    globalThis.fetch = vi.fn(() => new Promise((_, reject) => { rejectStale = reject; }));
     const loading = app.loadSession("stale");
     app.sessionLoadToken = Symbol("newer");
+    rejectStale(new Error("stale"));
     await loading;
     expect(app.setConnection).not.toHaveBeenCalled();
 

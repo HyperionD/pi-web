@@ -15,13 +15,10 @@ describe("pi-app workspace navigation", () => {
       json: async () => ({ session: { id: "s2", title: "new session", lastUsed: "now" } }),
     }));
     const app = await connectPiApp();
-    const sessionMain = app.querySelector("main");
-    const emptyMain = document.createElement("main");
+    const sessionMain = app.querySelector("[data-main='session']");
     const activeWorkspace = document.createElement("span");
-    sessionMain.dataset.main = "session";
-    emptyMain.dataset.main = "empty";
     activeWorkspace.dataset.activeWorkspace = "";
-    app.append(emptyMain, activeWorkspace);
+    app.append(activeWorkspace);
     app.apiConnected = true;
     app.dataset.activeWorkspaceId = "hahn";
     app.loadWorkspaceCommands = vi.fn();
@@ -83,16 +80,13 @@ describe("pi-app workspace navigation", () => {
     expect(app.openWorkspace).toHaveBeenCalledWith("w1");
   });
 
-  it("returns to picker when the active workspace becomes forbidden", async () => {
+  it("shows the empty workspace when the active workspace becomes forbidden", async () => {
     globalThis.PI_WEB_API_BASE = "http://backend.test";
     const app = await connectPiApp();
     app.apiConnected = true;
     app.dataset.activeWorkspaceId = "w-forbidden";
     app.dataset.activeSessionId = "s-forbidden";
-    const emptyMain = document.createElement("main");
-    emptyMain.dataset.main = "empty";
-    emptyMain.hidden = true;
-    app.append(emptyMain);
+    const emptyMain = app.querySelector("[data-main='empty']");
     app.browseFolder = vi.fn();
     globalThis.fetch = vi.fn(async () => ({
       ok: false,
@@ -107,7 +101,7 @@ describe("pi-app workspace navigation", () => {
     expect(emptyMain.hidden).toBe(false);
     expect(app.querySelector('[data-view="picker"]')).toBeNull();
     expect(app.querySelector("[data-folder-popover]").hidden).toBe(true);
-    expect(app.querySelector("[data-action='folder-open']").getAttribute("aria-expanded")).toBe("false");
+    expect(app.querySelector("[data-action='route-picker']").getAttribute("aria-expanded")).toBe("false");
     expect(app.dataset.activeWorkspaceId).toBe("");
     expect(app.dataset.activeSessionId).toBe("");
     expect([...document.querySelectorAll(".session-toast.error")].some((toast) =>

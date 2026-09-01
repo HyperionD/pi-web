@@ -26,20 +26,15 @@ export function installPiAppFixture() {
         aria-label="open sidebar"
         aria-expanded="false"
       >≡</button>
-      <section data-view="picker" hidden>
-        <div class="folder-picker-anchor">
-          <button class="open-folder-btn" type="button" data-action="folder-open" aria-haspopup="dialog" aria-expanded="false">选择文件夹</button>
-          <div class="folder-popover" data-folder-popover role="dialog" aria-label="选择工作区" hidden>
-            <div class="folder-popover-head"><strong>选择工作区</strong><button type="button" data-action="folder-close" aria-label="关闭目录选择器">×</button></div>
-            <div class="folder-browser" data-folder-browser>
-              <div class="folder-browser-head"><button type="button" data-action="folder-up">上一级</button><span data-folder-path>~</span></div>
-              <div class="folder-list" data-folder-list></div>
-              <span data-folder-loading hidden aria-live="polite">加载中…</span>
-              <button type="button" class="folder-confirm" data-action="folder-open-current">选择此文件夹</button>
-            </div>
-          </div>
+      <div class="folder-popover" data-folder-popover role="dialog" aria-label="选择工作区" hidden>
+        <div class="folder-popover-head"><strong>选择工作区</strong><button type="button" data-action="folder-close" aria-label="关闭目录选择器">×</button></div>
+        <div class="folder-browser" data-folder-browser>
+          <div class="folder-browser-head"><button type="button" data-action="folder-up">上一级</button><span data-folder-path>~</span></div>
+          <div class="folder-list" data-folder-list></div>
+          <span data-folder-loading hidden aria-live="polite">加载中…</span>
+          <button type="button" class="folder-confirm" data-action="folder-open-current">选择此文件夹</button>
         </div>
-      </section>
+      </div>
       <section class="app-body" data-view="workspace">
         <div class="sidebar-wrap">
           <aside class="sidebar">
@@ -47,7 +42,7 @@ export function installPiAppFixture() {
               <div class="sb-head">
                 <span>workspaces</span>
                 <span class="sb-head-actions">
-                  <button class="add" type="button" data-action="route-picker">+ open</button>
+                  <button class="add" type="button" data-action="route-picker" aria-haspopup="dialog" aria-expanded="false">+ open</button>
                   <button
                     class="refresh"
                     type="button"
@@ -70,6 +65,7 @@ export function installPiAppFixture() {
           </aside>
         </div>
         <main data-main="session"><div class="term"><div class="term-inner"></div><div class="streaming-tail" data-streaming-tail></div></div></main>
+        <main data-main="empty" hidden><div class="empty-shell">new session</div></main>
         <div class="file-preview-panel" data-file-preview hidden>
           <div class="fp-dialog">
             <div class="fp-head"><strong class="fp-path">file</strong><small></small><div class="fp-actions"><button type="button" data-action="save-file-preview" hidden>save</button><button type="button" data-action="toggle-file-preview-mode" hidden>text</button><button type="button" data-action="close-file-preview">×</button></div></div>

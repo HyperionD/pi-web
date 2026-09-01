@@ -169,6 +169,25 @@ describe("pi-app input actions coverage", () => {
     );
   });
 
+  it("opens the root workspace popover through a real sidebar click", async () => {
+    const app = await connectPiApp();
+    const trigger = app.querySelector("[data-action='route-picker']");
+    const popover = app.querySelector("[data-folder-popover]");
+    app.apiConnected = true;
+    globalThis.fetch = vi.fn(async () => ok({ path: "/allowed", parent: "/", folders: [] }));
+
+    trigger.dispatchEvent(new MouseEvent("click", { bubbles: true, clientX: 90, clientY: 112 }));
+
+    await vi.waitFor(() => expect(popover.hidden).toBe(false));
+    expect(app.dataset.route).toBe("workspace");
+    expect(popover.parentElement).toBe(app);
+    expect(popover.closest('[data-view="picker"]')).toBeNull();
+    expect(globalThis.fetch).toHaveBeenCalledWith(
+      expect.stringContaining("purpose=workspace"),
+      expect.any(Object),
+    );
+  });
+
   it("prevents duplicate folder confirmations while opening a workspace", async () => {
     const app = await connectPiApp();
     const popover = app.querySelector("[data-folder-popover]");
@@ -215,7 +234,7 @@ describe("pi-app input actions coverage", () => {
 
   it("ignores stale folder opening results after the picker is reopened", async () => {
     const app = await connectPiApp();
-    const trigger = app.querySelector("[data-action='folder-open']");
+    const trigger = app.querySelector("[data-action='route-picker']");
     const popover = app.querySelector("[data-folder-popover]");
     const confirm = app.querySelector("[data-action='folder-open-current']");
     app.apiConnected = true;
@@ -253,7 +272,7 @@ describe("pi-app input actions coverage", () => {
 
   it("clears the popover when opening a forbidden workspace recovers", async () => {
     const app = await connectPiApp();
-    const trigger = app.querySelector("[data-action='folder-open']");
+    const trigger = app.querySelector("[data-action='route-picker']");
     const popover = app.querySelector("[data-folder-popover]");
     const confirm = app.querySelector("[data-action='folder-open-current']");
     app.apiConnected = true;
@@ -265,10 +284,7 @@ describe("pi-app input actions coverage", () => {
     app.openWorkspacePath = vi.fn(async () => {
       throw Object.assign(new Error("outside allowed roots"), { status: 403 });
     });
-    const emptyMain = document.createElement("main");
-    emptyMain.dataset.main = "empty";
-    emptyMain.hidden = true;
-    app.append(emptyMain);
+    const emptyMain = app.querySelector("[data-main='empty']");
 
     confirm.click();
     await vi.waitFor(() => expect(app.dataset.route).toBe("workspace"));

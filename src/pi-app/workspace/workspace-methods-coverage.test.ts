@@ -157,7 +157,7 @@ describe("workspace folder/render/bootstrap coverage", () => {
 
   it("opens the folder picker popover, navigates folders, and selects the current folder", async () => {
     const app = await connectPiApp();
-    const trigger = app.querySelector("[data-action='folder-open']");
+    const trigger = app.querySelector("[data-action='route-picker']");
     const popover = app.querySelector("[data-folder-popover]");
     app.apiConnected = true;
     globalThis.fetch = vi.fn(async (url) => String(url).includes("path=%2Fallowed%2Fchild")
@@ -188,7 +188,7 @@ describe("workspace folder/render/bootstrap coverage", () => {
 
   it("positions the folder popover inside the viewport and uses trigger bounds for keyboard events", async () => {
     const app = await connectPiApp();
-    const trigger = app.querySelector("[data-action='folder-open']");
+    const trigger = app.querySelector("[data-action='route-picker']");
     const popover = app.querySelector("[data-folder-popover]");
     Object.defineProperty(window, "innerWidth", { configurable: true, value: 1024 });
     Object.defineProperty(window, "innerHeight", { configurable: true, value: 768 });
@@ -196,18 +196,18 @@ describe("workspace folder/render/bootstrap coverage", () => {
     Object.defineProperty(popover, "offsetHeight", { configurable: true, value: 200 });
     trigger.getBoundingClientRect = () => ({ left: 40, top: 80, right: 120, bottom: 112, width: 80, height: 32 });
 
-    app.positionFolderPopover({ clientX: 1000, clientY: 760 }, trigger);
+    app.positionFolderPopover(new MouseEvent("click", { clientX: 1000, clientY: 760 }), trigger);
     expect(popover.style.left).toBe("708px");
     expect(popover.style.top).toBe("552px");
 
-    app.positionFolderPopover({ clientX: 0, clientY: 0 }, trigger);
+    app.positionFolderPopover(new KeyboardEvent("keydown", { key: "Enter" }), trigger);
     expect(popover.style.left).toBe("40px");
     expect(popover.style.top).toBe("112px");
   });
 
   it("toggles an open workspace popover without reloading or losing navigation", async () => {
     const app = await connectPiApp();
-    const trigger = app.querySelector("[data-action='folder-open']");
+    const trigger = app.querySelector("[data-action='route-picker']");
     const popover = app.querySelector("[data-folder-popover]");
     app.apiConnected = true;
     globalThis.fetch = vi.fn(async () => okJson({ path: "/allowed", parent: "/", folders: [] }));
@@ -240,7 +240,7 @@ describe("workspace folder/render/bootstrap coverage", () => {
 
   it("keeps folder loading feedback and ignores stale responses after closing", async () => {
     const app = await connectPiApp();
-    const trigger = app.querySelector("[data-action='folder-open']");
+    const trigger = app.querySelector("[data-action='route-picker']");
     const popover = app.querySelector("[data-folder-popover]");
     const loading = app.querySelector("[data-folder-loading]");
     const up = app.querySelector("[data-action='folder-up']");
@@ -280,12 +280,13 @@ describe("workspace folder/render/bootstrap coverage", () => {
     const first = app.openFolderPopover();
     app.closeFolderPopover();
     const second = app.openFolderPopover();
+    await vi.waitFor(() => expect(responses).toHaveLength(2));
     responses[0](okJson({ path: "/stale", parent: "/", folders: [{ name: "stale", path: "/stale" }] }));
     await first;
     expect(app.currentFolder).toBe("~");
     expect(document.activeElement).not.toBe(popover.querySelector("[data-folder-list] .folder-row"));
 
-    if (responses[1]) responses[1](okJson({ path: "/current", parent: "/", folders: [{ name: "current", path: "/current" }] }));
+    responses[1](okJson({ path: "/current", parent: "/", folders: [{ name: "current", path: "/current" }] }));
     await second;
     expect(app.currentFolder).toBe("/current");
     expect(document.activeElement).toBe(popover.querySelector("[data-folder-list] .folder-row"));
@@ -416,10 +417,8 @@ describe("workspace folder/render/bootstrap coverage", () => {
   it("boots an empty workspace view without browsing and refreshes the tree button", async () => {
     const app = document.querySelector("pi-app");
     await customElements.whenDefined("pi-app");
-    const emptyMain = document.createElement("main");
-    emptyMain.dataset.main = "empty";
-    emptyMain.hidden = true;
-    app.append(emptyMain);
+    const emptyMain = app.querySelector("[data-main='empty']");
+    expect(emptyMain.hidden).toBe(true);
     app.dataset.route = "workspace";
     app.browseFolder = vi.fn();
     app.renderWorkspaces = vi.fn();
