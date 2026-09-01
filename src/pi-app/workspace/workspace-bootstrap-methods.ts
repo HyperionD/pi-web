@@ -60,6 +60,7 @@ export const workspaceBootstrapMethods = {
     this.compacting = false;
     this.syncActiveWorkspaceRows?.();
     this.showSystemToast?.("error", "工作区不可访问", message, `workspace-forbidden:${message}`);
+    this.resetFolderPopover?.();
     this.route("picker");
     return true;
   },

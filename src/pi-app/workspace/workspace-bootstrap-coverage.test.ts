@@ -90,6 +90,22 @@ describe("workspace bootstrap coverage", () => {
     expect(app.querySelector("[data-action='folder-open']")).not.toBeNull();
   });
 
+  it("clears folder popover state before returning to picker after forbidden recovery", async () => {
+    const app = await connectPiApp();
+    const trigger = app.querySelector("[data-action='folder-open']");
+    const popover = app.querySelector("[data-folder-popover]");
+    app.folderOpeningPending = true;
+    app.folderBrowsePurpose = "workspace";
+    popover.hidden = false;
+    trigger.setAttribute("aria-expanded", "true");
+
+    expect(app.recoverForbiddenWorkspace(new Error("403 Forbidden"))).toBe(true);
+
+    expect(popover.hidden).toBe(true);
+    expect(trigger.getAttribute("aria-expanded")).toBe("false");
+    expect(app.folderOpeningPending).toBe(false);
+  });
+
   it("recovers settings forbidden errors and clears the persisted active session", async () => {
     const app = await connectPiApp();
     app.apiConnected = true;

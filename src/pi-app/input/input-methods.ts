@@ -189,7 +189,11 @@ export const inputMethods = {
     }
     if (action === "refresh-workspaces") this.refreshWorkspaces();
     if (action === "browse-folder") this.browseFolder();
-    if (action === "folder-open") void this.openFolderPopover("workspace");
+    if (action === "folder-open") {
+      const popover = this.querySelector("[data-folder-popover]");
+      if (popover && !popover.hidden) this.closeFolderPopover();
+      else void this.openFolderPopover("workspace");
+    }
     if (action === "folder-close") this.closeFolderPopover();
     const folderPickerTarget = actionTarget?.closest("[data-folder-browser], [data-folder-popover]");
     if (action === "folder-enter" && folderPickerTarget && !this.folderLoadPending) {
@@ -198,22 +202,41 @@ export const inputMethods = {
     if (action === "folder-up" && folderPickerTarget && !this.folderLoadPending) {
       void this.loadFolder(this.currentFolderParent);
     }
-    if (action === "folder-open-current" && folderPickerTarget && !this.folderLoadPending) {
+    if (action === "folder-open-current" && folderPickerTarget && !this.folderLoadPending && !this.folderOpeningPending) {
       if (this.folderBrowsePurpose === "allowed-root") {
         this.addAllowedRootFromFolder?.(this.currentFolder);
         this.closeFolderPopover();
       } else {
+        const openingToken = Symbol("folder-opening");
+        const openingPath = this.currentFolder;
+        this.folderOpeningToken = openingToken;
+        this.setFolderOpening(true);
         let opening;
         try {
-          opening = this.openWorkspacePath(this.currentFolder);
+          opening = this.openWorkspacePath(openingPath);
         } catch (error) {
-          if (!this.recoverForbiddenWorkspace?.(error)) this.setConnection("err");
+          if (this.folderOpeningToken !== openingToken) return;
+          if (!this.recoverForbiddenWorkspace?.(error)) {
+            this.renderFolderError(error);
+            this.setConnection("err");
+            this.setFolderOpening(false);
+          }
           return;
         }
         void Promise.resolve(opening)
-          .then(() => this.closeFolderPopover())
+          .then(() => {
+            if (this.folderOpeningToken === openingToken) this.closeFolderPopover();
+          })
           .catch((error) => {
-            if (!this.recoverForbiddenWorkspace?.(error)) this.setConnection("err");
+            if (this.folderOpeningToken !== openingToken) return;
+            if (!this.recoverForbiddenWorkspace?.(error)) {
+              this.renderFolderError(error);
+              this.setConnection("err");
+            }
+          })
+          .finally(() => {
+            if (this.folderOpeningToken !== openingToken) return;
+            this.setFolderOpening(false);
           });
       }
     }

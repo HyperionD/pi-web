@@ -23,15 +23,39 @@ export const workspaceFolderMethods = {
     if (trigger) trigger.disabled = loading;
     this.querySelectorAll("[data-folder-browser] [data-action='folder-enter'], [data-folder-browser] [data-action='folder-up'], [data-folder-browser] [data-action='folder-open-current']")
       .forEach((button) => { button.disabled = loading; });
+    const confirm = this.querySelector("[data-action='folder-open-current']");
+    if (confirm) confirm.disabled = loading || this.folderOpeningPending || !this.folderListingValid;
     if (!loading) {
       const upButton = this.querySelector("[data-folder-browser] [data-action='folder-up']");
       if (upButton) upButton.disabled = (this.currentFolderParent || this.currentFolder) === this.currentFolder;
     }
   },
 
+  setFolderOpening(opening) {
+    this.folderOpeningPending = opening;
+    const confirm = this.querySelector("[data-action='folder-open-current']");
+    if (!confirm) return;
+    confirm.disabled = opening || this.folderLoadPending || !this.folderListingValid;
+    confirm.setAttribute("aria-busy", String(opening));
+    confirm.textContent = opening ? "正在打开…" : "选择此文件夹";
+  },
+
+  resetFolderPopover() {
+    this.folderPickerToken = Symbol("reset-folder-picker");
+    this.folderOpeningToken = Symbol("reset-folder-opening");
+    this.folderLoadPending = false;
+    this.folderOpeningPending = false;
+    this.folderListingValid = false;
+    this.setFolderLoading(false);
+    this.setFolderOpening(false);
+    this.querySelector("[data-folder-popover]")?.setAttribute("hidden", "");
+    this.querySelector("[data-action='folder-open']")?.setAttribute("aria-expanded", "false");
+  },
+
   async openFolderPopover(purpose = "workspace") {
     const popover = this.querySelector("[data-folder-popover]");
-    if (popover && !popover.hidden && this.folderLoadPending) return;
+    if (purpose === "workspace" && popover && !popover.hidden) return;
+    if (this.folderLoadPending) return;
     const pickerToken = this.beginFolderPicker(purpose);
     const browser = this.querySelector("[data-folder-browser]");
     const trigger = this.querySelector("[data-action='folder-open']");
@@ -47,11 +71,7 @@ export const workspaceFolderMethods = {
     if (!popover || popover.hidden) return;
     const trigger = this.querySelector("[data-action='folder-open']");
     const wasAllowedRoot = this.folderBrowsePurpose === "allowed-root";
-    this.folderPickerToken = Symbol("closed-folder-picker");
-    this.folderLoadPending = false;
-    this.setFolderLoading(false);
-    popover.setAttribute("hidden", "");
-    trigger?.setAttribute("aria-expanded", "false");
+    this.resetFolderPopover();
     if (wasAllowedRoot) {
       this.restoreAllowedRootPicker?.();
       return;
@@ -87,6 +107,8 @@ export const workspaceFolderMethods = {
 
   async loadFolder(path = "~", purpose = this.folderBrowsePurpose || "workspace") {
     if (!this.apiConnected) {
+      this.folderListingValid = false;
+      this.renderFolderError(new Error("后端连接已断开"));
       this.setConnection("err");
       return;
     }
@@ -98,6 +120,7 @@ export const workspaceFolderMethods = {
       : !this.folderPickerToken;
     this.folderLoadToken = requestToken;
     this.folderLoadPending = true;
+    this.folderListingValid = false;
     this.setFolderLoading(true);
 
     try {
@@ -119,6 +142,8 @@ export const workspaceFolderMethods = {
   },
 
   renderFolderError(error) {
+    this.folderListingValid = false;
+    this.setFolderLoading(false);
     const list = this.querySelector("[data-folder-list]");
     if (!list) return;
     const message = document.createElement("div");
@@ -128,6 +153,7 @@ export const workspaceFolderMethods = {
   },
 
   renderFolderListing(listing) {
+    this.folderListingValid = true;
     const label = this.querySelector("[data-folder-path]");
     if (label) label.textContent = listing.displayPath || listing.path;
     const upButton = this.querySelector("[data-folder-browser] [data-action='folder-up']");

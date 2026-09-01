@@ -152,6 +152,111 @@ describe("pi-app input actions coverage", () => {
     expect(event.preventDefault).toHaveBeenCalled();
   });
 
+  it("prevents duplicate folder confirmations while opening a workspace", async () => {
+    const app = await connectPiApp();
+    const popover = app.querySelector("[data-folder-popover]");
+    const confirm = app.querySelector("[data-action='folder-open-current']");
+    app.apiConnected = true;
+    app.folderBrowsePurpose = "workspace";
+    app.folderListingValid = true;
+    app.currentFolder = "/selected";
+    popover.hidden = false;
+    let resolveOpening;
+    app.openWorkspacePath = vi.fn(() => new Promise((resolve) => { resolveOpening = resolve; }));
+
+    confirm.click();
+    confirm.click();
+
+    expect(app.openWorkspacePath).toHaveBeenCalledTimes(1);
+    expect(confirm.disabled).toBe(true);
+    expect(confirm.getAttribute("aria-busy")).toBe("true");
+    expect(confirm.textContent).toBe("正在打开…");
+    resolveOpening();
+    await vi.waitFor(() => expect(popover.hidden).toBe(true));
+    expect(app.folderOpeningPending).toBe(false);
+  });
+
+  it("clears opening state when opening the current folder throws", async () => {
+    const app = await connectPiApp();
+    const popover = app.querySelector("[data-folder-popover]");
+    const confirm = app.querySelector("[data-action='folder-open-current']");
+    app.apiConnected = true;
+    app.folderBrowsePurpose = "workspace";
+    app.folderListingValid = true;
+    app.currentFolder = "/broken";
+    popover.hidden = false;
+    app.setConnection = vi.fn();
+    app.openWorkspacePath = vi.fn(() => { throw new Error("open failed"); });
+
+    confirm.click();
+
+    expect(app.setConnection).toHaveBeenCalledWith("err");
+    expect(app.querySelector(".folder-error").textContent).toBe("open failed");
+    expect(app.folderOpeningPending).toBe(false);
+    expect(confirm.disabled).toBe(true);
+  });
+
+  it("ignores stale folder opening results after the picker is reopened", async () => {
+    const app = await connectPiApp();
+    const trigger = app.querySelector("[data-action='folder-open']");
+    const popover = app.querySelector("[data-folder-popover]");
+    const confirm = app.querySelector("[data-action='folder-open-current']");
+    app.apiConnected = true;
+    app.folderBrowsePurpose = "workspace";
+    app.folderListingValid = true;
+    app.currentFolder = "/first";
+    popover.hidden = false;
+    trigger.setAttribute("aria-expanded", "true");
+    const openings = [];
+    app.openWorkspacePath = vi.fn(() => new Promise((resolve, reject) => openings.push({ resolve, reject })));
+
+    confirm.click();
+    app.closeFolderPopover();
+    popover.hidden = false;
+    trigger.setAttribute("aria-expanded", "true");
+    app.folderBrowsePurpose = "workspace";
+    app.folderListingValid = true;
+    app.currentFolder = "/second";
+    app.setFolderLoading(false);
+    confirm.click();
+    expect(openings).toHaveLength(2);
+
+    openings[0].resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(popover.hidden).toBe(false);
+    expect(app.querySelector(".folder-error")).toBeNull();
+    expect(confirm.disabled).toBe(true);
+
+    openings[1].reject(new Error("current open failed"));
+    await vi.waitFor(() => expect(app.querySelector(".folder-error")?.textContent).toBe("current open failed"));
+    expect(confirm.disabled).toBe(true);
+    expect(popover.hidden).toBe(false);
+  });
+
+  it("clears the popover when opening a forbidden workspace recovers", async () => {
+    const app = await connectPiApp();
+    const trigger = app.querySelector("[data-action='folder-open']");
+    const popover = app.querySelector("[data-folder-popover]");
+    const confirm = app.querySelector("[data-action='folder-open-current']");
+    app.apiConnected = true;
+    app.folderBrowsePurpose = "workspace";
+    app.folderListingValid = true;
+    app.currentFolder = "/forbidden";
+    popover.hidden = false;
+    trigger.setAttribute("aria-expanded", "true");
+    app.openWorkspacePath = vi.fn(async () => {
+      throw Object.assign(new Error("outside allowed roots"), { status: 403 });
+    });
+
+    confirm.click();
+    await vi.waitFor(() => expect(app.querySelector('[data-view="picker"]').hidden).toBe(false));
+
+    expect(popover.hidden).toBe(true);
+    expect(trigger.getAttribute("aria-expanded")).toBe("false");
+    expect(confirm.disabled).toBe(true);
+  });
+
   it("opens the real allowed-root picker and adds the selected folder", async () => {
     const app = await connectPiApp();
     app.apiConnected = true;

@@ -115,6 +115,8 @@ describe("workspace folder/render/bootstrap coverage", () => {
     await expect(app.openFolderPopover()).resolves.toBeUndefined();
 
     expect(app.setConnection).toHaveBeenCalledWith("err");
+    expect(app.querySelector("[data-folder-list] .folder-error").textContent).toBe("后端连接已断开");
+    expect(app.querySelector("[data-action='folder-open-current']").disabled).toBe(true);
   });
 
   it("opens the folder picker popover, navigates folders, and selects the current folder", async () => {
@@ -146,6 +148,39 @@ describe("workspace folder/render/bootstrap coverage", () => {
     app.openWorkspacePath = vi.fn();
     popover.querySelector("[data-action='folder-open-current']").click();
     expect(app.openWorkspacePath).toHaveBeenCalledWith("/allowed/child");
+  });
+
+  it("toggles an open workspace popover without reloading or losing navigation", async () => {
+    const app = await connectPiApp();
+    const trigger = app.querySelector("[data-action='folder-open']");
+    const popover = app.querySelector("[data-folder-popover]");
+    app.apiConnected = true;
+    globalThis.fetch = vi.fn(async () => okJson({ path: "/allowed", parent: "/", folders: [] }));
+
+    await app.openFolderPopover();
+    app.currentFolder = "/allowed/child";
+    trigger.click();
+    await Promise.resolve();
+
+    expect(popover.hidden).toBe(true);
+    expect(trigger.getAttribute("aria-expanded")).toBe("false");
+    expect(app.currentFolder).toBe("/allowed/child");
+    expect(globalThis.fetch).toHaveBeenCalledTimes(1);
+  });
+
+  it("renders a safe offline folder error and disables confirmation", async () => {
+    const app = await connectPiApp();
+    const list = app.querySelector("[data-folder-list]");
+    const confirm = app.querySelector("[data-action='folder-open-current']");
+    app.currentFolder = "/stale";
+    app.apiConnected = false;
+    app.setConnection = vi.fn();
+
+    await app.loadFolder("~");
+
+    expect(app.setConnection).toHaveBeenCalledWith("err");
+    expect(list.querySelector(".folder-error").textContent).toBe("后端连接已断开");
+    expect(confirm.disabled).toBe(true);
   });
 
   it("keeps folder loading feedback and ignores stale responses after closing", async () => {
