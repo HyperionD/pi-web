@@ -19,7 +19,7 @@ export const workspaceFolderMethods = {
     const loadingLabel = this.querySelector("[data-folder-loading]");
     browser?.setAttribute("aria-busy", String(loading));
     loadingLabel?.toggleAttribute("hidden", !loading);
-    const trigger = this.querySelector("[data-action='folder-open']");
+    const trigger = this.folderPickerTrigger;
     if (trigger) trigger.disabled = loading;
     this.querySelectorAll("[data-folder-browser] [data-action='folder-enter'], [data-folder-browser] [data-action='folder-up'], [data-folder-browser] [data-action='folder-open-current']")
       .forEach((button) => { button.disabled = loading; });
@@ -49,60 +49,74 @@ export const workspaceFolderMethods = {
     this.setFolderLoading(false);
     this.setFolderOpening(false);
     this.querySelector("[data-folder-popover]")?.setAttribute("hidden", "");
-    this.querySelector("[data-action='folder-open']")?.setAttribute("aria-expanded", "false");
+    this.folderPickerTrigger?.setAttribute("aria-expanded", "false");
+    this.querySelectorAll("[data-action='route-picker'], [data-action='folder-open']")
+      .forEach((trigger) => trigger.setAttribute("aria-expanded", "false"));
+    this.folderPickerTrigger = undefined;
   },
 
-  async openFolderPopover(purpose = "workspace") {
+  resolveFolderTrigger(event) {
+    return event?.target?.closest?.("[data-action='route-picker'], [data-action='folder-open'], [data-allowed-root-add]")
+      || this.querySelector("[data-action='route-picker'], [data-action='folder-open'], [data-allowed-root-add]");
+  },
+
+  positionFolderPopover(event, trigger = this.resolveFolderTrigger(event)) {
+    const popover = this.querySelector("[data-folder-popover]");
+    if (!popover) return;
+    const bounds = trigger?.getBoundingClientRect?.();
+    const x = Number.isFinite(event?.clientX) ? event.clientX : bounds?.left || 16;
+    const y = Number.isFinite(event?.clientY) ? event.clientY : bounds?.bottom || 16;
+    const maxLeft = Math.max(16, (window.innerWidth || 0) - popover.offsetWidth - 16);
+    const maxTop = Math.max(16, (window.innerHeight || 0) - popover.offsetHeight - 16);
+    popover.style.left = `${Math.max(16, Math.min(x, maxLeft))}px`;
+    popover.style.top = `${Math.max(16, Math.min(y, maxTop))}px`;
+  },
+
+  async openFolderPopover(purpose = "workspace", event) {
     const popover = this.querySelector("[data-folder-popover]");
     if (purpose === "workspace" && popover && !popover.hidden) return;
     if (this.folderLoadPending) return;
     const pickerToken = this.beginFolderPicker(purpose);
     const browser = this.querySelector("[data-folder-browser]");
-    const trigger = this.querySelector("[data-action='folder-open']");
+    const trigger = this.resolveFolderTrigger(event);
+    this.folderPickerTrigger = trigger;
     popover?.removeAttribute("hidden");
     browser?.removeAttribute("hidden");
     trigger?.setAttribute("aria-expanded", "true");
-    await this.loadFolder("~", purpose);
+    this.positionFolderPopover(event, trigger);
+    await this.loadFolder(purpose === "workspace" ? "~" : this.currentFolder || "~", purpose);
     if (this.folderPickerToken === pickerToken && popover && !popover.hidden) this.focusFolderPopover();
   },
 
   closeFolderPopover() {
     const popover = this.querySelector("[data-folder-popover]");
     if (!popover || popover.hidden) return;
-    const trigger = this.querySelector("[data-action='folder-open']");
+    const trigger = this.folderPickerTrigger;
     const wasAllowedRoot = this.folderBrowsePurpose === "allowed-root";
     this.resetFolderPopover();
     if (wasAllowedRoot) {
       this.restoreAllowedRootPicker?.();
       return;
     }
-    if (!trigger?.closest('[data-view="picker"]')?.hasAttribute("hidden")) trigger?.focus();
+    trigger?.focus();
   },
 
   focusFolderPopover() {
     this.querySelector("[data-folder-popover] [data-folder-list] button, [data-folder-popover] [data-action='folder-open-current']")?.focus();
   },
 
-  async browseFolder(purpose = "workspace") {
-    if (purpose === "workspace") return this.openFolderPopover("workspace");
-    if (this.folderLoadPending) return;
-    const pickerToken = this.beginFolderPicker(purpose);
-    if (purpose === "allowed-root" && this.dataset.route !== "picker") {
-      this.allowedRootPickerReturnRoute = this.dataset.route || "workspace";
-      this.allowedRootPickerSettingsWasOpen = !!this.settingsModal && !this.settingsModal.hidden;
-      this.settingsModal?.setAttribute("hidden", "");
-      this.dataset.route = "picker";
-      this.querySelector('[data-view="picker"]')?.removeAttribute("hidden");
-      this.querySelector('[data-view="workspace"]')?.setAttribute("hidden", "");
+  async browseFolder(purpose = "workspace", event) {
+    if (purpose === "workspace") {
+      if (event) return this.openFolderPopover("workspace", event);
+      return this.openFolderPopover("workspace");
     }
-    const popover = this.querySelector("[data-folder-popover]");
-    const browser = this.querySelector("[data-folder-browser]");
-    const trigger = this.querySelector("[data-action='folder-open']");
-    popover?.removeAttribute("hidden");
-    browser?.removeAttribute("hidden");
-    trigger?.setAttribute("aria-expanded", "true");
-    await this.loadFolder(this.currentFolder || "~", purpose);
-    if (this.folderPickerToken === pickerToken && popover && !popover.hidden) this.focusFolderPopover();
+    if (this.folderLoadPending) return;
+    if (purpose === "allowed-root") {
+      this.allowedRootPickerReturnRoute ??= this.dataset.route || "workspace";
+      this.allowedRootPickerSettingsWasOpen ??= !!this.settingsModal && !this.settingsModal.hidden;
+      this.settingsModal?.setAttribute("hidden", "");
+    }
+    return this.openFolderPopover(purpose, event);
   },
 
   async loadFolder(path = "~", purpose = this.folderBrowsePurpose || "workspace") {

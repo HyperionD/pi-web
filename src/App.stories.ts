@@ -8,7 +8,6 @@ const meta = {
     layout: "fullscreen",
   },
   args: {
-    initialRoute: "workspace",
     initialSession: "active",
     treeOpen: true,
     sidebarCollapsed: false,
@@ -28,7 +27,7 @@ export const Workspace = {};
 
 export const WorkspacePicker = {
   args: {
-    initialRoute: "picker",
+    initialSession: "empty",
   },
 };
 

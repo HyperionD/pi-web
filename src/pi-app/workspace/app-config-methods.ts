@@ -32,7 +32,7 @@ export const appConfigMethods = {
     if (this.allowedRootControlsBound) return;
     const addButton = this.querySelector("[data-allowed-root-add]");
     const list = this.querySelector("[data-allowed-roots-list]");
-    addButton?.addEventListener("click", () => this.browseFolder?.("allowed-root"));
+    addButton?.addEventListener("click", (event) => this.browseFolder?.("allowed-root", event));
     list?.addEventListener("click", (event) => {
       const button = event.target.closest("[data-allowed-root-remove]");
       if (button) this.removeAllowedRootRow(button.closest("[data-allowed-root-row]"));
@@ -128,9 +128,7 @@ export const appConfigMethods = {
     delete this.allowedRootPickerSettingsWasOpen;
     this.folderBrowsePurpose = "workspace";
     this.querySelector("[data-folder-browser]")?.setAttribute("hidden", "");
-    this.dataset.route = returnRoute;
-    this.querySelector('[data-view="picker"]')?.toggleAttribute("hidden", returnRoute !== "picker");
-    this.querySelector('[data-view="workspace"]')?.toggleAttribute("hidden", returnRoute !== "workspace");
+    this.route(returnRoute === "picker" ? "workspace" : returnRoute);
     if (settingsWasOpen) {
       this.settingsModal?.removeAttribute("hidden");
       this.querySelector("[data-allowed-root-add]")?.focus();

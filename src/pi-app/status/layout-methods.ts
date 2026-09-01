@@ -49,11 +49,8 @@ export const layoutMethods = {
   },
 
   route(route) {
-    this.dataset.route = route;
-    this.querySelector('[data-view="picker"]')?.toggleAttribute("hidden", route !== "picker");
-    this.querySelector('[data-view="workspace"]')?.toggleAttribute("hidden", route !== "workspace");
-    this.querySelector('[data-action="toggle-tree"]')?.toggleAttribute("hidden", route !== "workspace");
-    if (route === "picker") this.querySelector("[data-action='folder-open']")?.focus();
+    this.dataset.route = route === "picker" ? "workspace" : route;
+    this.querySelector('[data-view="workspace"]')?.removeAttribute("hidden");
     if (route === "workspace") this.scrollTerm();
   },
 

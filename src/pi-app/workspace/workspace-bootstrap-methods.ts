@@ -61,7 +61,8 @@ export const workspaceBootstrapMethods = {
     this.syncActiveWorkspaceRows?.();
     this.showSystemToast?.("error", "工作区不可访问", message, `workspace-forbidden:${message}`);
     this.resetFolderPopover?.();
-    this.route("picker");
+    this.route("workspace");
+    this.showEmptyMain?.();
     return true;
   },
 
@@ -92,6 +93,10 @@ export const workspaceBootstrapMethods = {
       if (activeSession) this.activateBootstrapSession(activeSession);
 
       if (activeSession) this.route("workspace");
+      else {
+        this.route("workspace");
+        this.showEmptyMain?.();
+      }
 
       if (activeWorkspace) {
         void this.loadWorkspaceCommands(activeWorkspace.id);

@@ -170,7 +170,7 @@ class PiApp extends HTMLElement {
     });
     window.addEventListener("keydown", (event) => this.shortcut(event));
     window.addEventListener("click", (event) => {
-      if (!event.target?.closest?.(".folder-popover, [data-action='folder-open'], [data-allowed-root-add]")) this.closeFolderPopover();
+      if (!event.target?.closest?.(".folder-popover, [data-action='folder-open'], [data-action='route-picker'], [data-allowed-root-add]")) this.closeFolderPopover();
       if (!event.target?.closest?.(".session-menu, .session-menu-button")) this.closeSessionMenus();
     });
     window.addEventListener("message", (event) => {

@@ -4,7 +4,6 @@ import {
   ArrowUp,
   ChevronLeft,
   ChevronRight,
-  CornerDownLeft,
   Folder,
   GitBranch,
   Menu,
@@ -25,7 +24,6 @@ import { PI_WEB_WELCOME_TEXT, TERMINAL_SPINNER_HTML } from "./pi-app/constants";
 import { SETTINGS_FIELDS as settingsFields } from "./pi-app/workspace/settings-schema";
 
 const {
-  initialRoute = "workspace",
   initialSession = "active",
   treeOpen = true,
   sidebarCollapsed = false,
@@ -44,14 +42,10 @@ const activeWorkspaceName = activeWorkspace?.name || "工作区";
 const activeSessionTitle = activeSession?.title || "无会话";
 const activeSessionID = activeSession?.id || "";
 const activeWorkspaceID = activeWorkspace?.id || "";
-const workspaceVisible = initialRoute !== "picker";
-const pickerVisible = initialRoute === "picker";
 const emptyVisible = initialSession === "empty";
 const sessionVisible = !emptyVisible;
 const bodyClass = "app-body";
 const bodyGrid = sidebarCollapsed ? "1fr" : "280px 1fr";
-const pickerHidden = !pickerVisible;
-const workspaceHidden = !workspaceVisible;
 const sessionHidden = !sessionVisible;
 const emptyHidden = !emptyVisible;
 const compactionHidden = !showCompaction;
@@ -91,7 +85,7 @@ function toolStatus(msg) {
 
 ---
 
-<pi-app class="app" data-route={initialRoute} data-tree={treeOpen ? "on" : "off"} data-sidebar={sidebarCollapsed ? "collapsed" : "open"} data-session={initialSession} data-active-session-id={activeSessionID} data-active-workspace-id={activeWorkspaceID}>
+<pi-app class="app" data-route="workspace" data-tree={treeOpen ? "on" : "off"} data-sidebar={sidebarCollapsed ? "collapsed" : "open"} data-session={initialSession} data-active-session-id={activeSessionID} data-active-workspace-id={activeWorkspaceID}>
   <header class="topbar">
     <button class="sb-expand-btn" type="button" data-action="expand-sidebar" aria-label="显示侧栏" style={sidebarCollapsed ? "display:inline-flex" : "display:none"}><ChevronRight size={16} strokeWidth={1.75} aria-hidden="true" /></button>
     <button class="hamburger" type="button" data-action="open-drawer" aria-label="打开侧栏"><Menu size={16} strokeWidth={1.75} aria-hidden="true" /></button>
@@ -107,50 +101,23 @@ function toolStatus(msg) {
     </div>
   </header>
 
-  <section class="picker-shell" data-view="picker" hidden={pickerHidden}> 
-    <div class="picker-inner">
-      <div class="picker-header-row">
-        <p class="picker-tag"><span class="accent">pi.dev</span> &mdash; 打开文件夹以开始会话。无需登录。</p>
-        <button class="cancel-btn" type="button" data-action="route-workspace">取消</button>
-      </div>
-      <div class="picker-card">
-        <div class="card-head"><span class="left">打开文件夹</span></div>
-        <div class="folder-picker-anchor">
-          <button class="open-folder-btn" type="button" data-action="folder-open" aria-haspopup="dialog" aria-expanded="false">
-            <Folder size={14} strokeWidth={1.75} aria-hidden="true" /> 选择文件夹
-          </button>
-          <div class="folder-popover" data-folder-popover role="dialog" aria-label="选择工作区" hidden>
-            <div class="folder-popover-head">
-              <strong>选择工作区</strong>
-              <button type="button" data-action="folder-close" aria-label="关闭目录选择器">×</button>
-            </div>
-            <div class="folder-browser" data-folder-browser>
-              <div class="folder-browser-head">
-                <button type="button" data-action="folder-up"><ArrowUp size={12} strokeWidth={1.75} aria-hidden="true" /> 上一级</button>
-                <span data-folder-path>~</span>
-              </div>
-              <div class="folder-list" data-folder-list></div>
-              <span class="folder-loading" data-folder-loading hidden aria-live="polite">加载中…</span>
-              <button type="button" class="folder-confirm" data-action="folder-open-current">选择此文件夹</button>
-            </div>
-          </div>
-        </div>
-      </div>
-      <div class="picker-card" data-recent-workspaces>
-        <div class="card-head"><span class="left">最近工作区</span><span class="right" data-workspace-count>{workspaces.length} 个工作区</span></div>
-        {workspaces.slice(0, 4).map((workspace) => (
-          <button class="recent-row" type="button" data-workspace={workspace.id} aria-label={`打开 ${workspace.name}`}>
-            <span class="glyph"><ChevronRight size={12} strokeWidth={1.75} aria-hidden="true" /></span>
-            <span class="ws-info"><span class="name">{workspace.name}</span><span class="path">{workspace.path}</span></span>
-            <span class="ws-stat">{workspace.live ? <><span class="live">● 在线</span><span class="lbl">{workspace.sessionCount} 个会话</span></> : <><span>{workspace.lastUsed}</span><span class="lbl">{workspace.sessionCount} 个会话</span></>}</span>
-            <span class="open-cta">打开 <CornerDownLeft size={12} strokeWidth={1.75} aria-hidden="true" /></span>
-          </button>
-        ))}
-      </div>
+  <div class="folder-popover" data-folder-popover role="dialog" aria-label="选择工作区" hidden>
+    <div class="folder-popover-head">
+      <strong>选择工作区</strong>
+      <button type="button" data-action="folder-close" aria-label="关闭目录选择器">×</button>
     </div>
-  </section>
+    <div class="folder-browser" data-folder-browser>
+      <div class="folder-browser-head">
+        <button type="button" data-action="folder-up"><ArrowUp size={12} strokeWidth={1.75} aria-hidden="true" /> 上一级</button>
+        <span data-folder-path>~</span>
+      </div>
+      <div class="folder-list" data-folder-list></div>
+      <span class="folder-loading" data-folder-loading hidden aria-live="polite">加载中…</span>
+      <button type="button" class="folder-confirm" data-action="folder-open-current">选择此文件夹</button>
+    </div>
+  </div>
 
-  <section class={bodyClass} data-view="workspace" hidden={workspaceHidden} style={`grid-template-columns:${bodyGrid}`}> 
+  <section class={bodyClass} data-view="workspace" style={`grid-template-columns:${bodyGrid}`}>
     <div class="sidebar-wrap" hidden={sidebarCollapsed}>
       <aside class="sidebar" aria-label="工作区和会话">
         <div class="sb-section" style="flex:1;overflow-y:auto;min-height:0">

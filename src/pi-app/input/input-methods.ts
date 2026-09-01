@@ -182,7 +182,13 @@ export const inputMethods = {
       void this.copyCodeBlock(button);
       return;
     }
-    if (action === "route-picker") this.route("picker");
+    if (action === "route-picker") {
+      this.route("workspace");
+      const popover = this.querySelector("[data-folder-popover]");
+      if (popover && !popover.hidden) this.closeFolderPopover();
+      else if (event?.clientX || event?.clientY) void this.openFolderPopover("workspace", event);
+      else void this.openFolderPopover("workspace");
+    }
     if (action === "route-workspace") {
       this.restoreAllowedRootPicker?.();
       this.route("workspace");
@@ -192,6 +198,7 @@ export const inputMethods = {
     if (action === "folder-open") {
       const popover = this.querySelector("[data-folder-popover]");
       if (popover && !popover.hidden) this.closeFolderPopover();
+      else if (event?.clientX || event?.clientY) void this.openFolderPopover("workspace", event);
       else void this.openFolderPopover("workspace");
     }
     if (action === "folder-close") this.closeFolderPopover();
