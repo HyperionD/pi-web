@@ -95,6 +95,42 @@ describe("workspace folder/render/bootstrap coverage", () => {
     expect(app.setConnection).not.toHaveBeenCalledWith("err");
   });
 
+  it("ignores stale workspace opening after deferred workspace responses", async () => {
+    const app = await connectPiApp();
+    app.apiConnected = true;
+    let resolveOpenResponse;
+    let resolveWorkspacesResponse;
+    const openResponse = new Promise((resolve) => { resolveOpenResponse = resolve; });
+    const workspacesResponse = new Promise((resolve) => { resolveWorkspacesResponse = resolve; });
+    globalThis.fetch = vi.fn((url) => {
+      const value = String(url);
+      if (value.endsWith("/workspaces/open")) return openResponse;
+      if (value.endsWith("/workspaces")) return workspacesResponse;
+      return Promise.resolve(okJson({}));
+    });
+    const renderFilteredWorkspaces = vi.spyOn(app, "renderFilteredWorkspaces");
+    const openWorkspace = vi.spyOn(app, "openWorkspace");
+    const activateWorkspaceForSession = vi.spyOn(app, "activateWorkspaceForSession");
+    const route = vi.spyOn(app, "route");
+    const openingToken = Symbol("folder-opening");
+    app.folderOpeningToken = openingToken;
+
+    const opening = app.openWorkspacePath("/stale", openingToken);
+    resolveOpenResponse(okJson({ id: "old" }));
+    await vi.waitFor(() => expect(
+      globalThis.fetch.mock.calls.some(([url]) => String(url).endsWith("/api/workspaces")),
+    ).toBe(true));
+
+    app.folderOpeningToken = Symbol("new-folder-opening");
+    resolveWorkspacesResponse(okJson({ workspaces: [{ id: "old", path: "/stale" }] }));
+    await opening;
+
+    expect(renderFilteredWorkspaces).not.toHaveBeenCalled();
+    expect(openWorkspace).not.toHaveBeenCalled();
+    expect(activateWorkspaceForSession).not.toHaveBeenCalled();
+    expect(route).not.toHaveBeenCalledWith("workspace");
+  });
+
   it("uses the restricted purpose for ordinary folder browsing", async () => {
     const app = await connectPiApp();
     app.apiConnected = true;
@@ -147,7 +183,7 @@ describe("workspace folder/render/bootstrap coverage", () => {
 
     app.openWorkspacePath = vi.fn();
     popover.querySelector("[data-action='folder-open-current']").click();
-    expect(app.openWorkspacePath).toHaveBeenCalledWith("/allowed/child");
+    expect(app.openWorkspacePath).toHaveBeenCalledWith("/allowed/child", expect.any(Symbol));
   });
 
   it("toggles an open workspace popover without reloading or losing navigation", async () => {

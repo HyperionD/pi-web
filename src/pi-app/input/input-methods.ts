@@ -213,7 +213,7 @@ export const inputMethods = {
         this.setFolderOpening(true);
         let opening;
         try {
-          opening = this.openWorkspacePath(openingPath);
+          opening = this.openWorkspacePath(openingPath, openingToken);
         } catch (error) {
           if (this.folderOpeningToken !== openingToken) return;
           if (!this.recoverForbiddenWorkspace?.(error)) {

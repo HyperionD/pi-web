@@ -190,10 +190,13 @@ export const workspaceFolderMethods = {
     return row;
   },
 
-  async openWorkspacePath(path) {
+  async openWorkspacePath(path, openingToken) {
     if (!path) return;
+    const isCurrentOpening = () => openingToken === undefined || this.folderOpeningToken === openingToken;
     await openWorkspaceRequest(path);
+    if (!isCurrentOpening()) return;
     const { workspaces } = await getWorkspaces();
+    if (!isCurrentOpening()) return;
     const workspaceList = this.renderFilteredWorkspaces(workspaces || []);
     const workspace = workspaceList.find((item) => item.path === path) || workspaceList[0];
     if (workspace) await this.openWorkspace(workspace.id);
