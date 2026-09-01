@@ -104,8 +104,40 @@ func TestWorkspaceSelectionHonorsAllowedRoots(t *testing.T) {
 	folders := httptest.NewRecorder()
 	server.Handler().ServeHTTP(folders, httptest.NewRequest(http.MethodGet,
 		"/api/system/folders?path="+url.QueryEscape(outside), nil))
-	if folders.Code != http.StatusForbidden {
+	if folders.Code != http.StatusOK || !strings.Contains(folders.Body.String(), allowed) {
 		t.Fatalf("folders status = %d, body = %s", folders.Code, folders.Body.String())
+	}
+}
+
+func TestFolderPickerShowsAllowedRootFromOutsidePath(t *testing.T) {
+	t.Setenv("PI_CODING_AGENT_SESSION_DIR", t.TempDir())
+	allowed := t.TempDir()
+	child := filepath.Join(allowed, "child")
+	if err := os.Mkdir(child, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	server := NewServer(Config{}, NewMockStore(), NewBroker())
+	saveAllowedRootsForTest(t, allowed)
+
+	response := httptest.NewRecorder()
+	server.Handler().ServeHTTP(response, httptest.NewRequest(http.MethodGet,
+		"/api/system/folders?path=%7E", nil))
+	if response.Code != http.StatusOK {
+		t.Fatalf("root entry status = %d, body = %s", response.Code, response.Body.String())
+	}
+	var rootListing FolderListing
+	if err := json.Unmarshal(response.Body.Bytes(), &rootListing); err != nil {
+		t.Fatal(err)
+	}
+	if len(rootListing.Folders) != 1 || rootListing.Folders[0].Path != allowed {
+		t.Fatalf("root entries = %+v, want only %q", rootListing.Folders, allowed)
+	}
+
+	childResponse := httptest.NewRecorder()
+	server.Handler().ServeHTTP(childResponse, httptest.NewRequest(http.MethodGet,
+		"/api/system/folders?path="+url.QueryEscape(allowed), nil))
+	if childResponse.Code != http.StatusOK || !strings.Contains(childResponse.Body.String(), "child") {
+		t.Fatalf("allowed root listing status = %d, body = %s", childResponse.Code, childResponse.Body.String())
 	}
 }
 
@@ -166,7 +198,7 @@ func TestFolderPurposeControlsBrowsingScope(t *testing.T) {
 	ordinary := httptest.NewRecorder()
 	server.Handler().ServeHTTP(ordinary, httptest.NewRequest(http.MethodGet,
 		"/api/system/folders?path="+url.QueryEscape(outside), nil))
-	if ordinary.Code != http.StatusForbidden {
+	if ordinary.Code != http.StatusOK || !strings.Contains(ordinary.Body.String(), allowed) {
 		t.Fatalf("ordinary folder status = %d, body = %s", ordinary.Code, ordinary.Body.String())
 	}
 

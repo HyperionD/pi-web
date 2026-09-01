@@ -33,11 +33,20 @@ func (s *Server) listFolders(w http.ResponseWriter, r *http.Request) {
 			writeWorkspaceSelectionError(w, err)
 			return
 		}
-		if policy.restricted {
-			if err := policy.CheckFolderPath(path); err != nil {
-				writeWorkspaceSelectionError(w, err)
+	}
+	if policy.restricted {
+		if err := policy.CheckFolderPath(path); err != nil {
+			if errors.Is(err, ErrWorkspaceForbidden) {
+				listing, listingErr := policy.AllowedRootListing(path)
+				if listingErr != nil {
+					writeWorkspaceSelectionError(w, listingErr)
+					return
+				}
+				writeJSON(w, http.StatusOK, listing)
 				return
 			}
+			writeWorkspaceSelectionError(w, err)
+			return
 		}
 	}
 	folders, err := ListFolders(path)
@@ -48,6 +57,13 @@ func (s *Server) listFolders(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusBadRequest, err)
 		}
 		return
+	}
+	if policy.restricted {
+		folders, err = policy.FilterFolderListing(folders)
+		if err != nil {
+			writeWorkspaceSelectionError(w, err)
+			return
+		}
 	}
 	writeJSON(w, http.StatusOK, folders)
 }

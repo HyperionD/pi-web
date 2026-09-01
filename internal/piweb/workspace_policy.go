@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 )
 
@@ -98,6 +99,57 @@ func (p WorkspacePolicy) CheckExistingDirectory(path string) error {
 
 func (p WorkspacePolicy) CheckFolderPath(path string) error {
 	return p.CheckExistingDirectory(path)
+}
+
+func (p WorkspacePolicy) AllowedRootListing(path string) (FolderListing, error) {
+	if !p.restricted {
+		return ListFolders(path)
+	}
+	clean, err := resolveExistingDirectory(path)
+	if err != nil {
+		return FolderListing{}, err
+	}
+	folders := make([]FolderEntry, 0, len(p.allowedRoots))
+	for _, root := range p.allowedRoots {
+		folders = append(folders, FolderEntry{
+			Name:        filepath.Base(root),
+			Path:        root,
+			DisplayPath: DisplayPath(root),
+		})
+	}
+	sort.Slice(folders, func(i, j int) bool {
+		return strings.ToLower(folders[i].Name) < strings.ToLower(folders[j].Name)
+	})
+	parent := filepath.Dir(clean)
+	if parent == clean {
+		parent = ""
+	}
+	return FolderListing{
+		Path:              clean,
+		DisplayPath:       DisplayPath(clean),
+		Parent:            parent,
+		ParentDisplayPath: DisplayPath(parent),
+		Folders:           folders,
+	}, nil
+}
+
+func (p WorkspacePolicy) FilterFolderListing(listing FolderListing) (FolderListing, error) {
+	if !p.restricted {
+		return listing, nil
+	}
+	filtered := listing
+	filtered.Folders = filtered.Folders[:0]
+	for _, folder := range listing.Folders {
+		err := p.CheckExistingDirectory(folder.Path)
+		if errors.Is(err, ErrWorkspaceForbidden) {
+			continue
+		}
+		if err != nil {
+			return FolderListing{}, err
+		}
+		filtered.Folders = append(filtered.Folders, folder)
+	}
+	return filtered, nil
 }
 
 func (p WorkspacePolicy) ValidateCloneDestination(parentPath, name string) (string, error) {
