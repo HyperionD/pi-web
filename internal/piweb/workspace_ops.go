@@ -67,9 +67,15 @@ func CloneGitWorkspace(ctx context.Context, store *Store, req CloneWorkspaceRequ
 		return Workspace{}, "", err
 	}
 	parent := filepath.Dir(destination)
-	if _, err := os.Stat(destination); err == nil {
+	if _, err := os.Lstat(destination); err == nil {
 		return Workspace{}, "", fmt.Errorf("destination already exists: %s", destination)
 	} else if !errors.Is(err, os.ErrNotExist) {
+		return Workspace{}, "", err
+	}
+	if err := os.Mkdir(destination, 0o700); err != nil {
+		if errors.Is(err, os.ErrExist) {
+			return Workspace{}, "", fmt.Errorf("destination already exists: %s", destination)
+		}
 		return Workspace{}, "", err
 	}
 
@@ -79,10 +85,16 @@ func CloneGitWorkspace(ctx context.Context, store *Store, req CloneWorkspaceRequ
 	cmd.Dir = parent
 	output, err := cmd.CombinedOutput()
 	if cloneCtx.Err() == context.DeadlineExceeded {
+		_ = os.RemoveAll(destination)
 		return Workspace{}, string(output), errors.New("git clone timed out")
 	}
 	if err != nil {
+		_ = os.RemoveAll(destination)
 		return Workspace{}, string(output), fmt.Errorf("git clone failed: %w", err)
+	}
+	if err := policy.CheckExistingDirectory(destination); err != nil {
+		_ = os.RemoveAll(destination)
+		return Workspace{}, string(output), err
 	}
 	workspace, err := store.OpenWorkspace(destination)
 	return workspace, string(output), err

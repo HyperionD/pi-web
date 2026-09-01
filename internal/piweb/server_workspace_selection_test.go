@@ -54,6 +54,39 @@ func TestCloneGitWorkspaceRejectsForbiddenDestinationBeforeClone(t *testing.T) {
 	}
 }
 
+func TestCloneGitWorkspaceRejectsSymlinkSwapAfterValidation(t *testing.T) {
+	t.Setenv("PI_CODING_AGENT_SESSION_DIR", t.TempDir())
+	allowed := t.TempDir()
+	outside := t.TempDir()
+	bin := t.TempDir()
+	git := filepath.Join(bin, "git")
+	if err := os.WriteFile(git, []byte("#!/bin/sh\nrm -rf \"$3\"\nln -s \"$CLONE_OUTSIDE\" \"$3\"\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("CLONE_OUTSIDE", outside)
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	store := emptyStore(filepath.Join(t.TempDir(), "web.db"))
+	policy := WorkspacePolicy{allowedRoots: []string{allowed}, restricted: true}
+
+	workspace, output, err := CloneGitWorkspace(context.Background(), store, CloneWorkspaceRequest{
+		ParentPath: allowed,
+		GitURL:     "https://example.com/repo.git",
+		Name:       "repo",
+	}, policy)
+	if err == nil {
+		t.Fatalf("clone unexpectedly succeeded: workspace=%+v output=%q", workspace, output)
+	}
+	if !errors.Is(err, ErrWorkspaceForbidden) {
+		t.Fatalf("clone error = %v, want %v", err, ErrWorkspaceForbidden)
+	}
+	if _, err := os.Lstat(filepath.Join(allowed, "repo")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("unsafe clone target was not cleaned: %v", err)
+	}
+	if workspaces := store.Workspaces(); len(workspaces) != 0 {
+		t.Fatalf("unsafe clone target was registered: %+v", workspaces)
+	}
+}
+
 func TestWorkspaceSelectionHonorsAllowedRoots(t *testing.T) {
 	t.Setenv("PI_CODING_AGENT_SESSION_DIR", t.TempDir())
 	allowed := t.TempDir()

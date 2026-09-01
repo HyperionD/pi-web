@@ -36,7 +36,9 @@ async function request(path: string, options: RequestInit = {}) {
       const body = await response.json();
       if (body.error) message = body.error;
     } catch {}
-    throw new Error(message);
+    const error = new Error(message);
+    (error as any).status = response.status;
+    throw error;
   }
   return response.json();
 }

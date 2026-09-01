@@ -133,12 +133,18 @@ export const workspaceBootstrapMethods = {
   },
 
   async loadWorkspaceMeta(workspaceId, options: any = {}) {
+    const loadToken = Symbol(workspaceId);
+    this.workspaceMetaLoadToken = loadToken;
+    const isCurrentLoad = () => (
+      this.dataset.activeWorkspaceId === workspaceId && this.workspaceMetaLoadToken === loadToken
+    );
     try {
       const [{ files }, git] = await Promise.all([getWorkspaceFiles(workspaceId), getGitStatus(workspaceId)]);
+      if (!isCurrentLoad()) return;
       this.renderWorkspaceTree(files, git?.files || {}, options.selectedPath);
       this.renderGitStatus(git);
     } catch (error) {
-      this.recoverForbiddenWorkspace(error);
+      if (isCurrentLoad()) this.recoverForbiddenWorkspace(error);
     }
   },
 
@@ -159,11 +165,17 @@ export const workspaceBootstrapMethods = {
   },
 
   async loadWorkspaceCommands(workspaceId) {
+    const loadToken = Symbol(workspaceId);
+    this.workspaceCommandsLoadToken = loadToken;
+    const isCurrentLoad = () => (
+      this.dataset.activeWorkspaceId === workspaceId && this.workspaceCommandsLoadToken === loadToken
+    );
     try {
       const { commands } = await getWorkspaceCommands(workspaceId);
+      if (!isCurrentLoad()) return;
       this.renderSlashCommands(commands || []);
     } catch (error) {
-      this.recoverForbiddenWorkspace(error);
+      if (isCurrentLoad()) this.recoverForbiddenWorkspace(error);
     }
   },
 
@@ -197,14 +209,20 @@ export const workspaceBootstrapMethods = {
 
   async loadSession(sessionId) {
     const loadToken = Symbol(sessionId);
+    const workspaceId = this.findSessionRow(sessionId)?.dataset.workspace || this.dataset.activeWorkspaceId;
     this.sessionLoadToken = loadToken;
+    const isCurrentResource = () => (
+      (!this.dataset.activeSessionId || this.dataset.activeSessionId === sessionId)
+      && (!workspaceId || !this.dataset.activeWorkspaceId || this.dataset.activeWorkspaceId === workspaceId)
+    );
     this.showSessionSwitchLoading(sessionId);
     try {
       const loaded = await getSession(sessionId, { limit: SESSION_MESSAGE_PAGE_SIZE });
-      if (this.sessionLoadToken !== loadToken) return;
+      if (this.sessionLoadToken !== loadToken || !isCurrentResource()) return;
       this.applyLoadedSession(loaded.session, loaded.messages || [], loaded.status, loaded);
     } catch (error) {
       if (this.sessionLoadToken !== loadToken) return;
+      if (isForbiddenWorkspaceError(error) && !isCurrentResource()) return;
       if (!this.recoverForbiddenWorkspace(error)) this.setConnection("err");
     }
   },
@@ -247,18 +265,29 @@ export const workspaceBootstrapMethods = {
   async loadOlderSessionMessages() {
     const sessionId = this.dataset.activeSessionId;
     if (!sessionId || !this.sessionHistoryHasMore || this.sessionHistoryLoading) return;
+    const loadToken = Symbol(sessionId);
+    const workspaceId = this.findSessionRow(sessionId)?.dataset.workspace || this.dataset.activeWorkspaceId;
+    this.sessionHistoryLoadToken = loadToken;
     this.sessionHistoryLoading = true;
     const cursor = this.sessionHistoryCursor;
+    const isCurrentLoad = () => (
+      this.dataset.activeSessionId === sessionId
+      && (!workspaceId || !this.dataset.activeWorkspaceId || this.dataset.activeWorkspaceId === workspaceId)
+      && this.sessionHistoryCursor === cursor
+      && this.sessionHistoryLoadToken === loadToken
+    );
     try {
       const loaded = await getSession(sessionId, { limit: SESSION_MESSAGE_PAGE_SIZE, before: cursor });
-      if (this.dataset.activeSessionId !== sessionId || this.sessionHistoryCursor !== cursor) return;
+      if (!isCurrentLoad()) return;
       this.prependLoadedMessages(loaded.messages || []);
       this.sessionHistoryCursor = loaded.cursor || "";
       this.sessionHistoryHasMore = !!loaded.hasMore;
     } catch (error) {
-      if (!this.recoverForbiddenWorkspace(error)) this.setConnection("err");
+      if (isCurrentLoad() && !this.recoverForbiddenWorkspace(error)) this.setConnection("err");
     } finally {
-      if (this.dataset.activeSessionId === sessionId) this.sessionHistoryLoading = false;
+      if (this.dataset.activeSessionId === sessionId && this.sessionHistoryLoadToken === loadToken) {
+        this.sessionHistoryLoading = false;
+      }
     }
   },
 

@@ -23,3 +23,10 @@ func TestListFoldersStartsFromHomeAlias(t *testing.T) {
 		t.Fatalf("unexpected folders: %#v", listing.Folders)
 	}
 }
+
+func TestExpandUserPathAcceptsDocumentedSlashFormWithWindowsSeparator(t *testing.T) {
+	home := `C:\Users\tester`
+	if got := expandUserPathForSeparator("~/code", home, `\`); got != `C:\Users\tester\code` {
+		t.Fatalf("expanded path = %q", got)
+	}
+}

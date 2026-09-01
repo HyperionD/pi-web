@@ -3,7 +3,6 @@ package piweb
 import (
 	"errors"
 	"net/http"
-	"strings"
 )
 
 func (s *Server) appConfig(w http.ResponseWriter, _ *http.Request) {
@@ -28,7 +27,7 @@ func (s *Server) patchAppConfig(w http.ResponseWriter, r *http.Request) {
 	response, err := SaveAppConfig(patch)
 	if err != nil {
 		status := http.StatusInternalServerError
-		if strings.HasPrefix(err.Error(), "app config brand ") {
+		if errors.Is(err, ErrAppConfigValidation) {
 			status = http.StatusBadRequest
 		}
 		writeError(w, status, err)

@@ -64,6 +64,38 @@ func TestAppConfigAPIPatchRejectsInvalidBrand(t *testing.T) {
 	}
 }
 
+func TestAppConfigAPIPatchClassifiesAllowedRootsValidation(t *testing.T) {
+	server := newAppConfigAPIServer(t)
+	request := httptest.NewRequest(http.MethodPatch, "/api/app-config", strings.NewReader(
+		`{"workspace":{"allowedRoots":["/path/that/does/not/exist"]}}`,
+	))
+	response := httptest.NewRecorder()
+
+	server.Handler().ServeHTTP(response, request)
+
+	if response.Code != http.StatusBadRequest {
+		t.Fatalf("PATCH status=%d body=%s", response.Code, response.Body.String())
+	}
+}
+
+func TestAppConfigAPIPatchKeepsStorageFailureAsServerError(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv("PI_CODING_AGENT_SESSION_DIR", filepath.Join(root, "sessions"))
+	configPath := filepath.Join(root, "pi-web-config.json")
+	if err := os.Mkdir(configPath, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	server := NewServer(Config{}, NewWebStore(filepath.Join(root, "web.db")), NewBroker())
+	request := httptest.NewRequest(http.MethodPatch, "/api/app-config", strings.NewReader(`{"brand":"new"}`))
+	response := httptest.NewRecorder()
+
+	server.Handler().ServeHTTP(response, request)
+
+	if response.Code != http.StatusInternalServerError {
+		t.Fatalf("PATCH status=%d body=%s", response.Code, response.Body.String())
+	}
+}
+
 func TestAppConfigAPIReportsStorageFailure(t *testing.T) {
 	root := t.TempDir()
 	t.Setenv("PI_CODING_AGENT_SESSION_DIR", filepath.Join(root, "sessions"))

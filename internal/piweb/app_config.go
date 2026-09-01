@@ -14,6 +14,7 @@ import (
 
 const DefaultAppBrand = "pi.dev / web"
 
+var ErrAppConfigValidation = errors.New("app config validation error")
 var appConfigMu sync.Mutex
 
 type AppConfigResponse struct {
@@ -143,7 +144,7 @@ func normalizeStoredWorkspaceConfig(value any) (map[string]any, error) {
 	}
 	workspace, ok := value.(map[string]any)
 	if !ok {
-		return nil, errors.New("app config workspace must be an object or null")
+		return nil, appConfigValidationError("app config workspace must be an object or null")
 	}
 	normalized := make(map[string]any, len(workspace))
 	for key, nested := range workspace {
@@ -171,7 +172,7 @@ func normalizeAllowedRoots(value any) ([]any, error) {
 			values[index] = root
 		}
 	default:
-		return nil, errors.New("app config workspace.allowedRoots must be an array of strings")
+		return nil, appConfigValidationError("app config workspace.allowedRoots must be an array of strings")
 	}
 
 	normalized := make([]any, 0, len(values))
@@ -179,32 +180,32 @@ func normalizeAllowedRoots(value any) ([]any, error) {
 	for index, value := range values {
 		root, ok := value.(string)
 		if !ok {
-			return nil, fmt.Errorf("app config workspace.allowedRoots[%d] must be a string", index)
+			return nil, appConfigValidationError(fmt.Sprintf("app config workspace.allowedRoots[%d] must be a string", index))
 		}
 		root = strings.TrimSpace(root)
 		if root == "" {
-			return nil, fmt.Errorf("app config workspace.allowedRoots[%d] must not be empty", index)
+			return nil, appConfigValidationError(fmt.Sprintf("app config workspace.allowedRoots[%d] must not be empty", index))
 		}
 		expanded, err := expandAppConfigPath(root)
 		if err != nil {
-			return nil, fmt.Errorf("app config workspace.allowedRoots[%d] %q: %w", index, root, err)
+			return nil, appConfigValidationError(fmt.Sprintf("app config workspace.allowedRoots[%d] %q: %v", index, root, err))
 		}
 		expanded = filepath.Clean(expanded)
 		absolute, err := filepath.Abs(expanded)
 		if err != nil {
-			return nil, fmt.Errorf("app config workspace.allowedRoots[%d] %q: make absolute: %w", index, root, err)
+			return nil, appConfigValidationf("app config workspace.allowedRoots[%d] %q: make absolute: %v", index, root, err)
 		}
 		realPath, err := filepath.EvalSymlinks(absolute)
 		if err != nil {
-			return nil, fmt.Errorf("app config workspace.allowedRoots[%d] %q: resolve path: %w", index, root, err)
+			return nil, appConfigValidationf("app config workspace.allowedRoots[%d] %q: resolve path: %v", index, root, err)
 		}
 		realPath = filepath.Clean(realPath)
 		info, err := os.Stat(realPath)
 		if err != nil {
-			return nil, fmt.Errorf("app config workspace.allowedRoots[%d] %q: stat path: %w", index, root, err)
+			return nil, appConfigValidationf("app config workspace.allowedRoots[%d] %q: stat path: %v", index, root, err)
 		}
 		if !info.IsDir() {
-			return nil, fmt.Errorf("app config workspace.allowedRoots[%d] %q: path is not a directory", index, root)
+			return nil, appConfigValidationf("app config workspace.allowedRoots[%d] %q: path is not a directory", index, root)
 		}
 		if _, ok := seen[realPath]; ok {
 			continue
@@ -282,18 +283,26 @@ func normalizedAppBrand(value any) (string, error) {
 	}
 	brand, ok := value.(string)
 	if !ok {
-		return "", errors.New("app config brand must be a string or null")
+		return "", appConfigValidationError("app config brand must be a string or null")
 	}
 	brand = strings.TrimSpace(brand)
 	if utf8.RuneCountInString(brand) > 120 {
-		return "", errors.New("app config brand must be at most 120 characters")
+		return "", appConfigValidationError("app config brand must be at most 120 characters")
 	}
 	for _, r := range brand {
 		if unicode.IsControl(r) {
-			return "", errors.New("app config brand must not contain control characters")
+			return "", appConfigValidationError("app config brand must not contain control characters")
 		}
 	}
 	return brand, nil
+}
+
+func appConfigValidationError(message string) error {
+	return fmt.Errorf("%w: %s", ErrAppConfigValidation, message)
+}
+
+func appConfigValidationf(format string, args ...any) error {
+	return appConfigValidationError(fmt.Sprintf(format, args...))
 }
 
 func writeAppConfig(path string, stored map[string]any) error {

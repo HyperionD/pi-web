@@ -14,22 +14,30 @@ const (
 )
 
 func ExpandUserPath(path string) (string, error) {
+	trimmed := strings.TrimSpace(path)
+	needsHome := trimmed == "" || trimmed == "~" || strings.HasPrefix(trimmed, "~/") ||
+		strings.HasPrefix(trimmed, `~\`)
+	if !needsHome {
+		return trimmed, nil
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", err
+	}
+	return expandUserPathForSeparator(trimmed, home, string(filepath.Separator)), nil
+}
+
+func expandUserPathForSeparator(path, home, separator string) string {
 	path = strings.TrimSpace(path)
 	if path == "" || path == "~" {
-		home, err := os.UserHomeDir()
-		if err != nil {
-			return "", err
-		}
-		return home, nil
+		return home
 	}
-	if strings.HasPrefix(path, "~/") || strings.HasPrefix(path, `~\`) {
-		home, err := os.UserHomeDir()
-		if err != nil {
-			return "", err
-		}
-		return filepath.Join(home, path[2:]), nil
+	if strings.HasPrefix(path, "~/") || strings.HasPrefix(path, "~"+separator) ||
+		strings.HasPrefix(path, `~\`) {
+		suffix := strings.ReplaceAll(path[2:], "/", separator)
+		return strings.TrimRight(home, "/\\") + separator + strings.TrimLeft(suffix, "/\\")
 	}
-	return path, nil
+	return path
 }
 
 func DisplayPath(path string) string {

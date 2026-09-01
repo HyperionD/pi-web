@@ -182,6 +182,102 @@ describe("workspace bootstrap coverage", () => {
       toast.textContent.includes("outside allowed roots"))).toBe(true);
   });
 
+  it("ignores delayed forbidden metadata after switching workspaces", async () => {
+    const app = await connectPiApp();
+    app.apiConnected = true;
+    app.dataset.activeWorkspaceId = "w-old";
+    app.dataset.activeSessionId = "s-old";
+    let rejectFiles;
+    globalThis.fetch = vi.fn(async (url) => String(url).includes("/files")
+      ? new Promise((_, reject) => { rejectFiles = reject; })
+      : okJson({ branch: "main", files: {} }));
+
+    const loading = app.loadWorkspaceMeta("w-old");
+    await vi.waitFor(() => expect(globalThis.fetch).toHaveBeenCalledWith(
+      expect.stringContaining("/files"),
+      expect.any(Object),
+    ));
+    app.dataset.activeWorkspaceId = "w-new";
+    app.dataset.activeSessionId = "s-new";
+    rejectFiles(new Error("403 Forbidden"));
+    await loading;
+
+    expect(app.dataset.activeWorkspaceId).toBe("w-new");
+    expect(app.dataset.activeSessionId).toBe("s-new");
+    expect(app.querySelector('[data-view="picker"]').hidden).toBe(true);
+  });
+
+  it("ignores delayed forbidden commands after switching workspaces", async () => {
+    const app = await connectPiApp();
+    app.apiConnected = true;
+    app.dataset.activeWorkspaceId = "w-old";
+    app.dataset.activeSessionId = "s-old";
+    let rejectCommands;
+    globalThis.fetch = vi.fn(async () => new Promise((_, reject) => { rejectCommands = reject; }));
+
+    const loading = app.loadWorkspaceCommands("w-old");
+    await vi.waitFor(() => expect(globalThis.fetch).toHaveBeenCalled());
+    app.dataset.activeWorkspaceId = "w-new";
+    app.dataset.activeSessionId = "s-new";
+    rejectCommands(new Error("403 Forbidden"));
+    await loading;
+
+    expect(app.dataset.activeWorkspaceId).toBe("w-new");
+    expect(app.dataset.activeSessionId).toBe("s-new");
+    expect(app.querySelector('[data-view="picker"]').hidden).toBe(true);
+  });
+
+  it("ignores delayed forbidden history after switching sessions", async () => {
+    const app = await connectPiApp();
+    app.apiConnected = true;
+    app.dataset.activeWorkspaceId = "w-old";
+    app.dataset.activeSessionId = "s-old";
+    app.sessionHistoryCursor = "cursor";
+    app.sessionHistoryHasMore = true;
+    let rejectHistory;
+    globalThis.fetch = vi.fn(async () => new Promise((_, reject) => { rejectHistory = reject; }));
+
+    const loading = app.loadOlderSessionMessages();
+    await vi.waitFor(() => expect(globalThis.fetch).toHaveBeenCalled());
+    app.dataset.activeWorkspaceId = "w-new";
+    app.dataset.activeSessionId = "s-new";
+    rejectHistory(new Error("403 Forbidden"));
+    await loading;
+
+    expect(app.dataset.activeWorkspaceId).toBe("w-new");
+    expect(app.dataset.activeSessionId).toBe("s-new");
+    expect(app.querySelector('[data-view="picker"]').hidden).toBe(true);
+  });
+
+  it("ignores delayed forbidden settings after switching workspaces", async () => {
+    const app = await connectPiApp();
+    app.apiConnected = true;
+    app.dataset.activeWorkspaceId = "w-old";
+    app.dataset.activeSessionId = "s-old";
+    let rejectSettings;
+    globalThis.fetch = vi.fn(async (url) => {
+      const value = String(url);
+      if (value.includes("/settings")) return new Promise((_, reject) => { rejectSettings = reject; });
+      if (value.includes("/app-config")) return okJson({ config: { version: 1, brand: "x" }, path: "/config" });
+      if (value.includes("/auth/")) return okJson({ providers: [] });
+      return okJson({ providers: [] });
+    });
+
+    const loading = app.openSettingsModal();
+    await vi.waitFor(() => expect(globalThis.fetch).toHaveBeenCalledWith(
+      expect.stringContaining("/settings"),
+      expect.any(Object),
+    ));
+    app.dataset.activeWorkspaceId = "w-new";
+    app.dataset.activeSessionId = "s-new";
+    rejectSettings(new Error("403 Forbidden"));
+    await loading;
+
+    expect(app.dataset.activeWorkspaceId).toBe("w-new");
+    expect(app.dataset.activeSessionId).toBe("s-new");
+    expect(app.querySelector('[data-view="picker"]').hidden).toBe(true);
+  });
+
   it("covers bootstrap fallback branches", async () => {
     localStorage.setItem("pi.activeSession", JSON.stringify({ workspaceId: "w-missing", sessionId: "missing" }));
     const app = await connectPiApp();

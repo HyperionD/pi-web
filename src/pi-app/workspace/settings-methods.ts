@@ -103,6 +103,12 @@ export const settingsMethods = {
 
   async openSettingsModal() {
     const workspaceId = this.dataset.activeWorkspaceId;
+    const settingsLoadToken = workspaceId ? Symbol(workspaceId) : undefined;
+    if (settingsLoadToken) this.settingsModalLoadToken = settingsLoadToken;
+    const isCurrentWorkspaceLoad = () => (
+      !workspaceId
+      || (this.dataset.activeWorkspaceId === workspaceId && this.settingsModalLoadToken === settingsLoadToken)
+    );
     const activeElement = document.activeElement;
     if (activeElement instanceof HTMLElement && !this.settingsModal?.contains(activeElement)) {
       this.settingsReturnFocus = activeElement;
@@ -139,12 +145,13 @@ export const settingsMethods = {
     ]);
     this.fillAppConfigFormState();
     this.setAppConfigLoading(false);
+    if (!isCurrentWorkspaceLoad()) return;
     const errors = [];
     if (appConfigResult.status === "rejected") {
       errors.push(appConfigResult.reason instanceof Error ? appConfigResult.reason.message : String(appConfigResult.reason));
     }
     if (settingsResult.status === "rejected") {
-      if (this.recoverForbiddenWorkspace?.(settingsResult.reason)) return;
+      if (isCurrentWorkspaceLoad() && this.recoverForbiddenWorkspace?.(settingsResult.reason)) return;
       errors.push(settingsResult.reason instanceof Error ? settingsResult.reason.message : String(settingsResult.reason));
       this.setSettingsStatus(errors.join("; "), true);
       this.setConnection("err");
