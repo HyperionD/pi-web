@@ -153,6 +153,8 @@ describe("workspace bootstrap coverage", () => {
     app.loadWorkspaceCommands = vi.fn();
     app.loadRuntimeStatus = vi.fn();
     app.loadWorkspaceMeta = vi.fn();
+    const loadSettings = vi.spyOn(app, "loadWorkspaceSettingsState");
+    const recoverForbiddenWorkspace = vi.spyOn(app, "recoverForbiddenWorkspace");
     app.dataset.route = "workspace";
     let rejectSettings;
     const settingsRequest = new Promise((_, reject) => {
@@ -173,12 +175,15 @@ describe("workspace bootstrap coverage", () => {
       expect.any(Object),
     ));
     expect(app.dataset.activeWorkspaceId).toBe("w-old");
+    expect(loadSettings).toHaveBeenCalledWith("w-old");
+    const settingsHandling = loadSettings.mock.results.at(-1)?.value;
     app.dataset.activeWorkspaceId = "w-new";
     app.dataset.activeSessionId = "s-new";
     rejectSettings(new Error("403 Forbidden"));
+    await expect(settingsHandling).resolves.toBeUndefined();
     await bootstrap;
-    await vi.waitFor(() => expect(app.dataset.activeWorkspaceId).toBe("w-new"));
 
+    expect(recoverForbiddenWorkspace).not.toHaveBeenCalled();
     expect(app.dataset.activeWorkspaceId).toBe("w-new");
     expect(app.dataset.activeSessionId).toBe("s-new");
     expect(app.dataset.route).toBe("workspace");
