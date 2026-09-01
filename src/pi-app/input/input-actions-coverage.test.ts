@@ -127,7 +127,7 @@ describe("pi-app input actions coverage", () => {
     app.append(badChip);
     badChip.querySelector("button").click();
     expect(calls.some(([name]) => name === "newSession")).toBe(true);
-    expect(calls).toContainEqual(["openFolderPopover"]);
+    expect(calls).toContainEqual(["openFolderPopover", "workspace"]);
     expect(calls).toContainEqual(["closeFolderPopover"]);
 
     app.dataset.activeWorkspaceId = "w1";

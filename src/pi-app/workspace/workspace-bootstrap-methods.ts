@@ -91,7 +91,6 @@ export const workspaceBootstrapMethods = {
       if (activeSession) this.activateBootstrapSession(activeSession);
 
       if (activeSession) this.route("workspace");
-      else if (this.dataset.route === "picker") await this.browseFolder();
 
       if (activeWorkspace) {
         void this.loadWorkspaceCommands(activeWorkspace.id);

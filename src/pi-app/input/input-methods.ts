@@ -189,11 +189,33 @@ export const inputMethods = {
     }
     if (action === "refresh-workspaces") this.refreshWorkspaces();
     if (action === "browse-folder") this.browseFolder();
-    if (action === "folder-enter") this.loadFolder(actionTarget.dataset.path);
-    if (action === "folder-up") this.loadFolder(this.currentFolderParent);
-    if (action === "folder-open-current") {
-      if (this.folderBrowsePurpose === "allowed-root") this.addAllowedRootFromFolder?.(this.currentFolder);
-      else this.openWorkspacePath(this.currentFolder);
+    if (action === "folder-open") void this.openFolderPopover("workspace");
+    if (action === "folder-close") this.closeFolderPopover();
+    const folderPickerTarget = actionTarget?.closest("[data-folder-browser], [data-folder-popover]");
+    if (action === "folder-enter" && folderPickerTarget) {
+      void this.loadFolder(actionTarget.dataset.path);
+    }
+    if (action === "folder-up" && folderPickerTarget) {
+      void this.loadFolder(this.currentFolderParent);
+    }
+    if (action === "folder-open-current" && folderPickerTarget) {
+      if (this.folderBrowsePurpose === "allowed-root") {
+        this.addAllowedRootFromFolder?.(this.currentFolder);
+        this.closeFolderPopover();
+      } else {
+        let opening;
+        try {
+          opening = this.openWorkspacePath(this.currentFolder);
+        } catch (error) {
+          if (!this.recoverForbiddenWorkspace?.(error)) this.setConnection("err");
+          return;
+        }
+        void Promise.resolve(opening)
+          .then(() => this.closeFolderPopover())
+          .catch((error) => {
+            if (!this.recoverForbiddenWorkspace?.(error)) this.setConnection("err");
+          });
+      }
     }
     if (action === "toggle-tree") this.toggleTree();
     if (action === "show-file-tree") this.showFileTreePanel?.();

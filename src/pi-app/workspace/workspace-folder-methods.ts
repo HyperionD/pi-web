@@ -1,5 +1,4 @@
 import {
-  cloneWorkspace as cloneWorkspaceRequest,
   deleteWorkspace as deleteWorkspaceRequest,
   getWorkspaces,
   listFolders,
@@ -8,7 +7,35 @@ import {
 import { requestErrorMessage } from "./workspace-methods";
 
 export const workspaceFolderMethods = {
+  async openFolderPopover(purpose = "workspace") {
+    this.folderBrowsePurpose = purpose;
+    const popover = this.querySelector("[data-folder-popover]");
+    const browser = this.querySelector("[data-folder-browser]");
+    const trigger = this.querySelector("[data-action='folder-open']");
+    popover?.removeAttribute("hidden");
+    browser?.removeAttribute("hidden");
+    trigger?.setAttribute("aria-expanded", "true");
+    await this.loadFolder("~", purpose);
+    this.focusFolderPopover();
+  },
+
+  closeFolderPopover() {
+    const popover = this.querySelector("[data-folder-popover]");
+    if (!popover || popover.hidden) return;
+    const trigger = this.querySelector("[data-action='folder-open']");
+    const wasAllowedRoot = this.folderBrowsePurpose === "allowed-root";
+    popover.setAttribute("hidden", "");
+    trigger?.setAttribute("aria-expanded", "false");
+    if (wasAllowedRoot) this.restoreAllowedRootPicker?.();
+    if (!trigger?.closest('[data-view="picker"]')?.hasAttribute("hidden")) trigger?.focus();
+  },
+
+  focusFolderPopover() {
+    this.querySelector("[data-folder-popover] [data-folder-list] button, [data-folder-popover] [data-action='folder-open-current']")?.focus();
+  },
+
   async browseFolder(purpose = "workspace") {
+    if (purpose === "workspace") return this.openFolderPopover("workspace");
     this.folderBrowsePurpose = purpose;
     if (purpose === "allowed-root" && this.dataset.route !== "picker") {
       this.allowedRootPickerReturnRoute = this.dataset.route || "workspace";
@@ -18,8 +45,14 @@ export const workspaceFolderMethods = {
       this.querySelector('[data-view="picker"]')?.removeAttribute("hidden");
       this.querySelector('[data-view="workspace"]')?.setAttribute("hidden", "");
     }
-    this.querySelector("[data-folder-browser]")?.removeAttribute("hidden");
+    const popover = this.querySelector("[data-folder-popover]");
+    const browser = this.querySelector("[data-folder-browser]");
+    const trigger = this.querySelector("[data-action='folder-open']");
+    popover?.removeAttribute("hidden");
+    browser?.removeAttribute("hidden");
+    trigger?.setAttribute("aria-expanded", "true");
     await this.loadFolder(this.currentFolder || "~", purpose);
+    this.focusFolderPopover();
   },
 
   async loadFolder(path = "~", purpose = this.folderBrowsePurpose || "workspace") {
@@ -27,6 +60,8 @@ export const workspaceFolderMethods = {
       this.setConnection("err");
       return;
     }
+    if (this.folderLoadPending) return;
+    this.folderLoadPending = true;
 
     try {
       const listing = await listFolders(path || "~", purpose);
@@ -36,6 +71,8 @@ export const workspaceFolderMethods = {
     } catch (error) {
       this.renderFolderError(error);
       this.setConnection("err");
+    } finally {
+      this.folderLoadPending = false;
     }
   },
 
@@ -49,10 +86,10 @@ export const workspaceFolderMethods = {
   },
 
   renderFolderListing(listing) {
-    const input = this.querySelector('[data-path-form] input[name="path"]');
-    if (input) input.value = listing.path;
     const label = this.querySelector("[data-folder-path]");
     if (label) label.textContent = listing.displayPath || listing.path;
+    const upButton = this.querySelector("[data-folder-browser] [data-action='folder-up']");
+    if (upButton) upButton.disabled = (listing.parent || listing.path) === listing.path;
     const list = this.querySelector("[data-folder-list]");
     if (!list) return;
     list.replaceChildren();
@@ -73,9 +110,15 @@ export const workspaceFolderMethods = {
     row.className = "folder-row";
     row.dataset.action = "folder-enter";
     row.dataset.path = folder.path;
-    row.innerHTML = `<span>▸</span><span class="folder-name"></span><span class="folder-path"></span>`;
-    row.querySelector(".folder-name").textContent = folder.name;
-    row.querySelector(".folder-path").textContent = folder.displayPath || folder.path;
+    const marker = document.createElement("span");
+    marker.textContent = "▸";
+    const name = document.createElement("span");
+    name.className = "folder-name";
+    name.textContent = folder.name;
+    const path = document.createElement("span");
+    path.className = "folder-path";
+    path.textContent = folder.displayPath || folder.path;
+    row.append(marker, name, path);
     return row;
   },
 
@@ -86,54 +129,6 @@ export const workspaceFolderMethods = {
     const workspaceList = this.renderFilteredWorkspaces(workspaces || []);
     const workspace = workspaceList.find((item) => item.path === path) || workspaceList[0];
     if (workspace) await this.openWorkspace(workspace.id);
-  },
-
-  async submitCloneWorkspace(event) {
-    event.preventDefault();
-    const form = event.currentTarget;
-    const gitUrl = form.querySelector("input[name='gitUrl']")?.value.trim();
-    const name = form.querySelector("input[name='name']")?.value.trim() || "";
-    if (!gitUrl || !this.apiConnected) return;
-
-    const button = form.querySelector("button[type='submit']");
-    if (button) button.disabled = true;
-    try {
-      const cloned = await cloneWorkspaceRequest(this.currentFolder || "~", gitUrl, name);
-      form.reset();
-      const { workspaces } = await getWorkspaces();
-      const workspaceList = this.renderFilteredWorkspaces(workspaces || []);
-      const workspace = cloned.workspace
-        ? workspaceList.find((item) => item.id === cloned.workspace.id || item.path === cloned.workspace.path)
-        : workspaceList[0];
-      if (workspace) await this.openWorkspace(workspace.id);
-    } catch (error) {
-      if (!this.recoverForbiddenWorkspace?.(error)) {
-        alert(requestErrorMessage(error));
-        this.setConnection("err");
-      }
-    } finally {
-      if (button) button.disabled = false;
-    }
-  },
-
-  async submitWorkspacePath(event) {
-    event.preventDefault();
-    const input = event.currentTarget.querySelector("input[name='path']");
-    const path = input?.value.trim();
-    if (!path) return;
-    if (this.apiConnected) {
-      try {
-        await this.openWorkspacePath(path);
-        return;
-      } catch (error) {
-        if (!this.recoverForbiddenWorkspace?.(error)) {
-          this.setConnection("err");
-          this.route("workspace");
-        }
-        return;
-      }
-    }
-    this.route("workspace");
   },
 
   async deleteWorkspace(workspaceId) {

@@ -21,18 +21,13 @@ describe("workspace folder/render/bootstrap coverage", () => {
     const app = await connectPiApp();
     const recent = document.createElement("div");
     const count = document.createElement("span");
-    const form = document.createElement("form");
-    const input = document.createElement("input");
     const path = document.createElement("span");
     const list = document.createElement("div");
     recent.dataset.recentWorkspaces = "";
     count.dataset.workspaceCount = "";
-    form.dataset.pathForm = "";
-    input.name = "path";
     path.dataset.folderPath = "";
     list.dataset.folderList = "";
-    form.append(input);
-    app.append(recent, count, form, path, list);
+    app.append(recent, count, path, list);
     app.dataset.activeWorkspaceId = "w2";
 
     const workspaces = [
@@ -55,7 +50,6 @@ describe("workspace folder/render/bootstrap coverage", () => {
     expect(recent.querySelectorAll(".ws-stat")[1].innerHTML).toContain("live");
     expect(app.querySelector("[data-workspace-group='w2'] .sessions").hidden).toBe(false);
     expect(app.querySelector("[data-workspace-group='w2'] .ws-name .dot").classList.contains("live")).toBe(true);
-    expect(input.value).toBe("/tmp");
     expect(path.textContent).toBe("tmp");
     expect(list.querySelector(".folder-row").dataset.path).toBe("/tmp/child");
 
@@ -211,7 +205,7 @@ describe("workspace folder/render/bootstrap coverage", () => {
     expect(list.textContent).toContain("outside allowed roots");
   });
 
-  it("handles folder, clone, path, and delete failure branches", async () => {
+  it("handles folder and delete failure branches", async () => {
     const app = await connectPiApp();
     app.apiConnected = false;
     app.setConnection = vi.fn();
@@ -223,45 +217,7 @@ describe("workspace folder/render/bootstrap coverage", () => {
     await app.loadFolder("~");
     expect(app.setConnection).toHaveBeenCalledWith("err");
 
-    const cloneForm = document.createElement("form");
-    cloneForm.innerHTML = `<input name="gitUrl" value="https://x/repo.git"><input name="name" value="repo"><button type="submit"></button>`;
-    cloneForm.reset = vi.fn();
-    vi.spyOn(window, "alert").mockImplementation(() => {});
-    await app.submitCloneWorkspace({ preventDefault: vi.fn(), currentTarget: cloneForm });
-    expect(window.alert).toHaveBeenCalledWith("nope");
-    globalThis.fetch = vi.fn(async () => { throw "string clone failure"; });
-    await app.submitCloneWorkspace({ preventDefault: vi.fn(), currentTarget: cloneForm });
-    expect(window.alert).toHaveBeenCalledWith("string clone failure");
-    expect(cloneForm.querySelector("button").disabled).toBe(false);
-
-    const emptyClone = document.createElement("form");
-    emptyClone.innerHTML = `<input name="gitUrl" value=""><button type="submit"></button>`;
-    await app.submitCloneWorkspace({ preventDefault: vi.fn(), currentTarget: emptyClone });
-
-    app.currentFolder = "";
-    globalThis.fetch = vi.fn(async (url) => {
-      if (String(url).endsWith("/workspaces/clone")) return okJson({});
-      if (String(url).endsWith("/workspaces")) return okJson({ workspaces: [{ id: "fallback", path: "/fallback" }] });
-      return okJson({});
-    });
-    app.openWorkspace = vi.fn();
-    await app.submitCloneWorkspace({ preventDefault: vi.fn(), currentTarget: cloneForm });
-    expect(cloneForm.reset).toHaveBeenCalled();
-    expect(app.openWorkspace).toHaveBeenCalledWith("fallback");
-
     app.renderFolderListing({ path: "/none", folders: [{ name: "x", path: "/x" }] });
-
-    const pathForm = document.createElement("form");
-    pathForm.innerHTML = `<input name="path" value=" /bad ">`;
-    app.route = vi.fn();
-    app.openWorkspacePath = vi.fn(async () => { throw new Error("bad path"); });
-    await app.submitWorkspacePath({ preventDefault: vi.fn(), currentTarget: pathForm });
-    expect(app.route).toHaveBeenCalledWith("workspace");
-    globalThis.fetch = vi.fn(async () => okJson({ workspaces: [{ id: "ok", path: "/ok" }] }));
-    app.openWorkspacePath = vi.fn();
-    pathForm.querySelector("input").value = "/ok";
-    await app.submitWorkspacePath({ preventDefault: vi.fn(), currentTarget: pathForm });
-    expect(app.openWorkspacePath).toHaveBeenCalledWith("/ok");
 
     vi.spyOn(window, "confirm").mockReturnValueOnce(false).mockReturnValueOnce(true);
     await app.deleteWorkspace("w1");
@@ -281,7 +237,7 @@ describe("workspace folder/render/bootstrap coverage", () => {
     expect(app.activateWorkspaceForSession).toHaveBeenCalledWith("w1", { loadContext: true, forceLoadContext: true });
   });
 
-  it("browses on picker bootstrap and refreshes the tree button", async () => {
+  it("does not browse on picker bootstrap and refreshes the tree button", async () => {
     const app = document.querySelector("pi-app");
     await customElements.whenDefined("pi-app");
     app.dataset.route = "picker";
@@ -291,7 +247,8 @@ describe("workspace folder/render/bootstrap coverage", () => {
     app.setConnection = vi.fn();
     globalThis.fetch = vi.fn(async () => okJson({ workspaces: [] }));
     await app.bootstrapAPI();
-    expect(app.browseFolder).toHaveBeenCalled();
+    expect(app.browseFolder).not.toHaveBeenCalled();
+    expect(globalThis.fetch).not.toHaveBeenCalledWith(expect.stringContaining("/system/folders"), expect.anything());
 
     const button = document.createElement("button");
     button.dataset.action = "refresh-tree";
@@ -318,31 +275,20 @@ describe("workspace folder/render/bootstrap coverage", () => {
     expect(app.querySelector("[data-workspace-group='outside']")).toBeNull();
   });
 
-  it("filters workspace lists after clone and delete and rejects an untrusted clone response", async () => {
+  it("filters workspace lists after refresh and delete", async () => {
     const app = await connectPiApp();
     app.apiConnected = true;
     app.appConfigState = { config: { workspace: { allowedRoots: ["/allowed"] } } };
     app.renderWorkspaces = vi.fn();
-    app.openWorkspace = vi.fn();
-    app.currentFolder = "/allowed";
-    const form = document.createElement("form");
-    form.innerHTML = `<input name="gitUrl" value="https://x/repo.git"><button type="submit"></button>`;
-    form.reset = vi.fn();
     vi.spyOn(window, "confirm").mockReturnValue(true);
     const workspaces = [
       { id: "inside", name: "inside", path: "/allowed/project", sessions: [] },
       { id: "outside", name: "outside", path: "/outside/project", sessions: [] },
     ];
-    globalThis.fetch = vi.fn(async (url) => {
-      if (String(url).endsWith("/workspaces/clone")) {
-        return okJson({ workspace: workspaces[1] });
-      }
-      return okJson({ workspaces });
-    });
+    globalThis.fetch = vi.fn(async () => okJson({ workspaces }));
 
-    await app.submitCloneWorkspace({ preventDefault: vi.fn(), currentTarget: form });
+    await app.refreshWorkspaces();
     expect(app.renderWorkspaces).toHaveBeenLastCalledWith([workspaces[0]]);
-    expect(app.openWorkspace).not.toHaveBeenCalled();
 
     await app.deleteWorkspace("outside");
     expect(app.renderWorkspaces).toHaveBeenLastCalledWith([workspaces[0]]);
@@ -362,7 +308,7 @@ describe("workspace folder/render/bootstrap coverage", () => {
       : okJson({}));
 
     await app.bootstrapAPI();
-    expect(app.browseFolder).toHaveBeenCalled();
+    expect(app.browseFolder).not.toHaveBeenCalled();
 
     app.apiConnected = false;
     await app.refreshWorkspaces();
@@ -391,21 +337,13 @@ describe("workspace folder/render/bootstrap coverage", () => {
 
     app.currentFolder = "";
     delete app.browseFolder;
-    app.loadFolder = vi.fn();
+    app.openFolderPopover = vi.fn();
     await app.browseFolder();
-    expect(app.loadFolder).toHaveBeenCalledWith("~", "workspace");
+    expect(app.openFolderPopover).toHaveBeenCalledWith("workspace");
 
     const pathOnly = app.folderRow({ name: "plain", path: "/plain" });
     expect(pathOnly.querySelector(".folder-path").textContent).toBe("/plain");
 
-    const form = document.createElement("form");
-    form.innerHTML = `<input name="path" value=" ">`;
-    await app.submitWorkspacePath({ preventDefault: vi.fn(), currentTarget: form });
-    app.apiConnected = false;
-    form.querySelector("input").value = "/offline";
-    app.route = vi.fn();
-    await app.submitWorkspacePath({ preventDefault: vi.fn(), currentTarget: form });
-    expect(app.route).toHaveBeenCalledWith("workspace");
     app.activateBootstrapSession({ id: "s-default", title: "default" });
     app.renderMessages = vi.fn();
     app.connectEvents = vi.fn();

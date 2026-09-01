@@ -114,8 +114,6 @@ class PiApp extends HTMLElement {
 
   bindDomEvents() {
     this.addEventListener("click", (event) => (this as any).handleAppClick(event));
-    this.querySelector("[data-path-form]")?.addEventListener("submit", (event) => this.submitWorkspacePath(event));
-    this.querySelector("[data-clone-form]")?.addEventListener("submit", (event) => this.submitCloneWorkspace(event));
     this.querySelector("[data-shell-form]")?.addEventListener("submit", (event) => this.submitShellCommand(event));
     this.querySelector("[data-settings-form]")?.addEventListener("submit", (event) => this.saveSettingsForm(event));
     this.querySelector("[data-settings-scope]")?.addEventListener("change", () => this.fillSettingsForm());
@@ -172,8 +170,8 @@ class PiApp extends HTMLElement {
     });
     window.addEventListener("keydown", (event) => this.shortcut(event));
     window.addEventListener("click", (event) => {
-      if (!event.target.closest?.(".session-menu, .session-menu-button")) this.closeSessionMenus();
-
+      if (!event.target?.closest?.(".folder-popover, [data-action='folder-open']")) this.closeFolderPopover();
+      if (!event.target?.closest?.(".session-menu, .session-menu-button")) this.closeSessionMenus();
     });
     window.addEventListener("message", (event) => {
       if (event.data?.type === "__activate_edit_mode") this.querySelector("[data-tweaks]")?.removeAttribute("hidden");

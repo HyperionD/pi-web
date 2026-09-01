@@ -28,21 +28,6 @@ describe("workspace bootstrap coverage", () => {
     await app.openWorkspacePath("/missing");
     expect(app.renderWorkspaces).toHaveBeenCalledWith([]);
 
-    const cloneForm = document.createElement("form");
-    cloneForm.innerHTML = `<input name="gitUrl" value="https://x/repo.git"><input name="name" value=""><button type="submit"></button>`;
-    cloneForm.reset = vi.fn();
-    globalThis.fetch = vi.fn(async (url) => String(url).endsWith("/workspaces/clone")
-      ? okJson({ workspace: undefined })
-      : okJson({ workspaces: null }));
-    app.currentFolder = "";
-    await app.submitCloneWorkspace({ preventDefault: vi.fn(), currentTarget: cloneForm });
-    expect(cloneForm.reset).toHaveBeenCalled();
-    const cloneFormNoButton = document.createElement("form");
-    cloneFormNoButton.innerHTML = `<input name="gitUrl" value="https://x/repo.git"><input name="name" value="">`;
-    cloneFormNoButton.reset = vi.fn();
-    await app.submitCloneWorkspace({ preventDefault: vi.fn(), currentTarget: cloneFormNoButton });
-    expect(cloneFormNoButton.reset).toHaveBeenCalled();
-
     vi.spyOn(window, "confirm").mockReturnValue(true);
     globalThis.fetch = vi.fn(async () => okJson({ workspaces: null }));
     await app.deleteWorkspace("w1");

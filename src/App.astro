@@ -115,20 +115,25 @@ function toolStatus(msg) {
       </div>
       <div class="picker-card">
         <div class="card-head"><span class="left">打开文件夹</span></div>
-        <form class="input-row" data-path-form>
-          <input name="path" placeholder="~/code/my-project   或   /Users/me/Code/project" autocomplete="off" />
-          <button class="open-btn" type="submit" aria-label="打开输入的路径">打开 <CornerDownLeft size={12} strokeWidth={1.75} aria-hidden="true" /></button>
-        </form>
-        <div style="padding:0 16px 12px;font-size:11px;color:var(--fg-3)">粘贴路径，从 <code>~</code> 中选择，或将文件夹拖到窗口中。</div>
-        <div class="folder-browser" data-folder-browser>
-          <div class="folder-browser-head"><button type="button" data-action="folder-up"><ArrowUp size={12} strokeWidth={1.75} aria-hidden="true" /> 上一级</button><span data-folder-path>~</span><button type="button" data-action="folder-open-current">打开此文件夹</button></div>
-          <div class="folder-list" data-folder-list></div>
+        <div class="folder-picker-anchor">
+          <button class="open-folder-btn" type="button" data-action="folder-open" aria-haspopup="dialog" aria-expanded="false">
+            <Folder size={14} strokeWidth={1.75} aria-hidden="true" /> 选择文件夹
+          </button>
+          <div class="folder-popover" data-folder-popover role="dialog" aria-label="选择工作区" hidden>
+            <div class="folder-popover-head">
+              <strong>选择工作区</strong>
+              <button type="button" data-action="folder-close" aria-label="关闭目录选择器">×</button>
+            </div>
+            <div class="folder-browser" data-folder-browser>
+              <div class="folder-browser-head">
+                <button type="button" data-action="folder-up"><ArrowUp size={12} strokeWidth={1.75} aria-hidden="true" /> 上一级</button>
+                <span data-folder-path>~</span>
+              </div>
+              <div class="folder-list" data-folder-list></div>
+              <button type="button" class="folder-confirm" data-action="folder-open-current">选择此文件夹</button>
+            </div>
+          </div>
         </div>
-        <form class="clone-row" data-clone-form>
-          <input name="gitUrl" placeholder="Git clone URL" autocomplete="off" />
-          <input name="name" placeholder="文件夹名称（可选）" autocomplete="off" />
-          <button type="submit">克隆并打开</button>
-        </form>
       </div>
       <div class="picker-card" data-recent-workspaces>
         <div class="card-head"><span class="left">最近工作区</span><span class="right" data-workspace-count>{workspaces.length} 个工作区</span></div>

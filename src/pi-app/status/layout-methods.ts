@@ -37,7 +37,15 @@ function storeInspectorWidth(width) {
 export const layoutMethods = {
   shortcut(event) {
     if (event.key === "Tab") this.trapSettingsFocus?.(event);
-    if (event.key === "Escape") this.closeModals();
+    if (event.key === "Escape") {
+      const popover = this.querySelector("[data-folder-popover]");
+      if (popover && !popover.hidden) {
+        event.preventDefault();
+        this.closeFolderPopover();
+        return;
+      }
+      this.closeModals();
+    }
   },
 
   route(route) {
@@ -45,10 +53,7 @@ export const layoutMethods = {
     this.querySelector('[data-view="picker"]')?.toggleAttribute("hidden", route !== "picker");
     this.querySelector('[data-view="workspace"]')?.toggleAttribute("hidden", route !== "workspace");
     this.querySelector('[data-action="toggle-tree"]')?.toggleAttribute("hidden", route !== "workspace");
-    if (route === "picker") {
-      this.querySelector('.picker-shell input[name="path"]')?.focus();
-      if (this.apiConnected) void this.browseFolder();
-    }
+    if (route === "picker") this.querySelector("[data-action='folder-open']")?.focus();
     if (route === "workspace") this.scrollTerm();
   },
 

@@ -187,7 +187,7 @@ describe("pi-app core events", () => {
     window.dispatchEvent(new MessageEvent("message", { data: { type: "__deactivate_edit_mode" } }));
     expect(tweaks.hidden).toBe(true);
     expect(calls.map(([name]) => name)).toContain("navigateList");
-    expect(calls).toContainEqual(["openFolderPopover"]);
+    expect(calls).toContainEqual(["openFolderPopover", "workspace"]);
     expect(calls).toContainEqual(["closeFolderPopover"]);
   });
 
