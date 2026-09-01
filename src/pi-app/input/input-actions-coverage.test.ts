@@ -127,7 +127,7 @@ describe("pi-app input actions coverage", () => {
     app.append(badChip);
     badChip.querySelector("button").click();
     expect(calls.some(([name]) => name === "newSession")).toBe(true);
-    expect(calls).toContainEqual(["openFolderPopover", "workspace"]);
+    expect(calls.some(([name, purpose]) => name === "openFolderPopover" && purpose === "workspace")).toBe(true);
     expect(calls).toContainEqual(["closeFolderPopover"]);
 
     app.dataset.activeWorkspaceId = "w1";
@@ -167,6 +167,17 @@ describe("pi-app input actions coverage", () => {
       "workspace",
       expect.objectContaining({ clientX: 90, clientY: 112 }),
     );
+  });
+
+  it("passes a zero-coordinate click event to the workspace popover", async () => {
+    const app = await connectPiApp();
+    const trigger = app.querySelector("[data-action='route-picker']");
+    const event = { target: trigger, clientX: 0, clientY: 0 };
+    app.openFolderPopover = vi.fn();
+
+    app.handleAppClick(event);
+
+    expect(app.openFolderPopover).toHaveBeenCalledWith("workspace", event);
   });
 
   it("opens the root workspace popover through a real sidebar click", async () => {

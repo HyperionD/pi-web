@@ -13,13 +13,11 @@ function appendSessionShell(app, workspaceId = "w1") {
   const activeTitle = document.createElement("span");
   activeTitle.dataset.activeSessionTitle = "";
   app.append(activeTitle);
-  const sessionMain = app.querySelector("main") || document.createElement("main");
+  const sessionMain = app.querySelector("[data-main='session']") || document.createElement("main");
   sessionMain.dataset.main = "session";
-  const emptyMain = document.createElement("main");
-  emptyMain.dataset.main = "empty";
+  const emptyMain = app.querySelector("[data-main='empty']");
   emptyMain.hidden = true;
   if (!sessionMain.isConnected) app.append(sessionMain);
-  app.append(emptyMain);
   const emptyWorkspace = document.createElement("span");
   emptyWorkspace.dataset.emptyWorkspace = "";
   app.append(emptyWorkspace);

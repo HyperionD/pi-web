@@ -71,12 +71,10 @@ describe("pi-app sessions", () => {
       json: async () => ({ session: { id: "s1", title: "new session", lastUsed: "now" } }),
     }));
     const app = await connectPiApp();
-    const sessionMain = app.querySelector("main");
-    const emptyMain = document.createElement("main");
-    sessionMain.dataset.main = "session";
+    const sessionMain = app.querySelector("[data-main='session']");
+    const emptyMain = app.querySelector("[data-main='empty']");
     sessionMain.hidden = true;
-    emptyMain.dataset.main = "empty";
-    app.append(emptyMain);
+    emptyMain.hidden = true;
     app.apiConnected = true;
     app.dataset.activeWorkspaceId = "w1";
     app.connectEvents = vi.fn();

@@ -64,8 +64,11 @@ export const workspaceFolderMethods = {
     const popover = this.querySelector("[data-folder-popover]");
     if (!popover) return;
     const bounds = trigger?.getBoundingClientRect?.();
-    const x = Number.isFinite(event?.clientX) ? event.clientX : bounds?.left || 16;
-    const y = Number.isFinite(event?.clientY) ? event.clientY : bounds?.bottom || 16;
+    const hasMousePosition = Number.isFinite(event?.clientX)
+      && Number.isFinite(event?.clientY)
+      && (event.clientX !== 0 || event.clientY !== 0);
+    const x = hasMousePosition ? event.clientX : bounds?.left ?? 16;
+    const y = hasMousePosition ? event.clientY : bounds?.bottom ?? 16;
     const maxLeft = Math.max(16, (window.innerWidth || 0) - popover.offsetWidth - 16);
     const maxTop = Math.max(16, (window.innerHeight || 0) - popover.offsetHeight - 16);
     popover.style.left = `${Math.max(16, Math.min(x, maxLeft))}px`;

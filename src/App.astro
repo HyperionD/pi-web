@@ -121,7 +121,7 @@ function toolStatus(msg) {
     <div class="sidebar-wrap" hidden={sidebarCollapsed}>
       <aside class="sidebar" aria-label="工作区和会话">
         <div class="sb-section" style="flex:1;overflow-y:auto;min-height:0">
-          <div class="sb-head"><span>工作区</span><span class="sb-head-actions"><button class="add" type="button" data-action="route-picker"><Plus size={12} strokeWidth={1.75} aria-hidden="true" /> 打开</button><button class="refresh" type="button" data-action="refresh-workspaces" title="刷新工作区" aria-label="刷新工作区"><RefreshCw size={12} strokeWidth={1.75} aria-hidden="true" /></button><button class="sb-collapse" type="button" data-action="collapse-sidebar" title="收起侧栏" aria-label="收起侧栏"><ChevronLeft size={14} strokeWidth={1.75} aria-hidden="true" /></button></span></div>
+          <div class="sb-head"><span>工作区</span><span class="sb-head-actions"><button class="add" type="button" data-action="route-picker" aria-haspopup="dialog" aria-expanded="false"><Plus size={12} strokeWidth={1.75} aria-hidden="true" /> 打开</button><button class="refresh" type="button" data-action="refresh-workspaces" title="刷新工作区" aria-label="刷新工作区"><RefreshCw size={12} strokeWidth={1.75} aria-hidden="true" /></button><button class="sb-collapse" type="button" data-action="collapse-sidebar" title="收起侧栏" aria-label="收起侧栏"><ChevronLeft size={14} strokeWidth={1.75} aria-hidden="true" /></button></span></div>
           {workspaces.map((workspace) => {
             const isActiveWorkspace = workspace.id === activeWorkspaceID;
             return (

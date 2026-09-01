@@ -34,3 +34,16 @@
 ## Concerns
 
 完整前端测试中的 2 个失败位于未修改的 session 测试：Task 1 fixture 新增 empty main 后，旧测试再追加一个同类 main，而 session display 方法使用首个匹配节点，导致 `session-methods-display.test.ts` 与 `sessions.test.ts` 的 empty main hidden 断言失败。该问题在本次定向 Task 1 测试中不存在，本次未扩展范围修复。
+
+## Reviewer findings follow-up
+
+- `bunx vitest run src/pi-app/input/input-actions-coverage.test.ts src/pi-app/core-events.test.ts src/pi-app/workspace/workspace-methods-coverage.test.ts src/pi-app/workspace/workspace-navigation.test.ts src/pi-app/workspace/workspace-bootstrap-coverage.test.ts src/pi-app/input/controls.test.ts`
+  - `Test Files 6 passed (6)`
+  - `Tests 92 passed (92)`
+- `bun run test`
+  - `Test Files 37 passed (37)`
+  - `Tests 353 passed (353)`
+- `bun run typecheck`
+  - `$ tsc --noEmit`，退出码 0。
+
+修复了旧 session 测试的重复 empty main、`(0,0)` click event 传递、键盘/零坐标 trigger fallback 与真实 sidebar trigger 的 ARIA 属性；未修改 `static/` 或用户配置。

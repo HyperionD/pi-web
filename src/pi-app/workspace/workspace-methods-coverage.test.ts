@@ -203,6 +203,10 @@ describe("workspace folder/render/bootstrap coverage", () => {
     app.positionFolderPopover(new KeyboardEvent("keydown", { key: "Enter" }), trigger);
     expect(popover.style.left).toBe("40px");
     expect(popover.style.top).toBe("112px");
+
+    app.positionFolderPopover(new MouseEvent("click"), trigger);
+    expect(popover.style.left).toBe("40px");
+    expect(popover.style.top).toBe("112px");
   });
 
   it("toggles an open workspace popover without reloading or losing navigation", async () => {

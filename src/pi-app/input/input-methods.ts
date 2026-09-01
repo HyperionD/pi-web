@@ -186,8 +186,7 @@ export const inputMethods = {
       this.route("workspace");
       const popover = this.querySelector("[data-folder-popover]");
       if (popover && !popover.hidden) this.closeFolderPopover();
-      else if (event?.clientX || event?.clientY) void this.openFolderPopover("workspace", event);
-      else void this.openFolderPopover("workspace");
+      else void this.openFolderPopover("workspace", event);
     }
     if (action === "route-workspace") {
       this.restoreAllowedRootPicker?.();
@@ -198,8 +197,7 @@ export const inputMethods = {
     if (action === "folder-open") {
       const popover = this.querySelector("[data-folder-popover]");
       if (popover && !popover.hidden) this.closeFolderPopover();
-      else if (event?.clientX || event?.clientY) void this.openFolderPopover("workspace", event);
-      else void this.openFolderPopover("workspace");
+      else void this.openFolderPopover("workspace", event);
     }
     if (action === "folder-close") this.closeFolderPopover();
     const folderPickerTarget = actionTarget?.closest("[data-folder-browser], [data-folder-popover]");
