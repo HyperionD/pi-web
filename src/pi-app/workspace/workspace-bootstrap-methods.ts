@@ -5,7 +5,7 @@ import {
   getWorkspaceFiles,
   getWorkspaces,
 } from "../../lib/api";
-import { readStoredActiveSession, storeActiveSession } from "../sessions/session-storage";
+import { clearStoredActiveSession, readStoredActiveSession, storeActiveSession } from "../sessions/session-storage";
 import { isForbiddenWorkspaceError, requestErrorMessage } from "./workspace-methods";
 
 const SESSION_MESSAGE_PAGE_SIZE = 120;
@@ -47,6 +47,8 @@ export const workspaceBootstrapMethods = {
   recoverForbiddenWorkspace(error) {
     if (!isForbiddenWorkspaceError(error)) return false;
     const message = requestErrorMessage(error);
+    clearStoredActiveSession();
+    this.closeSettingsModal?.();
     this.dataset.activeWorkspaceId = "";
     this.dataset.activeSessionId = "";
     this.sessionLoadToken = Symbol("forbidden-workspace");
@@ -62,6 +64,12 @@ export const workspaceBootstrapMethods = {
     return true;
   },
 
+  renderFilteredWorkspaces(workspaces = []) {
+    const workspaceList = this.filterAllowedWorkspaces(workspaces || []);
+    this.renderWorkspaces(workspaceList);
+    return workspaceList;
+  },
+
   async bootstrapAPI() {
     const appConfigRequest = Promise.resolve()
       .then(() => this.loadAppConfigState?.())
@@ -74,7 +82,7 @@ export const workspaceBootstrapMethods = {
       this.apiConnected = true;
       this.setConnection("ok");
 
-      const workspaceList = this.filterAllowedWorkspaces(workspaces || []);
+      const workspaceList = this.renderFilteredWorkspaces(workspaces || []);
       const storedSession = findStoredSession(workspaceList, readStoredActiveSession());
       const activeWorkspace = storedSession?.workspace || workspaceList[0];
       const activeSession = storedSession?.session || activeWorkspace?.sessions?.[0];
@@ -82,7 +90,6 @@ export const workspaceBootstrapMethods = {
       if (activeWorkspace) this.activateBootstrapWorkspace(activeWorkspace);
       if (activeSession) this.activateBootstrapSession(activeSession);
 
-      this.renderWorkspaces(workspaceList);
       if (activeSession) this.route("workspace");
       else if (this.dataset.route === "picker") await this.browseFolder();
 
@@ -166,9 +173,8 @@ export const workspaceBootstrapMethods = {
     if (button) button.disabled = true;
     try {
       const { workspaces } = await getWorkspaces();
-      const workspaceList = this.filterAllowedWorkspaces(workspaces || []);
+      const workspaceList = this.renderFilteredWorkspaces(workspaces || []);
       const activeWorkspaceId = this.dataset.activeWorkspaceId;
-      this.renderWorkspaces(workspaceList);
       if (activeWorkspaceId) this.openActiveWorkspaceGroup(activeWorkspaceId);
     } catch (error) {
       if (!this.recoverForbiddenWorkspace(error)) this.setConnection("err");

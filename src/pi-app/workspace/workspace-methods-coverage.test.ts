@@ -252,6 +252,36 @@ describe("workspace folder/render/bootstrap coverage", () => {
     expect(app.querySelector("[data-workspace-group='outside']")).toBeNull();
   });
 
+  it("filters workspace lists after clone and delete and rejects an untrusted clone response", async () => {
+    const app = await connectPiApp();
+    app.apiConnected = true;
+    app.appConfigState = { config: { workspace: { allowedRoots: ["/allowed"] } } };
+    app.renderWorkspaces = vi.fn();
+    app.openWorkspace = vi.fn();
+    app.currentFolder = "/allowed";
+    const form = document.createElement("form");
+    form.innerHTML = `<input name="gitUrl" value="https://x/repo.git"><button type="submit"></button>`;
+    form.reset = vi.fn();
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    const workspaces = [
+      { id: "inside", name: "inside", path: "/allowed/project", sessions: [] },
+      { id: "outside", name: "outside", path: "/outside/project", sessions: [] },
+    ];
+    globalThis.fetch = vi.fn(async (url) => {
+      if (String(url).endsWith("/workspaces/clone")) {
+        return okJson({ workspace: workspaces[1] });
+      }
+      return okJson({ workspaces });
+    });
+
+    await app.submitCloneWorkspace({ preventDefault: vi.fn(), currentTarget: form });
+    expect(app.renderWorkspaces).toHaveBeenLastCalledWith([workspaces[0]]);
+    expect(app.openWorkspace).not.toHaveBeenCalled();
+
+    await app.deleteWorkspace("outside");
+    expect(app.renderWorkspaces).toHaveBeenLastCalledWith([workspaces[0]]);
+  });
+
   it("covers picker bootstrap, refresh guards, and folder edge branches", async () => {
     const app = await connectPiApp();
     const browser = document.createElement("div");

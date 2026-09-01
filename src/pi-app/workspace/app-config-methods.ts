@@ -32,7 +32,7 @@ export const appConfigMethods = {
     if (this.allowedRootControlsBound) return;
     const addButton = this.querySelector("[data-allowed-root-add]");
     const list = this.querySelector("[data-allowed-roots-list]");
-    addButton?.addEventListener("click", () => this.addAllowedRootRow());
+    addButton?.addEventListener("click", () => this.browseFolder?.("allowed-root"));
     list?.addEventListener("click", (event) => {
       const button = event.target.closest("[data-allowed-root-remove]");
       if (button) this.removeAllowedRootRow(button.closest("[data-allowed-root-row]"));
@@ -110,6 +110,28 @@ export const appConfigMethods = {
     row.remove();
     const roots = this.collectAllowedRoots();
     this.renderAllowedRootRows(roots);
+  },
+
+  addAllowedRootFromFolder(path) {
+    const root = String(path || "").trim();
+    if (!root) return;
+    const roots = this.collectAllowedRoots();
+    if (!roots.includes(root)) this.renderAllowedRootRows([...roots, root]);
+    this.restoreAllowedRootPicker();
+  },
+
+  restoreAllowedRootPicker() {
+    const returnRoute = this.allowedRootPickerReturnRoute;
+    if (!returnRoute) return;
+    delete this.allowedRootPickerReturnRoute;
+    const settingsWasOpen = this.allowedRootPickerSettingsWasOpen;
+    delete this.allowedRootPickerSettingsWasOpen;
+    this.folderBrowsePurpose = "workspace";
+    this.querySelector("[data-folder-browser]")?.setAttribute("hidden", "");
+    this.dataset.route = returnRoute;
+    this.querySelector('[data-view="picker"]')?.toggleAttribute("hidden", returnRoute !== "picker");
+    this.querySelector('[data-view="workspace"]')?.toggleAttribute("hidden", returnRoute !== "workspace");
+    if (settingsWasOpen) this.settingsModal?.removeAttribute("hidden");
   },
 
   appConfigPatchFromForm() {

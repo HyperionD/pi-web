@@ -150,6 +150,37 @@ describe("pi-app input actions coverage", () => {
     expect(event.preventDefault).toHaveBeenCalled();
   });
 
+  it("opens the real allowed-root picker and adds the selected folder", async () => {
+    const app = await connectPiApp();
+    app.apiConnected = true;
+    app.dataset.route = "workspace";
+    app.appConfigState = {
+      config: { version: 1, brand: "x", workspace: { allowedRoots: ["/existing"] } },
+      path: "/config",
+    };
+    const picker = app.querySelector('[data-view="picker"]');
+    picker.innerHTML = `<div data-folder-browser hidden>
+      <span data-folder-path></span><button data-action="folder-open-current">select</button><div data-folder-list></div>
+    </div>`;
+    app.querySelector("[data-settings-modal]").removeAttribute("hidden");
+    app.fillAppConfigForm();
+    globalThis.fetch = vi.fn(async () => ok({ path: "/selected", folders: [] }));
+
+    app.querySelector("[data-allowed-root-add]").click();
+    await vi.waitFor(() => expect(globalThis.fetch).toHaveBeenCalledWith(
+      expect.stringContaining("purpose=allowed-root"),
+      expect.any(Object),
+    ));
+    await vi.waitFor(() => expect(app.currentFolder).toBe("/selected"));
+
+    picker.querySelector("[data-action='folder-open-current']").click();
+
+    expect(app.querySelectorAll("[data-allowed-root-row]")).toHaveLength(2);
+    expect(app.querySelector("[data-app-setting='allowed-roots']").value).toBe("/existing\n/selected");
+    expect(picker.hidden).toBe(true);
+    expect(app.querySelector("[data-settings-modal]").hidden).toBe(false);
+  });
+
   it("submits fallback choices and renders slash command variants", async () => {
     const app = await connectPiApp();
     app.apiConnected = true;

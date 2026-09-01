@@ -183,12 +183,18 @@ export const inputMethods = {
       return;
     }
     if (action === "route-picker") this.route("picker");
-    if (action === "route-workspace") this.route("workspace");
+    if (action === "route-workspace") {
+      this.restoreAllowedRootPicker?.();
+      this.route("workspace");
+    }
     if (action === "refresh-workspaces") this.refreshWorkspaces();
     if (action === "browse-folder") this.browseFolder();
     if (action === "folder-enter") this.loadFolder(actionTarget.dataset.path);
     if (action === "folder-up") this.loadFolder(this.currentFolderParent);
-    if (action === "folder-open-current") this.openWorkspacePath(this.currentFolder);
+    if (action === "folder-open-current") {
+      if (this.folderBrowsePurpose === "allowed-root") this.addAllowedRootFromFolder?.(this.currentFolder);
+      else this.openWorkspacePath(this.currentFolder);
+    }
     if (action === "toggle-tree") this.toggleTree();
     if (action === "show-file-tree") this.showFileTreePanel?.();
     if (action === "show-git-history") this.showGitHistory?.();

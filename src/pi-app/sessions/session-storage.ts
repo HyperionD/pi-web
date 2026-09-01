@@ -22,7 +22,7 @@ export function storeActiveSession(workspaceId, sessionId) {
   } catch {}
 }
 
-export function clearStoredActiveSession(sessionId) {
+export function clearStoredActiveSession(sessionId?: string) {
   try {
     const stored = readStoredActiveSession();
     if (!sessionId || stored?.sessionId === sessionId) localStorage.removeItem(ACTIVE_SESSION_KEY);

@@ -73,8 +73,12 @@ function settingsValueChanged(scopedSettings, effective, path, value) {
 export const settingsMethods = {
   async loadWorkspaceSettingsState(workspaceId = this.dataset.activeWorkspaceId) {
     if (!workspaceId || !this.apiConnected) return;
-    const { settings } = await getWorkspaceSettings(workspaceId);
-    this.settingsState = parseWorkspaceSettings(settings);
+    try {
+      const { settings } = await getWorkspaceSettings(workspaceId);
+      this.settingsState = parseWorkspaceSettings(settings);
+    } catch (error) {
+      if (!this.recoverForbiddenWorkspace?.(error)) throw error;
+    }
   },
 
   setAppConfigLoading(loading) {
@@ -133,6 +137,7 @@ export const settingsMethods = {
       errors.push(appConfigResult.reason instanceof Error ? appConfigResult.reason.message : String(appConfigResult.reason));
     }
     if (settingsResult.status === "rejected") {
+      if (this.recoverForbiddenWorkspace?.(settingsResult.reason)) return;
       errors.push(settingsResult.reason instanceof Error ? settingsResult.reason.message : String(settingsResult.reason));
       this.setSettingsStatus(errors.join("; "), true);
       this.setConnection("err");

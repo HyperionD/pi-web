@@ -10,6 +10,14 @@ import { requestErrorMessage } from "./workspace-methods";
 export const workspaceFolderMethods = {
   async browseFolder(purpose = "workspace") {
     this.folderBrowsePurpose = purpose;
+    if (purpose === "allowed-root" && this.dataset.route !== "picker") {
+      this.allowedRootPickerReturnRoute = this.dataset.route || "workspace";
+      this.allowedRootPickerSettingsWasOpen = !!this.settingsModal && !this.settingsModal.hidden;
+      this.settingsModal?.setAttribute("hidden", "");
+      this.dataset.route = "picker";
+      this.querySelector('[data-view="picker"]')?.removeAttribute("hidden");
+      this.querySelector('[data-view="workspace"]')?.setAttribute("hidden", "");
+    }
     this.querySelector("[data-folder-browser]")?.removeAttribute("hidden");
     await this.loadFolder(this.currentFolder || "~", purpose);
   },
@@ -75,8 +83,7 @@ export const workspaceFolderMethods = {
     if (!path) return;
     await openWorkspaceRequest(path);
     const { workspaces } = await getWorkspaces();
-    const workspaceList = this.filterAllowedWorkspaces?.(workspaces || []) || workspaces || [];
-    this.renderWorkspaces(workspaceList);
+    const workspaceList = this.renderFilteredWorkspaces(workspaces || []);
     const workspace = workspaceList.find((item) => item.path === path) || workspaceList[0];
     if (workspace) await this.openWorkspace(workspace.id);
   },
@@ -94,9 +101,10 @@ export const workspaceFolderMethods = {
       const cloned = await cloneWorkspaceRequest(this.currentFolder || "~", gitUrl, name);
       form.reset();
       const { workspaces } = await getWorkspaces();
-      const workspaceList = this.filterAllowedWorkspaces?.(workspaces || []) || workspaces || [];
-      this.renderWorkspaces(workspaceList);
-      const workspace = cloned.workspace || workspaceList[0];
+      const workspaceList = this.renderFilteredWorkspaces(workspaces || []);
+      const workspace = cloned.workspace
+        ? workspaceList.find((item) => item.id === cloned.workspace.id || item.path === cloned.workspace.path)
+        : workspaceList[0];
       if (workspace) await this.openWorkspace(workspace.id);
     } catch (error) {
       if (!this.recoverForbiddenWorkspace?.(error)) {
@@ -134,7 +142,7 @@ export const workspaceFolderMethods = {
     try {
       await deleteWorkspaceRequest(workspaceId);
       const { workspaces } = await getWorkspaces();
-      this.renderWorkspaces(workspaces || []);
+      this.renderFilteredWorkspaces(workspaces || []);
     } catch (error) {
       if (!this.recoverForbiddenWorkspace?.(error)) this.setConnection("err");
     }
