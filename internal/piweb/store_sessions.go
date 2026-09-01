@@ -49,6 +49,24 @@ func (s *Store) Sessions(workspaceID string) ([]Session, error) {
 	return nil, ErrNotFound
 }
 
+func (s *Store) SessionWorkspacePath(sessionID string) (string, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.refreshAllWorkspaceSessionsLocked()
+	for _, workspace := range s.workspaces {
+		for _, session := range workspace.Sessions {
+			if session.ID == sessionID {
+				path := s.workspacePath[session.Workspace]
+				if path == "" {
+					return "", ErrNotFound
+				}
+				return path, nil
+			}
+		}
+	}
+	return "", ErrNotFound
+}
+
 func (s *Store) Session(sessionID string) (Session, []Message, error) {
 	session, file, err := s.sessionMeta(sessionID)
 	if err != nil {
