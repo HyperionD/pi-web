@@ -395,11 +395,11 @@ export const settingsMethods = {
     this.setSettingsStatus("saving…");
     try {
       const appConfigPatch = this.appConfigPatchFromForm?.() || {};
+      const scope = settingsScopeSchema.parse(scopeValue);
+      const patch = workspaceId ? parseSettingsPatch(this.settingsPatchFromForm(form)) : {};
       const appConfigRequest = Object.keys(appConfigPatch).length
         ? saveAppConfig(appConfigPatch)
         : Promise.resolve(undefined);
-      const scope = settingsScopeSchema.parse(scopeValue);
-      const patch = workspaceId ? parseSettingsPatch(this.settingsPatchFromForm(form)) : {};
       const settingsRequest = workspaceId && Object.keys(patch).length
         ? saveWorkspaceSettings(workspaceId, scope, patch)
         : Promise.resolve(undefined);

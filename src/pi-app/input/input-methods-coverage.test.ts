@@ -314,6 +314,74 @@ describe("pi-app input methods coverage", () => {
     expect(app.querySelector(".msg.loading")).toBeNull();
   });
 
+  it("parses every settings input before starting either save", async () => {
+    const app = await connectPiApp();
+    app.apiConnected = true;
+    app.dataset.activeWorkspaceId = "w1";
+    app.settingsState = { project: {}, global: {}, effective: {}, paths: {} };
+    app.querySelector("[data-app-setting='brand']").value = "Custom";
+    app.settingsPatchFromForm = vi.fn(() => ({ defaultThinkingLevel: "not-valid" }));
+    globalThis.fetch = vi.fn(async () => ok({ config: { version: 1, brand: "Custom" }, path: "/config" }));
+
+    await app.saveSettingsForm({ preventDefault: vi.fn() });
+
+    const writes = globalThis.fetch.mock.calls.filter(([, options]) => ["PATCH", "PUT"].includes(options?.method));
+    expect(writes).toHaveLength(0);
+    expect(app.querySelector("[data-settings-status]").textContent).toContain("invalid settings patch");
+  });
+
+  it("starts workspace and app-config bootstrap requests while both are pending", async () => {
+    const app = await connectPiApp();
+    let releaseAppConfig;
+    let appConfigStarted = false;
+    let workspacesStarted = false;
+    const appConfig = new Promise((resolve) => { releaseAppConfig = resolve; });
+    globalThis.fetch = vi.fn((url) => {
+      if (String(url).endsWith("/app-config")) {
+        appConfigStarted = true;
+        return appConfig;
+      }
+      if (String(url).endsWith("/workspaces")) {
+        workspacesStarted = true;
+        return Promise.resolve(ok({ workspaces: [] }));
+      }
+      return Promise.resolve(ok({}));
+    });
+    app.renderWorkspaces = vi.fn();
+    app.loadWorkspaceMeta = vi.fn();
+    app.loadSession = vi.fn();
+
+    const bootstrap = app.bootstrapAPI();
+    await Promise.resolve();
+
+    expect(appConfigStarted).toBe(true);
+    expect(workspacesStarted).toBe(true);
+    releaseAppConfig(ok({ config: { version: 1, brand: "Custom" }, path: "/config" }));
+    await bootstrap;
+  });
+
+  it("reports each save failure without showing saved", async () => {
+    const app = await connectPiApp();
+    app.apiConnected = true;
+    app.dataset.activeWorkspaceId = "w1";
+    app.settingsState = { project: {}, global: {}, effective: {}, paths: {} };
+    app.querySelector("[data-app-setting='brand']").value = "Custom";
+    app.settingsPatchFromForm = vi.fn(() => ({ defaultThinkingLevel: "high" }));
+    globalThis.fetch = vi.fn(async (url, options = {}) => {
+      if (options.method === "PATCH") return err("brand save failed");
+      if (options.method === "PUT") return err("settings save failed");
+      return ok({});
+    });
+
+    await app.saveSettingsForm({ preventDefault: vi.fn() });
+
+    const status = app.querySelector("[data-settings-status]");
+    expect(status.textContent).toContain("brand save failed");
+    expect(status.textContent).toContain("settings save failed");
+    expect(status.textContent).not.toBe("saved");
+    expect(status.classList.contains("err")).toBe(true);
+  });
+
   it("runs shell commands through success, nonzero, and failure paths", async () => {
     const app = await connectPiApp();
     const form = document.createElement("form");
