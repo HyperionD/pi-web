@@ -118,6 +118,30 @@ func TestSessionRoutesRejectForbiddenWorkspace(t *testing.T) {
 	}
 }
 
+func TestAuthorizedSessionStatusRoutesRemainReachable(t *testing.T) {
+	server, allowed, _ := serverWithAllowedAndForbiddenWorkspace(t)
+	session, err := server.store.CreateSession(allowed.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	contextResponse := serveRequest(server, http.MethodGet, "/api/sessions/"+session.ID+"/context-usage", nil)
+	if contextResponse.Code != http.StatusOK {
+		t.Fatalf("context usage: got %d, want %d: %s", contextResponse.Code, http.StatusOK, contextResponse.Body.String())
+	}
+	modelResponse := serveRequest(server, http.MethodPost, "/api/sessions/"+session.ID+"/model", nil)
+	if modelResponse.Code != http.StatusNotImplemented {
+		t.Fatalf("model: got %d, want %d: %s", modelResponse.Code, http.StatusNotImplemented, modelResponse.Body.String())
+	}
+}
+
+func TestSessionStatusEndpointRemainsUnregistered(t *testing.T) {
+	server := NewServer(Config{}, NewMockStore(), NewBroker())
+	response := serveRequest(server, http.MethodGet, "/api/sessions/8e7c-44ff/status", nil)
+	if response.Code != http.StatusNotFound {
+		t.Fatalf("status endpoint: got %d, want %d", response.Code, http.StatusNotFound)
+	}
+}
+
 func serveRequest(server *Server, method, path string, body io.Reader) *httptest.ResponseRecorder {
 	request := httptest.NewRequest(method, path, body)
 	response := httptest.NewRecorder()
