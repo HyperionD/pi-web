@@ -145,6 +145,21 @@ describe("app config methods", () => {
     expect(app.querySelector("[data-allowed-roots-hint]").textContent).toContain("不限制");
   });
 
+  it("adds a filled root after an existing root and collects both visible rows", async () => {
+    const app = await connectPiApp();
+    Object.assign(app, appConfigMethods);
+    app.appConfigState = {
+      config: { version: 1, brand: "x", workspace: { allowedRoots: ["/a"] } },
+      path: "/config",
+    };
+    app.fillAppConfigForm();
+
+    app.addAllowedRootRow();
+    app.querySelector("[data-allowed-root-row]:last-child input").value = "/b";
+
+    expect(app.appConfigPatchFromForm()).toEqual({ workspace: { allowedRoots: ["/a", "/b"] } });
+  });
+
   it("adds and removes allowed-root rows", async () => {
     const app = await connectPiApp();
     Object.assign(app, appConfigMethods);
@@ -158,11 +173,40 @@ describe("app config methods", () => {
     expect(app.appConfigPatchFromForm().workspace.allowedRoots).toEqual(["/a"]);
   });
 
-  it("sends only the workspace allowed-roots app-config patch and applies the response", async () => {
+  it("collects an empty list after removing the only allowed-root row", () => {
+    const app = document.querySelector("pi-app");
+    Object.assign(app, appConfigMethods);
+    app.appConfigState = {
+      config: { version: 1, brand: "x", workspace: { allowedRoots: ["/a"] } },
+      path: "/config",
+    };
+    app.fillAppConfigForm();
+
+    app.removeAllowedRootRow(app.querySelector("[data-allowed-root-row]"));
+
+    expect(app.appConfigPatchFromForm()).toEqual({ workspace: { allowedRoots: [] } });
+  });
+
+  it("submits an empty brand with an empty roots list in the same patch", () => {
+    const app = document.querySelector("pi-app");
+    Object.assign(app, appConfigMethods);
+    app.appConfigState = {
+      config: { version: 1, brand: "x", workspace: { allowedRoots: ["/a"] } },
+      path: "/config",
+    };
+    app.fillAppConfigForm();
+    app.querySelector("[data-app-setting='brand']").value = "";
+    app.removeAllowedRootRow(app.querySelector("[data-allowed-root-row]"));
+
+    expect(app.appConfigPatchFromForm()).toEqual({ brand: "", workspace: { allowedRoots: [] } });
+  });
+
+  it("sends workspace and brand app-config patches together and applies the response", async () => {
     const app = await connectPiApp();
     app.apiConnected = true;
     app.settingsState = { project: {}, global: {}, effective: {}, paths: {} };
-    app.querySelector("[data-app-setting='allowed-roots']").value = "/a\n /b ";
+    Object.assign(app, appConfigMethods);
+    app.renderAllowedRootRows(["/a", "/b"]);
     globalThis.fetch = vi.fn(async () => ok({
       config: { version: 1, brand: "x", workspace: { allowedRoots: ["/a", "/b"] } },
       path: "/config",
@@ -172,7 +216,7 @@ describe("app config methods", () => {
 
     const patchCalls = globalThis.fetch.mock.calls.filter(([, options]) => options?.method === "PATCH");
     expect(patchCalls).toHaveLength(1);
-    expect(JSON.parse(patchCalls[0][1].body)).toEqual({ workspace: { allowedRoots: ["/a", "/b"] } });
+    expect(JSON.parse(patchCalls[0][1].body)).toEqual({ brand: "", workspace: { allowedRoots: ["/a", "/b"] } });
     expect(app.appConfigState.config.workspace.allowedRoots).toEqual(["/a", "/b"]);
   });
 
@@ -184,7 +228,7 @@ describe("app config methods", () => {
       path: "/config",
     };
     app.fillAppConfigForm();
-    app.querySelector("[data-app-setting='allowed-roots']").value = "";
+    app.removeAllowedRootRow(app.querySelector("[data-allowed-root-row]"));
 
     expect(app.appConfigPatchFromForm()).toEqual({ workspace: { allowedRoots: [] } });
   });

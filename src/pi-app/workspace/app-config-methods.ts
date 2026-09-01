@@ -68,8 +68,11 @@ export const appConfigMethods = {
       const row = document.createElement("div");
       row.dataset.allowedRootRow = "";
       const label = document.createElement("label");
-      label.textContent = `目录 ${index + 1}`;
       const input = document.createElement("input");
+      const inputId = `allowed-root-${index + 1}`;
+      label.htmlFor = inputId;
+      label.textContent = `目录 ${index + 1}`;
+      input.id = inputId;
       input.type = "text";
       input.value = root;
       input.dataset.allowedRootInput = "";
@@ -91,17 +94,9 @@ export const appConfigMethods = {
   },
 
   collectAllowedRoots() {
-    const rows = [...this.querySelectorAll("[data-allowed-root-row]")];
-    const control = this.querySelector("[data-app-setting='allowed-roots']");
-    if (rows.length) {
-      const rowRoots = rows.map((row) => row.querySelector("[data-allowed-root-input]")?.value.trim()).filter(Boolean);
-      const rendered = control?.dataset.renderedAllowedRoots;
-      if (rendered && control.value !== JSON.parse(rendered).filter(Boolean).join("\n")) {
-        return control.value.split("\n").map((root) => root.trim()).filter(Boolean);
-      }
-      return rowRoots;
-    }
-    return control ? control.value.split("\n").map((root) => root.trim()).filter(Boolean) : [];
+    return [...this.querySelectorAll("[data-allowed-root-row]")]
+      .map((row) => row.querySelector("[data-allowed-root-input]")?.value.trim())
+      .filter(Boolean);
   },
 
   addAllowedRootRow() {
@@ -130,7 +125,6 @@ export const appConfigMethods = {
     const initialRoots = initial ? JSON.parse(initial) : [];
     if (roots.length || JSON.stringify(roots) !== JSON.stringify(initialRoots)) {
       patch.workspace = { allowedRoots: roots };
-      if (!brand) delete patch.brand;
     }
     return patch;
   },
