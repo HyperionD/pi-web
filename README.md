@@ -37,6 +37,12 @@ pi-web --port 9999
 A web UI for viewing and controlling the local `pi` coding agent in your browser.
 It bundles an Astro-based frontend and a Go backend into a single executable, so you can run the workspace/session UI in a local browser without configuring a separate server.
 
+## User-level configuration
+
+pi-web stores the brand setting in the user-level `pi-web-config.json` file. The default path is `~/.pi/agent/pi-web-config.json`; with a custom session directory, it is `<parent of PI_CODING_AGENT_SESSION_DIR>/pi-web-config.json`. To reset the brand, delete `pi-web-config.json`; pi-web will use the default brand.
+
+This brand setting does not use pi native `settings.json` or `auth.json`, project `.pi` files, browser storage, or SQLite.
+
 ## Features
 
 - **Workspace management**: Open local folders, view recent workspaces, and open workspaces after cloning Git repositories.
