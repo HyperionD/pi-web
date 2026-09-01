@@ -376,6 +376,31 @@ describe("app config methods", () => {
     expect(document.activeElement).toBe(addButton);
   });
 
+  it("uses the saved trigger rect for zero-coordinate keyboard activation", async () => {
+    const app = await connectPiApp();
+    const settings = app.querySelector("[data-settings-modal]");
+    const addButton = app.querySelector("[data-allowed-root-add]");
+    const popover = app.querySelector("[data-folder-popover]");
+    app.apiConnected = true;
+    app.appConfigState = { config: { version: 1, brand: "x", workspace: { allowedRoots: [] } }, path: "/config" };
+    settings.removeAttribute("hidden");
+    app.fillAppConfigForm();
+    Object.defineProperty(window, "innerWidth", { configurable: true, value: 800 });
+    Object.defineProperty(window, "innerHeight", { configurable: true, value: 600 });
+    Object.defineProperty(popover, "offsetWidth", { configurable: true, value: 300 });
+    Object.defineProperty(popover, "offsetHeight", { configurable: true, value: 200 });
+    addButton.getBoundingClientRect = () => settings.hidden
+      ? { left: 0, top: 0, right: 0, bottom: 0, width: 0, height: 0 }
+      : { left: 72, top: 96, right: 160, bottom: 128, width: 88, height: 32 };
+    globalThis.fetch = vi.fn(async () => ok({ path: "/selected", folders: [] }));
+
+    addButton.dispatchEvent(new MouseEvent("click", { bubbles: true, clientX: 0, clientY: 0 }));
+    await vi.waitFor(() => expect(app.currentFolder).toBe("/selected"));
+
+    expect(popover.style.left).toBe("72px");
+    expect(popover.style.top).toBe("136px");
+  });
+
   it("exposes the app config GET API wrapper", async () => {
     globalThis.fetch = vi.fn(async () => ok({ config: {}, path: "/config" }));
 

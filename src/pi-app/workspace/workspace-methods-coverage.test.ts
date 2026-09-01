@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanupPiAppFixture, connectPiApp, installPiAppFixture } from "../test-helper";
 
 const pickerStyles = readFileSync(resolve(process.cwd(), "src/styles/parts/workspace-picker.css"), "utf8");
+const responsiveStyles = readFileSync(resolve(process.cwd(), "src/styles/parts/responsive-themes.css"), "utf8");
 
 function okJson(body) {
   return { ok: true, status: 200, statusText: "OK", json: async () => body };
@@ -212,6 +213,10 @@ describe("workspace folder/render/bootstrap coverage", () => {
     expect(popover.style.left).toBe("40px");
     expect(popover.style.top).toBe("120px");
 
+    app.positionFolderPopover({ clientX: Number.POSITIVE_INFINITY, clientY: Number.NaN }, trigger);
+    expect(popover.style.left).toBe("40px");
+    expect(popover.style.top).toBe("120px");
+
     Object.defineProperty(popover, "offsetWidth", { configurable: true, value: 0 });
     Object.defineProperty(popover, "offsetHeight", { configurable: true, value: 0 });
     Object.defineProperty(window, "innerWidth", { configurable: true, value: 500 });
@@ -219,6 +224,29 @@ describe("workspace folder/render/bootstrap coverage", () => {
     app.positionFolderPopover({ clientX: 100, clientY: 100 }, trigger);
     expect(popover.style.left).toBe("64px");
     expect(popover.style.top).toBe("24px");
+  });
+
+  it("repositions after folder listing changes popover height", async () => {
+    const app = await connectPiApp();
+    const trigger = app.querySelector("[data-action='route-picker']");
+    const popover = app.querySelector("[data-folder-popover]");
+    app.apiConnected = true;
+    Object.defineProperty(window, "innerWidth", { configurable: true, value: 1024 });
+    Object.defineProperty(window, "innerHeight", { configurable: true, value: 768 });
+    Object.defineProperty(popover, "offsetWidth", { configurable: true, value: 300 });
+    let popoverHeight = 100;
+    Object.defineProperty(popover, "offsetHeight", { configurable: true, get: () => popoverHeight });
+    trigger.getBoundingClientRect = () => ({ left: 40, top: 80, right: 120, bottom: 112, width: 80, height: 32 });
+    let resolveListing;
+    globalThis.fetch = vi.fn(() => new Promise((resolve) => { resolveListing = resolve; }));
+
+    const opening = app.openFolderPopover("workspace", new MouseEvent("click", { clientX: 100, clientY: 700 }));
+    expect(popover.style.top).toBe("652px");
+    popoverHeight = 600;
+    resolveListing(okJson({ path: "/current", parent: "/", folders: [] }));
+    await opening;
+
+    expect(popover.style.top).toBe("152px");
   });
 
   it("toggles an open workspace popover without reloading or losing navigation", async () => {
@@ -391,6 +419,7 @@ describe("workspace folder/render/bootstrap coverage", () => {
     expect(pickerStyles).not.toMatch(/\.input-row\b/);
     expect(pickerStyles).not.toMatch(/\.clone-row\b/);
     expect(pickerStyles).not.toMatch(/\.picker-(?:shell|inner|tag|card)\b/);
+    expect(responsiveStyles).not.toContain(".picker-card .card-head");
     expect(pickerStyles).not.toContain(".folder-picker-anchor");
     expect(pickerStyles).toMatch(/\.folder-popover\s*\{[^}]*position:\s*fixed;/s);
     expect(pickerStyles).toMatch(/\.folder-popover\s*\{[^}]*width:\s*min\(420px, calc\(100vw - 32px\)\);/s);

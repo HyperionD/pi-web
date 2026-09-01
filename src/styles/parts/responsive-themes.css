@@ -43,7 +43,6 @@
   .ws-row { min-height: 44px; }
   .recent-row { min-height: 56px; }
   .tool-card .tc-head { min-height: 36px; }
-  .picker-card .card-head { padding: var(--space-3); }
 }
 
 @media (min-width: 881px) {

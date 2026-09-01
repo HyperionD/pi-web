@@ -53,6 +53,8 @@ export const workspaceFolderMethods = {
     this.querySelectorAll("[data-action='route-picker'], [data-action='folder-open']")
       .forEach((trigger) => trigger.setAttribute("aria-expanded", "false"));
     this.folderPickerTrigger = undefined;
+    this.folderPickerTriggerRect = undefined;
+    this.folderPickerEvent = undefined;
   },
 
   resolveFolderTrigger(event) {
@@ -60,12 +62,15 @@ export const workspaceFolderMethods = {
       || this.querySelector("[data-action='route-picker'], [data-action='folder-open'], [data-allowed-root-add]");
   },
 
-  positionFolderPopover(event, trigger = this.resolveFolderTrigger(event)) {
+  positionFolderPopover(
+    event = this.folderPickerEvent,
+    trigger = this.folderPickerTrigger || this.resolveFolderTrigger(event),
+  ) {
     const popover = this.querySelector("[data-folder-popover]");
     if (!popover) return;
-    const bounds = trigger?.getBoundingClientRect?.();
-    const x = Number(event?.clientX) > 0 ? event.clientX : bounds?.left || 16;
-    const y = Number(event?.clientY) > 0 ? event.clientY : bounds?.bottom || 16;
+    const bounds = this.folderPickerTriggerRect || trigger?.getBoundingClientRect?.();
+    const x = Number.isFinite(event?.clientX) && event.clientX > 0 ? event.clientX : bounds?.left || 16;
+    const y = Number.isFinite(event?.clientY) && event.clientY > 0 ? event.clientY : bounds?.bottom || 16;
     const width = popover.offsetWidth || 420;
     const height = popover.offsetHeight || 360;
     const left = Math.max(16, Math.min(x, window.innerWidth - width - 16));
@@ -82,6 +87,8 @@ export const workspaceFolderMethods = {
     const browser = this.querySelector("[data-folder-browser]");
     const trigger = this.resolveFolderTrigger(event);
     this.folderPickerTrigger = trigger;
+    this.folderPickerTriggerRect ??= trigger?.getBoundingClientRect?.();
+    this.folderPickerEvent = event;
     popover?.removeAttribute("hidden");
     browser?.removeAttribute("hidden");
     trigger?.setAttribute("aria-expanded", "true");
@@ -116,6 +123,9 @@ export const workspaceFolderMethods = {
     if (purpose === "allowed-root") {
       this.allowedRootPickerReturnRoute ??= this.dataset.route || "workspace";
       this.allowedRootPickerSettingsWasOpen ??= !!this.settingsModal && !this.settingsModal.hidden;
+      this.folderPickerTrigger = this.resolveFolderTrigger(event);
+      this.folderPickerTriggerRect = this.folderPickerTrigger?.getBoundingClientRect?.();
+      this.folderPickerEvent = event;
       this.settingsModal?.setAttribute("hidden", "");
     }
     return this.openFolderPopover(purpose, event);
@@ -145,6 +155,7 @@ export const workspaceFolderMethods = {
       this.currentFolder = listing.path;
       this.currentFolderParent = listing.parent || listing.path;
       this.renderFolderListing(listing);
+      if (this.querySelector("[data-folder-popover]")?.hidden === false) this.positionFolderPopover();
     } catch (error) {
       if (!isCurrent()) return;
       this.renderFolderError(error);
