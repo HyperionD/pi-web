@@ -337,6 +337,45 @@ describe("app config methods", () => {
     expect(app.appConfigPatchFromForm()).toEqual({});
   });
 
+  it("returns from the allowed-root popover to settings on cancel and completion", async () => {
+    const app = await connectPiApp();
+    const settings = app.querySelector("[data-settings-modal]");
+    const addButton = app.querySelector("[data-allowed-root-add]");
+    app.apiConnected = true;
+    app.dataset.route = "workspace";
+    app.appConfigState = {
+      config: { version: 1, brand: "x", workspace: { allowedRoots: ["/existing"] } },
+      path: "/config",
+    };
+    settings.removeAttribute("hidden");
+    app.fillAppConfigForm();
+    globalThis.fetch = vi.fn(async () => ok({ path: "/selected", folders: [] }));
+
+    addButton.click();
+    await vi.waitFor(() => expect(app.currentFolder).toBe("/selected"));
+    expect(settings.hidden).toBe(true);
+    expect(app.dataset.route).toBe("workspace");
+    expect(app.querySelector('[data-view="picker"]')).toBeNull();
+
+    app.closeFolderPopover();
+    expect(settings.hidden).toBe(false);
+    expect(document.activeElement).toBe(addButton);
+    expect(app.querySelectorAll("[data-allowed-root-row]")).toHaveLength(1);
+
+    addButton.click();
+    await vi.waitFor(() => {
+      expect(globalThis.fetch).toHaveBeenCalledTimes(2);
+      expect(app.folderLoadPending).toBe(false);
+    });
+    app.querySelector("[data-action='folder-open-current']").click();
+
+    expect(settings.hidden).toBe(false);
+    expect(app.dataset.route).toBe("workspace");
+    expect(app.querySelector('[data-view="picker"]')).toBeNull();
+    expect(app.querySelectorAll("[data-allowed-root-row]")).toHaveLength(2);
+    expect(document.activeElement).toBe(addButton);
+  });
+
   it("exposes the app config GET API wrapper", async () => {
     globalThis.fetch = vi.fn(async () => ok({ config: {}, path: "/config" }));
 

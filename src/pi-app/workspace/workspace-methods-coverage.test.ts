@@ -202,11 +202,23 @@ describe("workspace folder/render/bootstrap coverage", () => {
 
     app.positionFolderPopover(new KeyboardEvent("keydown", { key: "Enter" }), trigger);
     expect(popover.style.left).toBe("40px");
-    expect(popover.style.top).toBe("112px");
+    expect(popover.style.top).toBe("120px");
+
+    app.positionFolderPopover({ clientX: 0, clientY: 200 }, trigger);
+    expect(popover.style.left).toBe("40px");
+    expect(popover.style.top).toBe("208px");
 
     app.positionFolderPopover(new MouseEvent("click"), trigger);
     expect(popover.style.left).toBe("40px");
-    expect(popover.style.top).toBe("112px");
+    expect(popover.style.top).toBe("120px");
+
+    Object.defineProperty(popover, "offsetWidth", { configurable: true, value: 0 });
+    Object.defineProperty(popover, "offsetHeight", { configurable: true, value: 0 });
+    Object.defineProperty(window, "innerWidth", { configurable: true, value: 500 });
+    Object.defineProperty(window, "innerHeight", { configurable: true, value: 400 });
+    app.positionFolderPopover({ clientX: 100, clientY: 100 }, trigger);
+    expect(popover.style.left).toBe("64px");
+    expect(popover.style.top).toBe("24px");
   });
 
   it("toggles an open workspace popover without reloading or losing navigation", async () => {
@@ -375,15 +387,19 @@ describe("workspace folder/render/bootstrap coverage", () => {
     expect(error.textContent).toBe("outside allowed roots");
   });
 
-  it("uses an anchored responsive popover without legacy form styles", () => {
+  it("uses a fixed viewport popover without legacy full-screen picker styles", () => {
     expect(pickerStyles).not.toMatch(/\.input-row\b/);
     expect(pickerStyles).not.toMatch(/\.clone-row\b/);
-    expect(pickerStyles).toContain(".folder-picker-anchor");
-    expect(pickerStyles).toMatch(/\.folder-popover\s*\{[^}]*position:\s*absolute;/s);
+    expect(pickerStyles).not.toMatch(/\.picker-(?:shell|inner|tag|card)\b/);
+    expect(pickerStyles).not.toContain(".folder-picker-anchor");
+    expect(pickerStyles).toMatch(/\.folder-popover\s*\{[^}]*position:\s*fixed;/s);
+    expect(pickerStyles).toMatch(/\.folder-popover\s*\{[^}]*width:\s*min\(420px, calc\(100vw - 32px\)\);/s);
+    expect(pickerStyles).toMatch(/\.folder-popover\s*\{[^}]*max-height:\s*min\(480px, calc\(100vh - 32px\)\);/s);
+    expect(pickerStyles).toMatch(/\.folder-popover\s*\{[^}]*overflow:\s*hidden;/s);
+    expect(pickerStyles).not.toMatch(/\.folder-popover\s*\{[^}]*top:\s*16px;/s);
     expect(pickerStyles).toContain("@media (max-width: 640px)");
-    expect(pickerStyles).toMatch(/\.folder-popover\s*\{[^}]*position:\s*fixed;[^}]*top:\s*16px;/s);
-    expect(pickerStyles).toMatch(/\.folder-popover\s*\{[^}]*max-height:\s*calc\(100vh - 32px\);[^}]*overflow-y:\s*auto;/s);
-    expect(pickerStyles).toMatch(/\.folder-list\s*\{[^}]*overflow:\s*auto;/s);
+    expect(pickerStyles).toMatch(/@media \(max-width: 640px\)[\s\S]*\.folder-popover\s*\{[^}]*max-width:\s*calc\(100vw - 32px\);/s);
+    expect(pickerStyles).toMatch(/\.folder-list\s*\{[^}]*max-height:\s*300px;[^}]*overflow:\s*auto;/s);
   });
 
   it("handles folder and delete failure branches", async () => {
