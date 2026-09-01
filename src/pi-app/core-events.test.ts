@@ -1,9 +1,11 @@
 // @ts-nocheck
 import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanupPiAppFixture, connectPiApp, installPiAppFixture } from "./test-helper";
 
-const appTemplate = readFileSync("src/App.astro", "utf8");
+const appTemplatePath = "../App.astro";
+const appTemplate = readFileSync(fileURLToPath(new URL(appTemplatePath, import.meta.url)), "utf8");
 
 describe("pi-app core events", () => {
   beforeEach(installPiAppFixture);
@@ -126,6 +128,10 @@ describe("pi-app core events", () => {
     app.slashPopover.removeAttribute("hidden");
     app.submitWorkspacePath = vi.fn();
     app.submitCloneWorkspace = vi.fn();
+    const pathForm = document.createElement("form");
+    pathForm.dataset.pathForm = "";
+    const cloneForm = document.createElement("form");
+    cloneForm.dataset.cloneForm = "";
     const folderTrigger = document.createElement("button");
     folderTrigger.dataset.action = "folder-open";
     const folderPopover = document.createElement("div");
@@ -143,14 +149,13 @@ describe("pi-app core events", () => {
     resizer.className = "sb-resizer";
     inspectorResizer.className = "fp-resizer";
     gitInspectorResizer.className = "fp-resizer";
-    app.append(shellForm, resizer, inspectorResizer, gitInspectorResizer);
+    app.append(pathForm, cloneForm, shellForm, resizer, inspectorResizer, gitInspectorResizer);
     app.bindDomEvents();
 
     folderTrigger.click();
     folderClose.click();
-    const temporaryForm = document.createElement("form");
-    app.append(temporaryForm);
-    temporaryForm.dispatchEvent(new Event("submit"));
+    pathForm.dispatchEvent(new Event("submit"));
+    cloneForm.dispatchEvent(new Event("submit"));
     shellForm.dispatchEvent(new Event("submit"));
     expect(app.submitWorkspacePath).not.toHaveBeenCalled();
     expect(app.submitCloneWorkspace).not.toHaveBeenCalled();
