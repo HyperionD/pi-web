@@ -243,9 +243,9 @@ class PiApp extends HTMLElement {
         this.setMode("running");
         this.updateToolArgs({ id, tool: name, chunk });
       },
-      onToolResult: ({ id, name, content }) => {
+      onToolResult: ({ id, name, content, mode = "replace" }) => {
         if (this.dataset.activeSessionId !== sessionId || !content) return;
-        this.appendToolOutput({ id, tool: name, chunk: content });
+        this.appendToolOutput({ id, tool: name, chunk: content, mode });
       },
       onToolEnd: ({ id, name, args, body }) => {
         if (this.dataset.activeSessionId !== sessionId) return;

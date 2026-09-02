@@ -311,6 +311,7 @@ export async function runAguiSessionPrompt(sessionId, text, attachments = [], su
     ],
   });
   const toolNames = new Map<string, string>();
+  const toolOutputModes = new Map<string, "append" | "replace">();
   try {
     await agent.runAgent(
       {
@@ -332,10 +333,20 @@ export async function runAguiSessionPrompt(sessionId, text, attachments = [], su
           const chunk = event.delta || "";
           subscriber.onToolArgs?.({ id: event.toolCallId, name, chunk });
         },
+        onCustomEvent: ({ event }: any) => {
+          if (event.name !== "piweb.tool-output") return;
+          const toolCallId = event.value?.toolCallId;
+          const mode = event.value?.mode;
+          if (typeof toolCallId === "string" && (mode === "append" || mode === "replace")) {
+            toolOutputModes.set(toolCallId, mode);
+          }
+        },
         onToolCallResultEvent: ({ event }: any) => {
           const name = toolNames.get(event.toolCallId) || "tool";
           const content = event.content || "";
-          subscriber.onToolResult?.({ id: event.toolCallId, name, content });
+          const mode = toolOutputModes.get(event.toolCallId) || "replace";
+          toolOutputModes.delete(event.toolCallId);
+          subscriber.onToolResult?.({ id: event.toolCallId, name, content, mode });
         },
         onToolCallEndEvent: ({ event, toolCallName, toolCallArgs }: any) => {
           const name = toolCallName || toolNames.get(event.toolCallId) || "tool";

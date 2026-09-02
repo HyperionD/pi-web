@@ -130,7 +130,12 @@ describe("pi-app core events coverage", () => {
     expect(app.finalizePiStream).toHaveBeenCalledWith("final only");
     expect(app.updateToolArgs).toHaveBeenCalledWith({ id: "call-1", tool: "bash", chunk: "args" });
     expect(app.updateToolArgs).toHaveBeenCalledWith({ id: "call-1", tool: "bash", chunk: "args again" });
-    expect(app.appendToolOutput).toHaveBeenCalledWith({ id: "call-1", tool: "bash", chunk: "result" });
+    expect(app.appendToolOutput).toHaveBeenCalledWith({
+      id: "call-1",
+      tool: "bash",
+      chunk: "result",
+      mode: "replace",
+    });
     expect(app.finishTool).toHaveBeenCalledWith({ id: "call-1", kind: "tool", tool: "bash", args: "{}", status: "ok", resultMeta: "done", body: "body" });
     expect(app.notifyResponseFailure).toHaveBeenCalledWith("boom");
 
@@ -151,6 +156,26 @@ describe("pi-app core events coverage", () => {
     subscriber.onToolArgs({ name: "skip", chunk: "" });
     subscriber.onToolResult({ name: "skip", content: "" });
     expect(app.finalizePiStream).not.toHaveBeenCalledWith("skip");
+  });
+
+  it("forwards AG-UI tool result replacement mode to the transcript", async () => {
+    const app = await connectPiApp();
+    app.dataset.activeSessionId = "s1";
+    app.appendToolOutput = vi.fn();
+
+    app.aguiSubscriber("s1").onToolResult({
+      id: "call-1",
+      name: "bash",
+      content: "latest output",
+      mode: "replace",
+    });
+
+    expect(app.appendToolOutput).toHaveBeenCalledWith({
+      id: "call-1",
+      tool: "bash",
+      chunk: "latest output",
+      mode: "replace",
+    });
   });
 
   it("uses AG-UI streamed text as final text to preserve newlines", async () => {

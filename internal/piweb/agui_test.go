@@ -73,11 +73,37 @@ func TestAguiStreamPreservesToolCallIDs(t *testing.T) {
 	state.consume(Event{Type: "tool.finished", Payload: Message{ID: "call-1", Tool: "bash", Body: "output"}}, stream)
 
 	got := res.Body.String()
+	if !strings.Contains(got, `"name":"piweb.tool-output"`) || !strings.Contains(got, `"mode":"append"`) {
+		t.Fatalf("expected append mode metadata for streamed tool output:\n%s", got)
+	}
+	if !strings.Contains(got, `"mode":"replace"`) {
+		t.Fatalf("expected replace mode metadata for final tool output:\n%s", got)
+	}
 	if strings.Count(got, `"toolCallId":"call-1"`) < 3 {
 		t.Fatalf("expected tool call id in AG-UI events:\n%s", got)
 	}
 	if !strings.Contains(got, `"type":"TOOL_CALL_RESULT"`) || strings.Contains(got, `"type":"TOOL_CALL_ARGS"`) {
 		t.Fatalf("tool output must use AG-UI result events:\n%s", got)
+	}
+}
+
+func TestAguiStreamForwardsCumulativeToolOutputSnapshots(t *testing.T) {
+	res := httptest.NewRecorder()
+	stream := newAguiEventStream(res, t.Context())
+	state := newAguiStreamState("thread", "run", "session")
+
+	for _, chunk := range []string{"first output", "latest output"} {
+		state.consume(Event{Type: "tool.output", Payload: map[string]any{
+			"id": "call-1", "tool": "bash", "chunk": chunk, "mode": "replace",
+		}}, stream)
+	}
+
+	got := res.Body.String()
+	if strings.Count(got, `"name":"piweb.tool-output"`) != 2 || strings.Count(got, `"mode":"replace"`) != 2 {
+		t.Fatalf("expected replace mode metadata for each cumulative snapshot:\n%s", got)
+	}
+	if !strings.Contains(got, `"toolCallId":"call-1"`) || !strings.Contains(got, `"content":"latest output"`) {
+		t.Fatalf("expected cumulative tool output snapshot in AG-UI events:\n%s", got)
 	}
 }
 

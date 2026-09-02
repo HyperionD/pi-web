@@ -13,6 +13,8 @@ import (
 	aguisse "github.com/ag-ui-protocol/ag-ui/sdks/community/go/pkg/encoding/sse"
 )
 
+const aguiToolOutputEventName = "piweb.tool-output"
+
 type aguiForwardedProps struct {
 	Text        string             `json:"text"`
 	Attachments []PromptAttachment `json:"attachments"`
@@ -166,8 +168,8 @@ func (s *aguiStreamState) consume(event Event, stream *aguiEventStream) bool {
 			s.emitToolStart(msg, stream)
 		}
 	case "tool.output":
-		if payload, ok := event.Payload.(map[string]string); ok {
-			s.emitToolResult(payload["id"], payload["tool"], payload["chunk"], stream)
+		if payload, ok := toolOutputPayload(event.Payload); ok {
+			s.emitToolResult(payload.id, payload.tool, payload.chunk, payload.mode, stream)
 		}
 	case "tool.finished":
 		if msg, ok := event.Payload.(Message); ok {
@@ -187,6 +189,37 @@ func (s *aguiStreamState) consume(event Event, stream *aguiEventStream) bool {
 		}
 	}
 	return false
+}
+
+type toolOutputEvent struct {
+	id    string
+	tool  string
+	chunk string
+	mode  string
+}
+
+func toolOutputPayload(payload any) (toolOutputEvent, bool) {
+	switch value := payload.(type) {
+	case map[string]string:
+		return toolOutputEvent{
+			id: value["id"], tool: value["tool"], chunk: value["chunk"], mode: normalizeToolOutputMode(value["mode"]),
+		}, true
+	case map[string]any:
+		id, idOK := value["id"].(string)
+		tool, toolOK := value["tool"].(string)
+		chunk, chunkOK := value["chunk"].(string)
+		mode, _ := value["mode"].(string)
+		return toolOutputEvent{id: id, tool: tool, chunk: chunk, mode: normalizeToolOutputMode(mode)}, idOK && toolOK && chunkOK
+	default:
+		return toolOutputEvent{}, false
+	}
+}
+
+func normalizeToolOutputMode(mode string) string {
+	if mode == "replace" {
+		return mode
+	}
+	return "append"
 }
 
 func (s *aguiStreamState) emitTextDelta(delta string, stream *aguiEventStream) {
@@ -248,7 +281,7 @@ func (s *aguiStreamState) emitToolArgs(id, tool, delta string, stream *aguiEvent
 	stream.write(aguievents.NewToolCallArgsEvent(id, delta))
 }
 
-func (s *aguiStreamState) emitToolResult(id, tool, content string, stream *aguiEventStream) {
+func (s *aguiStreamState) emitToolResult(id, tool, content, mode string, stream *aguiEventStream) {
 	if strings.TrimSpace(content) == "" {
 		return
 	}
@@ -262,6 +295,13 @@ func (s *aguiStreamState) emitToolResult(id, tool, content string, stream *aguiE
 		s.toolNames[id] = tool
 		stream.write(aguievents.NewToolCallStartEvent(id, tool))
 	}
+	if mode != "replace" {
+		mode = "append"
+	}
+	stream.write(aguievents.NewCustomEvent(aguiToolOutputEventName, aguievents.WithValue(map[string]string{
+		"toolCallId": id,
+		"mode":       mode,
+	})))
 	stream.write(aguievents.NewToolCallResultEvent(aguievents.GenerateMessageID(), id, content))
 }
 
@@ -320,7 +360,7 @@ func (s *aguiStreamState) emitToolFinish(msg Message, stream *aguiEventStream) {
 	}
 	stream.write(aguievents.NewToolCallEndEvent(id))
 	if strings.TrimSpace(msg.Body) != "" {
-		stream.write(aguievents.NewToolCallResultEvent(aguievents.GenerateMessageID(), id, msg.Body))
+		s.emitToolResult(id, name, msg.Body, "replace", stream)
 	}
 	delete(s.toolNames, id)
 }
