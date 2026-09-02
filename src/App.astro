@@ -170,9 +170,9 @@ function toolStatus(msg) {
             <pre class="ascii-banner welcome-banner" data-welcome-banner set:html={renderBannerBody(PI_WEB_WELCOME_TEXT)}></pre>
           ) : conversation.map((msg) => (
             msg.kind === "banner" ? <pre class="ascii-banner" set:html={renderBannerBody(msg.text)}></pre> :
-            msg.kind === "user" ? <div class="msg"><div class="prefix user">you &gt;</div><div class="body markdown-body" set:html={renderUserBody(msg.text)}></div></div> :
-            msg.kind === "think" ? <div class="msg"><div class="prefix think">…</div><div class="body" style="flex:1"><div class="thinking-block"><span class="label">thinking</span>{msg.text}</div></div></div> :
-            msg.kind === "pi" ? <div class="msg"><div class="prefix pi">pi &gt;</div><div class="body markdown-body" set:html={renderPiBody(msg.text)}></div></div> :
+            msg.kind === "user" ? <div class="msg"><div class="prefix user">您 &gt;</div><div class="body markdown-body" set:html={renderUserBody(msg.text)}></div></div> :
+            msg.kind === "think" ? <div class="msg"><div class="prefix think">—</div><div class="body" style="flex:1"><div class="thinking-block"><span class="label">thinking</span>{msg.text}</div></div></div> :
+            msg.kind === "pi" ? <div class="msg"><div class="prefix pi">agent &gt;</div><div class="body markdown-body" set:html={renderPiBody(msg.text)}></div></div> :
             msg.kind === "tool" ? <div class="tool-card" data-tool={msg.tool} data-tool-call-id={msg.id || undefined} data-status={msg.status || ""}>
               <div class="tc-head">
                 <span class="tc-glyph" set:html={toolIconHtml(msg)}></span><span class="tc-name">{msg.tool}</span><span class="tc-args">{formatToolArgs(msg.tool, msg.args)}</span><span class="tc-meta" set:html={toolStatus(msg)}></span>

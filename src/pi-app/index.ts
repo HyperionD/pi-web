@@ -405,7 +405,6 @@ class PiApp extends HTMLElement {
 
   updatePromptMeta(status: any = {}) {
     const meta = this.querySelector("[data-prompt-meta]");
-    if (!meta) return;
     this.runtimeStatus = {
       ...this.runtimeStatus,
       ...status,
@@ -421,7 +420,8 @@ class PiApp extends HTMLElement {
     if (weekly) parts.push(weekly);
     parts.push(this.branchLabel(currentBranch));
     if (contextUsage) parts.push(contextUsage);
-    meta.innerHTML = parts.join(" | ");
+    if (meta) meta.innerHTML = parts.join(" | ");
+    this.syncThinkingPrefixes?.();
   }
 
   branchLabel(branch) {

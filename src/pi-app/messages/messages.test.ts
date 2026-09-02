@@ -26,6 +26,24 @@ describe("pi-app messages", () => {
     expect(app.querySelector("[data-welcome-banner]")).toBeNull();
   });
 
+  it("renders localized transcript prefixes and the current model for thinking", async () => {
+    const app = await connectPiApp();
+    app.renderMessages([]);
+    app.appendMessage({ kind: "think", text: "before model status" });
+    expect(app.querySelector(".msg[data-kind='think'] .prefix").textContent).toBe("—");
+
+    app.updatePromptMeta({ model: "GPT-5.5" });
+    expect(app.querySelector(".msg[data-kind='think'] .prefix").textContent).toBe("GPT-5.5");
+
+    app.appendDelta({ kind: "think", delta: "streamed" });
+    expect(app.querySelector(".streaming-tail .msg[data-kind='think'] .prefix").textContent).toBe("GPT-5.5");
+
+    app.appendMessage({ kind: "user", text: "hello" });
+    app.appendMessage({ kind: "pi", text: "world" });
+    expect(app.querySelector(".msg[data-kind='user'] .prefix").textContent).toBe("您 >");
+    expect(app.querySelector(".msg[data-kind='pi'] .prefix").textContent).toBe("agent >");
+  });
+
   it("renders banner, thinking, image, fallback choice, and unknown messages", async () => {
     const app = await connectPiApp();
     app.renderMessages([]);

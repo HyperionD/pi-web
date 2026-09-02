@@ -101,7 +101,7 @@ export const messageMethods = {
     }
     let messageRow = streamingRows[0];
     if (!messageRow) {
-      messageRow = this.simpleMessage(`${kind} streaming`, kind === "think" ? "…" : "pi >", "");
+      messageRow = this.simpleMessage(`${kind} streaming`, kind === "think" ? this.thinkingPrefix() : "agent >", "");
       messageRow.classList.add("streaming");
       messageRow.dataset.kind = kind;
       if (kind === "think") this.attachThinkingStream(messageRow);
@@ -208,7 +208,7 @@ export const messageMethods = {
   appendLoadingMessage() {
     if (!this.termInner || this.hasLoadingMessage()) return;
     this.removeWelcomeBanner();
-    const row = this.simpleMessage("pi loading", "pi >", "");
+    const row = this.simpleMessage("pi loading", "agent >", "");
     row.querySelector(".body").innerHTML = `${TERMINAL_SPINNER_HTML}<span>waiting for response…</span>`;
     row.classList.add("loading");
     row.dataset.kind = "loading";
@@ -309,7 +309,18 @@ export const messageMethods = {
       return errorRow;
     }
     if (message.kind === "tool") return this.toolCard(message);
-    return this.simpleMessage("pi", "pi >", JSON.stringify(message));
+    return this.simpleMessage("pi", "agent >", JSON.stringify(message));
+  },
+
+  thinkingPrefix() {
+    return this.runtimeStatus?.model || "—";
+  },
+
+  syncThinkingPrefixes() {
+    const prefix = this.thinkingPrefix();
+    this.termInner?.querySelectorAll(".prefix.think").forEach((node) => {
+      node.textContent = prefix;
+    });
   },
 
   bannerMessageNode(message) {
@@ -320,7 +331,7 @@ export const messageMethods = {
   },
 
   thinkingMessageNode(message) {
-    const messageRow = this.simpleMessage("think", "…", "");
+    const messageRow = this.simpleMessage("think", this.thinkingPrefix(), "");
     messageRow.querySelector(".body").innerHTML =
       `<div class="thinking-block"><span class="label">thinking</span>${escapeHtml(message.text)}</div>`;
     return messageRow;
@@ -329,7 +340,7 @@ export const messageMethods = {
   assistantMessageNode(message) {
     const choices = parseFallbackChoices(message.text);
     const text = stripFallbackChoices(message.text);
-    const messageRow = this.simpleMessage("pi", "pi >", "");
+    const messageRow = this.simpleMessage("pi", "agent >", "");
     const body = messageRow.querySelector(".body");
     messageRow.dataset.rawText = message.text;
     body.classList.add("markdown-body");
@@ -343,7 +354,7 @@ export const messageMethods = {
   },
 
   userMessageNode(message) {
-    const messageRow = this.simpleMessage("user", "you >", "");
+    const messageRow = this.simpleMessage("user", "您 >", "");
     const body = messageRow.querySelector(".body");
     messageRow.dataset.rawText = message.text;
     body.classList.add("markdown-body");

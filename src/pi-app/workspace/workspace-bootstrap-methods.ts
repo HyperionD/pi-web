@@ -348,7 +348,7 @@ export const workspaceBootstrapMethods = {
     this.resetActiveSessionState?.();
     this.termInner.replaceChildren();
     this.resetTranscriptWindow?.();
-    const row = this.simpleMessage("session loading", "pi >", "");
+    const row = this.simpleMessage("session loading", "agent >", "");
     row.classList.add("session-switch-loading");
     row.dataset.kind = "loading";
     const label = document.createElement("span");
