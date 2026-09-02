@@ -214,6 +214,30 @@ describe("app config methods", () => {
     expect(app.requestAdminPassword).not.toHaveBeenCalled();
   });
 
+  it("does not request admin confirmation when allowed roots are unchanged", async () => {
+    const app = await connectPiApp();
+    app.apiConnected = true;
+    app.adminPasswordConfigured = true;
+    app.dataset.activeWorkspaceId = "w1";
+    app.settingsState = { project: {}, global: {}, effective: {}, paths: {} };
+    app.appConfigState = {
+      config: { version: 1, brand: "Custom", workspace: { allowedRoots: ["/a"] } },
+      path: "/config",
+    };
+    Object.assign(app, appConfigMethods);
+    app.fillAppConfigForm();
+    app.querySelector("[data-setting='defaultThinkingLevel']").value = "high";
+    app.requestAdminPassword = vi.fn();
+    globalThis.fetch = vi.fn(async (url, options = {}) => options.method === "PUT"
+      ? ok({ settings: { project: {}, global: {}, effective: {}, paths: {} } })
+      : ok({ config: { version: 1, brand: "Custom", workspace: { allowedRoots: ["/a"] } }, path: "/config" }));
+
+    await app.saveSettingsForm({ preventDefault: vi.fn() });
+
+    expect(app.appConfigPatchFromForm()).toEqual({});
+    expect(app.requestAdminPassword).not.toHaveBeenCalled();
+  });
+
   it("does not request admin confirmation when app settings are unchanged", async () => {
     const app = await connectPiApp();
     app.apiConnected = true;

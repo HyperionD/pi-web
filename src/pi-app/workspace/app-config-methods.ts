@@ -194,7 +194,7 @@ export const appConfigMethods = {
     const roots = this.collectAllowedRoots();
     const initial = rootsControl.dataset.initialAllowedRoots;
     const initialRoots = initial ? JSON.parse(initial) : [];
-    if (roots.length || JSON.stringify(roots) !== JSON.stringify(initialRoots)) {
+    if (JSON.stringify(roots) !== JSON.stringify(initialRoots)) {
       patch.workspace = { allowedRoots: roots };
     }
     return patch;
