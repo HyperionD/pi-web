@@ -157,39 +157,6 @@
   max-height: 320px;
   overflow: hidden;
 }
-.folder-browser-head {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
-  gap: 8px;
-  align-items: center;
-  padding: 8px;
-  border: 1px solid var(--border-dim);
-  border-radius: var(--radius-2);
-  background: var(--bg-2);
-  font-size: var(--text-xs);
-}
-.folder-browser-head button {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  color: var(--fg-2);
-  background: var(--bg-0);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-1);
-  padding: 6px 8px;
-  white-space: nowrap;
-}
-.folder-browser-head button:hover:not(:disabled) {
-  color: var(--accent);
-  border-color: var(--accent);
-}
-.folder-browser-head [data-folder-path] {
-  min-width: 0;
-  overflow: hidden;
-  color: var(--fg-1);
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
 .folder-browser button:disabled {
   cursor: not-allowed;
   opacity: .5;

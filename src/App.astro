@@ -1,7 +1,6 @@
 ---
 import {
   ArrowDown,
-  ArrowUp,
   ChevronLeft,
   ChevronRight,
   Folder,
@@ -107,10 +106,6 @@ function toolStatus(msg) {
       <button type="button" data-action="folder-close" aria-label="关闭目录选择器">×</button>
     </div>
     <div class="folder-browser" data-folder-browser>
-      <div class="folder-browser-head">
-        <button type="button" data-action="folder-up"><ArrowUp size={12} strokeWidth={1.75} aria-hidden="true" /> 上一级</button>
-        <span data-folder-path>~</span>
-      </div>
       <div class="folder-list" data-folder-list role="tree" aria-label="文件夹列表"></div>
       <span class="folder-loading" data-folder-loading hidden aria-live="polite">加载中…</span>
       <button type="button" class="folder-confirm" data-action="folder-open-current">选择此文件夹</button>

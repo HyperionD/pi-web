@@ -28,9 +28,8 @@ describe("pi-app input actions coverage", () => {
       "closeSettingsModal", "saveSettingsForm", "saveAuthForm", "logoutAuthProvider", "startOAuthLogin", "sendOAuthInput", "pickSession", "openWorkspace", "fillPrompt", "pickSlash",
     ].forEach((name) => { app[name] = (...args) => calls.push([name, ...args]); });
     app.currentFolder = "/cwd";
-    app.currentFolderParent = "/";
     const actions = [
-      "route-picker", "route-workspace", "refresh-workspaces", "browse-folder", "folder-open", "folder-close", "folder-toggle", "folder-select", "folder-up",
+      "route-picker", "route-workspace", "refresh-workspaces", "browse-folder", "folder-open", "folder-close", "folder-toggle", "folder-select",
       "folder-open-current", "toggle-tree", "show-file-tree", "show-git-history", "load-more-git-history", "select-git-commit", "close-git-detail", "refresh-tree", "tree-root-menu", "open-file", "close-file-preview",
       "toggle-file-preview-mode", "save-file-preview", "collapse-sidebar", "expand-sidebar", "open-drawer", "close-drawer",
       "toggle-tool", "show-full-tool-output", "toggle-workspace", "delete-workspace", "delete-workspace-sessions", "new-session",

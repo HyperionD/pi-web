@@ -22,11 +22,15 @@ describe("workspace folder/render/bootstrap coverage", () => {
   });
   afterEach(cleanupPiAppFixture);
 
+  it("omits the parent navigation region from the folder picker", () => {
+    const app = document.querySelector("pi-app");
+    expect(app.querySelector("[data-folder-browser] .folder-browser-head")).toBeNull();
+  });
+
   it("renders recent workspaces, sidebar groups, and folder rows", async () => {
     const app = await connectPiApp();
     const recent = document.createElement("div");
     const count = document.createElement("span");
-    const path = app.querySelector("[data-folder-path]");
     const list = app.querySelector("[data-folder-list]");
     recent.dataset.recentWorkspaces = "";
     count.dataset.workspaceCount = "";
@@ -53,7 +57,7 @@ describe("workspace folder/render/bootstrap coverage", () => {
     expect(recent.querySelectorAll(".ws-stat")[1].innerHTML).toContain("live");
     expect(app.querySelector("[data-workspace-group='w2'] .sessions").hidden).toBe(false);
     expect(app.querySelector("[data-workspace-group='w2'] .ws-name .dot").classList.contains("live")).toBe(true);
-    expect(path.textContent).toBe("tmp");
+    expect(app.currentFolder).toBe("/tmp");
     expect(list.querySelector("[data-action='folder-select']").dataset.path).toBe("/tmp");
     expect(list.querySelector("[data-action='folder-select'][data-path='/tmp/child'] .folder-path").textContent).toBe("~/child");
 
@@ -80,7 +84,7 @@ describe("workspace folder/render/bootstrap coverage", () => {
     expect(srcToggle.getAttribute("aria-expanded")).toBe("false");
     srcLabel.click();
     expect(app.currentFolder).toBe("/root/src");
-    expect(app.querySelector("[data-folder-path]").textContent).toBe("~/project/src");
+    expect(app.currentFolder).toBe("/root/src");
     expect(list.querySelector("[data-action='folder-select'][data-path='/root/src']").closest("[data-folder-tree-node]").getAttribute("aria-selected")).toBe("true");
 
     list.querySelector("[data-action='folder-toggle'][data-path='/root/src']").click();
@@ -110,7 +114,6 @@ describe("workspace folder/render/bootstrap coverage", () => {
     expect(list.querySelector("[data-folder-tree-node][data-path='/workspaces/projects']")).not.toBeNull();
     expect(app.folderListingValid).toBe(false);
     expect(confirm.disabled).toBe(true);
-    expect(app.querySelector("[data-action='folder-up']").disabled).toBe(true);
 
     list.querySelector("[data-action='folder-select'][data-path='/workspaces/projects']").click();
     expect(app.currentFolder).toBe("/workspaces/projects");
@@ -147,7 +150,6 @@ describe("workspace folder/render/bootstrap coverage", () => {
     await app.openWorkspacePath("");
 
     expect(app.currentFolder).toBe("/root");
-    expect(app.currentFolderParent).toBe("/root");
     expect(app.renderFolderListing).toHaveBeenCalledWith(expect.objectContaining({ path: "/root" }));
     expect(browser.hidden).toBe(false);
     expect(app.renderWorkspaces).toHaveBeenCalledWith([{ id: "w1", path: "/root" }]);
@@ -229,7 +231,7 @@ describe("workspace folder/render/bootstrap coverage", () => {
     expect(popover.hidden).toBe(false);
     expect(app.folderBrowsePurpose).toBe("workspace");
     expect(globalThis.fetch).toHaveBeenCalledWith(expect.stringContaining("path=~&purpose=workspace"), expect.any(Object));
-    expect(popover.querySelector("[data-folder-path]").textContent).toBe("/allowed");
+    expect(app.currentFolder).toBe("/allowed");
     expect(popover.querySelector("[data-folder-loading]").hidden).toBe(true);
     expect(trigger.disabled).toBe(false);
     expect(popover.querySelector("[data-action='folder-open-current']").disabled).toBe(false);
@@ -349,7 +351,6 @@ describe("workspace folder/render/bootstrap coverage", () => {
     const trigger = app.querySelector("[data-action='route-picker']");
     const popover = app.querySelector("[data-folder-popover]");
     const loading = app.querySelector("[data-folder-loading]");
-    const up = app.querySelector("[data-action='folder-up']");
     const confirm = app.querySelector("[data-action='folder-open-current']");
     app.dataset.route = "workspace";
     app.apiConnected = true;
@@ -360,7 +361,6 @@ describe("workspace folder/render/bootstrap coverage", () => {
     expect(popover.hidden).toBe(false);
     expect(loading.hidden).toBe(false);
     expect(trigger.disabled).toBe(true);
-    expect(up.disabled).toBe(true);
     expect(confirm.disabled).toBe(true);
 
     app.closeFolderPopover();
@@ -421,7 +421,6 @@ describe("workspace folder/render/bootstrap coverage", () => {
 
   it("renders server-controlled folder values as text without HTML nodes", async () => {
     const app = await connectPiApp();
-    const path = app.querySelector("[data-folder-path]");
     const list = app.querySelector("[data-folder-list]");
 
     const maliciousPath = '"><img src=x onerror="alert(1)">/allowed';
@@ -433,8 +432,7 @@ describe("workspace folder/render/bootstrap coverage", () => {
       folders: [{ name: maliciousName, path: "/allowed/child", displayPath: maliciousPath }],
     });
 
-    expect(path.textContent).toBe(maliciousPath);
-    expect(path.querySelector("*")).toBeNull();
+    expect(app.currentFolder).toBe(maliciousPath);
     const row = list.querySelector("[data-action='folder-select'][data-path='/allowed/child']");
     expect(row.querySelector(".folder-name").textContent).toBe(maliciousName);
     expect(row.querySelector(".folder-name").querySelector("*")).toBeNull();
@@ -500,7 +498,7 @@ describe("workspace folder/render/bootstrap coverage", () => {
     expect(pickerStyles).toMatch(/\.folder-popover-head\s*\{[^}]*padding:\s*12px 14px;/s);
     expect(pickerStyles).toMatch(/\.folder-popover-head\s*\{[^}]*border-bottom:\s*1px solid var\(--border\);/s);
     expect(pickerStyles).toMatch(/\.folder-popover-head button\s*\{[^}]*width:\s*28px;[^}]*height:\s*28px;/s);
-    expect(pickerStyles).toMatch(/\.folder-browser-head\s*\{[^}]*background:\s*var\(--bg-2\);/s);
+    expect(pickerStyles).not.toContain(".folder-browser-head");
     expect(pickerStyles).toMatch(/\.folder-tree-row\s*\{[^}]*grid-template-columns:\s*28px minmax\(0, 1fr\);/s);
     expect(pickerStyles).toMatch(/\.folder-row\s*\{[^}]*width:\s*100%;[^}]*min-height:\s*36px;/s);
     expect(pickerStyles).toMatch(/\.folder-tree-node\[aria-selected="true"\]\s*>\s*\.folder-tree-row\s*>\s*\.folder-row/);

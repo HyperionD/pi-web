@@ -178,7 +178,7 @@ export const inputMethods = {
     const button = event.target.closest("button");
     if ((!button && !actionTarget) || !this.contains(button || actionTarget)) return;
     const action = actionTarget?.dataset.action || button?.dataset.action;
-    if (["folder-toggle", "folder-select", "folder-up", "folder-open-current", "folder-close"].includes(action)) {
+    if (["folder-toggle", "folder-select", "folder-open-current", "folder-close"].includes(action)) {
       event.stopPropagation?.();
     }
     if (action === "copy-code") {
@@ -209,9 +209,6 @@ export const inputMethods = {
     }
     if (action === "folder-select" && folderPickerTarget && !this.folderLoadPending) {
       this.selectFolder(actionTarget.dataset.path);
-    }
-    if (action === "folder-up" && folderPickerTarget && !this.folderLoadPending) {
-      void this.loadFolder(this.currentFolderParent);
     }
     if (action === "folder-open-current" && folderPickerTarget && !this.folderLoadPending && !this.folderOpeningPending) {
       if (this.folderBrowsePurpose === "allowed-root") {

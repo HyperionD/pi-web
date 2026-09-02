@@ -21,14 +21,10 @@ export const workspaceFolderMethods = {
     loadingLabel?.toggleAttribute("hidden", !loading);
     const trigger = this.folderPickerTrigger;
     if (trigger) trigger.disabled = loading;
-    this.querySelectorAll("[data-folder-browser] [data-action='folder-toggle'], [data-folder-browser] [data-action='folder-select'], [data-folder-browser] [data-action='folder-up'], [data-folder-browser] [data-action='folder-open-current']")
+    this.querySelectorAll("[data-folder-browser] [data-action='folder-toggle'], [data-folder-browser] [data-action='folder-select'], [data-folder-browser] [data-action='folder-open-current']")
       .forEach((button) => { button.disabled = loading; });
     const confirm = this.querySelector("[data-action='folder-open-current']");
     if (confirm) confirm.disabled = loading || this.folderOpeningPending || !this.folderListingValid;
-    if (!loading) {
-      const upButton = this.querySelector("[data-folder-browser] [data-action='folder-up']");
-      if (upButton) upButton.disabled = (this.currentFolderParent || this.currentFolder) === this.currentFolder;
-    }
   },
 
   setFolderOpening(opening) {
@@ -164,7 +160,6 @@ export const workspaceFolderMethods = {
         this.renderFolderTree();
       } else {
         this.currentFolder = listing.path;
-        this.currentFolderParent = listing.parent || listing.path;
         this.renderFolderListing(listing);
       }
       if (this.querySelector("[data-folder-popover]")?.hidden === false) this.positionFolderPopover();
@@ -199,12 +194,7 @@ export const workspaceFolderMethods = {
     const displayPath = isRootListing ? "允许的工作区目录" : listing.displayPath || listing.path;
     this.folderListingValid = !isRootListing;
     this.currentFolder = isRootListing ? "" : listing.path;
-    this.currentFolderParent = isRootListing ? "" : listing.parent || listing.path;
     this.folderSelectedPath = isRootListing ? undefined : listing.path;
-    const label = this.querySelector("[data-folder-path]");
-    if (label) label.textContent = displayPath;
-    const upButton = this.querySelector("[data-folder-browser] [data-action='folder-up']");
-    if (upButton) upButton.disabled = isRootListing || (listing.parent || listing.path) === listing.path;
     const confirm = this.querySelector("[data-action='folder-open-current']");
     if (confirm) confirm.disabled = isRootListing || this.folderLoadPending || this.folderOpeningPending;
     this.folderTreeRoots = isRootListing ? folders : [{
@@ -288,8 +278,6 @@ export const workspaceFolderMethods = {
     this.folderSelectedPath = node.path;
     this.currentFolder = node.path;
     this.folderListingValid = true;
-    const label = this.querySelector("[data-folder-path]");
-    if (label) label.textContent = node.displayPath || node.path;
     this.renderFolderTree();
     this.setFolderLoading(false);
   },
