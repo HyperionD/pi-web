@@ -9,8 +9,8 @@ const TOAST_MESSAGES = {
     detail: "会话回答已完成。"
   },
   choice: {
-    title: "需要选择",
-    detail: "会话请求你选择一个选项。"
+    title: "需要反馈",
+    detail: "会话等待你的反馈。"
   },
   warning: {
     title: "警告",

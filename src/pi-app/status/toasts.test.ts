@@ -120,7 +120,7 @@ describe("pi-app toast notifications", () => {
     app.appendMessage({ kind: "pi", text: fallbackChoiceJson });
     app.notifySessionCompleted();
 
-    expect(document.querySelector(".session-toast.choice").textContent).toContain("需要选择");
+    expect(document.querySelector(".session-toast.choice").textContent).toContain("需要反馈");
     expect(document.querySelector(".toast-dismiss-all").hidden).toBe(false);
     const visibleToasts = [...document.querySelectorAll(".notyf__toast:not(.notyf__toast--disappear)")];
     expect(visibleToasts.map((toast) => toast.style.getPropertyValue("--toast-stack-index"))).toEqual(["0", "1"]);
