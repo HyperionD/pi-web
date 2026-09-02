@@ -116,6 +116,7 @@ describe("app config methods", () => {
 
     expect(app.appConfigState.config.brand).toBe("JuunAI / web");
     expect(app.querySelector("[data-brand]").textContent).toBe("JuunAI / web");
+    expect(document.title).toBe("JuunAI / web");
     expect(globalThis.fetch.mock.calls[0][0]).toBe("http://backend.test/api/app-config");
   });
 
@@ -434,6 +435,7 @@ describe("app config methods", () => {
 
     expect(app.querySelector("[data-brand]").textContent).toBe("<b>unsafe</b>");
     expect(app.querySelector("[data-brand] b")).toBeNull();
+    expect(document.title).toBe("<b>unsafe</b>");
   });
 
   it("throws when the server response is malformed", async () => {
@@ -481,8 +483,10 @@ describe("app config methods", () => {
 
     app.applyBrand("  ");
     expect(app.querySelector("[data-brand]").textContent).toBe(DEFAULT_APP_BRAND);
+    expect(document.title).toBe(DEFAULT_APP_BRAND);
     app.applyBrand(42);
     expect(app.querySelector("[data-brand]").textContent).toBe(DEFAULT_APP_BRAND);
+    expect(document.title).toBe(DEFAULT_APP_BRAND);
   });
 
   it("handles missing app config controls without throwing", async () => {
@@ -494,6 +498,7 @@ describe("app config methods", () => {
     app.applyBrand("next");
     app.fillAppConfigForm();
 
+    expect(document.title).toBe("next");
     expect(app.appConfigPatchFromForm()).toEqual({});
   });
 

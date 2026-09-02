@@ -78,6 +78,7 @@ export const appConfigMethods = {
     this.querySelectorAll("[data-brand]").forEach((element) => {
       element.textContent = value;
     });
+    document.title = value;
   },
 
   bindAllowedRootControls() {
