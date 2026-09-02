@@ -181,6 +181,9 @@ describe("pi-app core events coverage", () => {
     subscriber.onRunStarted();
     subscriber.onTextDelta("final answer");
     subscriber.onTextEnd("final answer");
+
+    expect(app.notifySessionCompleted).not.toHaveBeenCalled();
+
     subscriber.onRunFinished();
 
     expect(app.notifySessionCompleted).toHaveBeenCalledTimes(1);

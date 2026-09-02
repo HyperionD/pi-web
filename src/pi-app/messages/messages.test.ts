@@ -523,6 +523,7 @@ describe("pi-app messages", () => {
 
     expect(app.querySelector(".term-inner .msg[data-kind='think']")?.textContent).toContain("reasoning");
     expect(app.querySelector(".streaming-tail .msg.streaming[data-kind='think']")).toBeNull();
+    expect([...app.querySelectorAll(".term-inner .msg")].map((row) => row.dataset.kind)).toEqual(["think", "pi"]);
   });
 
   it("keeps partial streamed content visible when the AG-UI run fails", async () => {

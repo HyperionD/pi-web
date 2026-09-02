@@ -167,6 +167,7 @@ export const messageMethods = {
     if (!this.termInner) return;
     const message = { kind: "pi", text };
     this.removeWelcomeBanner();
+    this.commitStreamingKind("think");
     this.flushStreamingRender();
     const isDuplicate = this.isDuplicateMessage(message);
     this.removeLoadingMessage();
@@ -202,7 +203,22 @@ export const messageMethods = {
       this.notifyChoiceRequested?.();
       return;
     }
-    if (this.running) this.notifyResponseCompletedOnce?.();
+  },
+
+  commitStreamingKind(kind) {
+    if (!this.streamingTail) return;
+    this.flushStreamingRender();
+    const rows = [...this.streamingTail.querySelectorAll(`.msg.streaming[data-kind='${kind}']`)];
+    const messages = rows
+      .map((row) => {
+        const streamBody = row.querySelector("[data-stream-text]") || row.querySelector(".body");
+        const text = kind === "pi" ? row.dataset.streamText : streamBody?.textContent;
+        return text ? { kind, text } : undefined;
+      })
+      .filter(Boolean);
+    rows.forEach((row) => this.removeStreamingNode(row));
+    for (const message of messages) this.appendTranscriptNode(this.messageNode(message), { stickToBottom: false });
+    if (messages.length) this.renderTranscriptWindow({ stickToBottom: true });
   },
 
   attachThinkingStream(messageRow) {

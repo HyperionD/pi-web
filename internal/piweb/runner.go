@@ -115,12 +115,14 @@ func (r *Runner) StartPiPrompt(
 			if isPiRPCAgentEnd(line) {
 				doneOnce.Do(func() { close(agentDone) })
 			}
-			if !handlePiJSONEvent(line, broker, store, sessionID, state) {
+			if !handlePiJSONEvent(line, broker, store, sessionID, state) && !isPiTerminalNotification(line) {
 				broker.Publish(sessionID, "tool.output", map[string]string{"tool": "pi", "chunk": line})
 			}
 		}, stdoutDone)
 		go streamPipe(stderr, func(line string) {
-			broker.Publish(sessionID, "tool.output", map[string]string{"tool": "pi", "chunk": line})
+			if !isPiTerminalNotification(line) {
+				broker.Publish(sessionID, "tool.output", map[string]string{"tool": "pi", "chunk": line})
+			}
 		}, nil)
 
 		select {
@@ -239,6 +241,10 @@ func isPiRPCAgentEnd(line string) bool {
 		Type string `json:"type"`
 	}
 	return json.Unmarshal([]byte(line), &event) == nil && event.Type == "agent_end"
+}
+
+func isPiTerminalNotification(line string) bool {
+	return strings.Contains(line, "\x1b]777;notify;")
 }
 
 func imageExtension(mimeType string) string {

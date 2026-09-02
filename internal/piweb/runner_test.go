@@ -42,6 +42,15 @@ func TestHandlePiJSONEventReportsModelErrorOncePerPrompt(t *testing.T) {
 	}
 }
 
+func TestPiTerminalNotificationOutputIsSuppressed(t *testing.T) {
+	if !isPiTerminalNotification("\x1b]777;notify;on-pi;Done after 3 turn(s). Ready for input.\x1b\\") {
+		t.Fatal("expected pi terminal notification to be suppressed")
+	}
+	if isPiTerminalNotification("ordinary pi output") {
+		t.Fatal("ordinary pi output must remain visible")
+	}
+}
+
 func TestStreamPipeHandlesLargeJSONLines(t *testing.T) {
 	line := strings.Repeat("x", 1024*1024+1)
 	done := make(chan struct{})

@@ -92,6 +92,7 @@ describe("pi-app toast notifications", () => {
     app.applyEvent({ type: "session.status", payload: { status: "idle" } });
     app.applyEvent({ type: "session.status", payload: { status: "running" } });
     app.finalizePiStream("follow-up answer");
+    app.applyEvent({ type: "session.status", payload: { status: "idle" } });
 
     expect(document.querySelector(".session-toast.success").textContent).toContain("回答完成");
   });
