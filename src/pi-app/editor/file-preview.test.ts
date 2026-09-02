@@ -51,6 +51,40 @@ describe("file preview CodeMirror editor", () => {
     document.body.innerHTML = "";
   });
 
+  it("opens Markdown files in rendered preview mode by default", () => {
+    const app = mountPreview();
+    app.renderFilePreview({
+      path: "README.md",
+      mime: "text/markdown",
+      previewKind: "text",
+      content: "# Hello\n\n**world**",
+    });
+
+    expect(app.filePreview.mode).toBe("markdown");
+    expect(app.querySelector(".fp-body.markdown-body h1")?.textContent).toBe("Hello");
+    expect(app.querySelector(".fp-body.markdown-body strong")?.textContent).toBe("world");
+    expect(app.querySelector("[data-file-preview-editor]")).toBeFalsy();
+    expect(app.querySelector("[data-action='toggle-file-preview-mode']").textContent).toBe("文本");
+    expect(app.querySelector("[data-action='save-file-preview']").hidden).toBe(true);
+  });
+
+  it("switches Markdown between rendered preview and text editing", () => {
+    const app = mountPreview();
+    app.renderFilePreview({ path: "README.md", mime: "text/markdown", previewKind: "text", content: "# Hello" });
+
+    app.toggleFilePreviewMode();
+
+    expect(app.filePreview.mode).toBe("text");
+    expect(app.querySelector("[data-file-preview-editor] .cm-editor")).toBeTruthy();
+    expect(app.querySelector("[data-action='toggle-file-preview-mode']").textContent).toBe("预览");
+    expect(app.querySelector("[data-action='save-file-preview']").hidden).toBe(false);
+
+    app.toggleFilePreviewMode();
+
+    expect(app.filePreview.mode).toBe("markdown");
+    expect(app.querySelector(".fp-body.markdown-body h1")?.textContent).toBe("Hello");
+  });
+
   it("renders editable text files in CodeMirror and tracks dirty state", () => {
     const app = mountPreview();
     app.renderFilePreview({

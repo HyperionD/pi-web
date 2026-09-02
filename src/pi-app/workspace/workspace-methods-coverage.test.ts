@@ -771,6 +771,7 @@ describe("workspace folder/render/bootstrap coverage", () => {
       files: [],
     }]);
     app.renderFilePreview({ path: "README.md", mime: "text/markdown", previewKind: "text", content: "saved" });
+    app.toggleFilePreviewMode();
     app.filePreview.editor.view.dispatch({ changes: { from: 0, to: 5, insert: "changed" } });
     vi.spyOn(window, "confirm").mockReturnValue(false);
     globalThis.fetch = vi.fn(async () => okJson({

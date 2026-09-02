@@ -1,4 +1,5 @@
 import { getWorkspaceFile, saveWorkspaceFile } from "../../lib/api";
+import { renderMarkdownBody } from "../../lib/renderers";
 import { CodeMirrorFileEditor, codeMirrorLanguageName, editableFileState, isTextFile } from "./file-editor";
 
 export const filePreviewMethods = {
@@ -57,9 +58,15 @@ export const filePreviewMethods = {
     const { file, mode } = state;
     this.destroyFilePreviewEditor?.();
     body.replaceChildren();
+    body.classList.remove("markdown-body");
     updatePreviewActions(preview, state);
     if (file.previewKind === "loading") {
       body.textContent = "loading preview…";
+      return;
+    }
+    if (mode === "markdown" && isMarkdownFile(file)) {
+      body.classList.add("markdown-body");
+      body.innerHTML = renderMarkdownBody(`${file.content || ""}${file.truncated ? "\n\n[truncated]" : ""}`);
       return;
     }
     if (mode === "text" && isTextFile(file)) {
@@ -85,7 +92,9 @@ export const filePreviewMethods = {
 
   toggleFilePreviewMode() {
     if (!this.filePreview?.file || !this.confirmCleanFilePreview?.()) return;
-    this.filePreview.mode = this.filePreview.mode === "image" ? "text" : "image";
+    this.filePreview.mode = isMarkdownFile(this.filePreview.file)
+      ? this.filePreview.mode === "markdown" ? "text" : "markdown"
+      : this.filePreview.mode === "image" ? "text" : "image";
     this.filePreview.cleanContent = this.filePreview.file.content || "";
     this.filePreview.originalContent = gitOriginalContent(this.filePreview.file);
     this.filePreview.dirty = false;
@@ -183,7 +192,7 @@ function updatePreviewActions(preview, state) {
   const mode = state.mode;
   const eligibility = editableFileState(file);
   const canEdit = eligibility.editable;
-  const canToggle = file.mime === "image/svg+xml" && file.dataUrl && file.content;
+  const canToggle = isMarkdownFile(file) || file.mime === "image/svg+xml" && file.dataUrl && file.content;
   const save = preview.querySelector("[data-action='save-file-preview']");
   const toggle = preview.querySelector("[data-action='toggle-file-preview-mode']");
   const workspaceChanged = state.saveStatus === "workspace changed";
@@ -194,7 +203,10 @@ function updatePreviewActions(preview, state) {
     : state.dirty ? "save *" : state.saveStatus === "saved" ? "saved" : "save";
   save.title = state.saveStatus && state.saveStatus !== "saved" ? state.saveStatus : "";
   toggle.hidden = !canToggle;
-  toggle.textContent = mode === "image" ? "text" : "image";
+  const switchToText = mode === "markdown" || mode === "image";
+  toggle.textContent = switchToText ? "文本" : "预览";
+  toggle.setAttribute("aria-label", switchToText ? "切换到文本模式" : "切换到预览模式");
+  toggle.title = switchToText ? "切换到文本模式" : "切换到预览模式";
   setPreviewHeader(preview, state);
 }
 
@@ -204,8 +216,14 @@ function gitOriginalContent(file) {
 
 function defaultPreviewMode(file) {
   if (file.previewKind === "image" && file.dataUrl) return "image";
+  if (isMarkdownFile(file)) return "markdown";
   if (isTextFile(file)) return "text";
   return "unsupported";
+}
+
+function isMarkdownFile(file) {
+  const path = String(file?.path || "").toLowerCase();
+  return isTextFile(file) && (file?.mime === "text/markdown" || path.endsWith(".md") || path.endsWith(".markdown"));
 }
 
 function textPreviewNode(app, state) {
