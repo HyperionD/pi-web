@@ -189,6 +189,19 @@ func TestHandlePiJSONEventPublishesCanonicalMessageAfterTextDelta(t *testing.T) 
 	}
 }
 
+func TestHandlePiJSONEventDoesNotPublishUnpersistedCanonicalMessage(t *testing.T) {
+	broker := NewBroker()
+	store := NewMockStore()
+	state := &jsonStreamState{}
+
+	handlePiJSONEvent(`{"type":"message_end","message":{"role":"assistant","content":[{"type":"text","text":"orphan"}]}}`, broker, store, "missing", state)
+
+	events := broker.Replay("missing", 0)
+	if len(events) != 1 || events[0].Type != "error" {
+		t.Fatalf("expected persistence error without canonical message: %#v", events)
+	}
+}
+
 func TestHandlePiJSONEventPublishesFinalFallbackChoiceAfterStreaming(t *testing.T) {
 	broker := NewBroker()
 	store := NewMockStore()

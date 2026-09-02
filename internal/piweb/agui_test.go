@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"net/http"
 	"net/http/httptest"
+	"regexp"
 	"strings"
 	"testing"
 )
@@ -45,22 +46,23 @@ func TestAguiSessionRunStreamsProtocolEvents(t *testing.T) {
 }
 
 func TestAguiStreamPreservesAssistantMessageBoundariesAroundTools(t *testing.T) {
+	const sessionID = "8e7c-44ff"
 	broker := NewBroker()
 	store := NewMockStore()
 	runnerState := &jsonStreamState{}
 
-	handlePiJSONEvent(`{"type":"message_update","assistantMessageEvent":{"type":"text_delta","delta":"工具前说明"}}`, broker, store, "session", runnerState)
-	handlePiJSONEvent(`{"type":"message_end","message":{"role":"assistant","content":[{"type":"text","text":"工具前说明"},{"type":"toolCall","name":"bash"}]}}`, broker, store, "session", runnerState)
-	handlePiJSONEvent(`{"type":"tool_execution_start","toolCallId":"call-1","toolName":"bash","args":{"command":"pwd"}}`, broker, store, "session", runnerState)
-	handlePiJSONEvent(`{"type":"tool_execution_end","toolCallId":"call-1","toolName":"bash","result":"ok"}`, broker, store, "session", runnerState)
-	handlePiJSONEvent(`{"type":"message_update","assistantMessageEvent":{"type":"text_delta","delta":"最终总结"}}`, broker, store, "session", runnerState)
-	handlePiJSONEvent(`{"type":"message_end","message":{"role":"assistant","content":[{"type":"text","text":"最终总结"}]}}`, broker, store, "session", runnerState)
-	broker.Publish("session", "session.status", map[string]string{"status": "idle"})
+	handlePiJSONEvent(`{"type":"message_update","assistantMessageEvent":{"type":"text_delta","delta":"工具前说明"}}`, broker, store, sessionID, runnerState)
+	handlePiJSONEvent(`{"type":"message_end","message":{"role":"assistant","content":[{"type":"text","text":"工具前说明"},{"type":"toolCall","name":"bash"}]}}`, broker, store, sessionID, runnerState)
+	handlePiJSONEvent(`{"type":"tool_execution_start","toolCallId":"call-1","toolName":"bash","args":{"command":"pwd"}}`, broker, store, sessionID, runnerState)
+	handlePiJSONEvent(`{"type":"tool_execution_end","toolCallId":"call-1","toolName":"bash","result":"ok"}`, broker, store, sessionID, runnerState)
+	handlePiJSONEvent(`{"type":"message_update","assistantMessageEvent":{"type":"text_delta","delta":"最终总结"}}`, broker, store, sessionID, runnerState)
+	handlePiJSONEvent(`{"type":"message_end","message":{"role":"assistant","content":[{"type":"text","text":"最终总结"}]}}`, broker, store, sessionID, runnerState)
+	broker.Publish(sessionID, "session.status", map[string]string{"status": "idle"})
 
 	res := httptest.NewRecorder()
 	stream := newAguiEventStream(res, t.Context())
-	aguiState := newAguiStreamState("thread", "run", "session")
-	for _, event := range broker.Replay("session", 0) {
+	aguiState := newAguiStreamState("thread", "run", sessionID)
+	for _, event := range broker.Replay(sessionID, 0) {
 		aguiState.consume(event, stream)
 	}
 
@@ -72,11 +74,25 @@ func TestAguiStreamPreservesAssistantMessageBoundariesAroundTools(t *testing.T) 
 	if strings.Count(got, "工具前说明") != 1 || strings.Count(got, "最终总结") != 1 {
 		t.Fatalf("expected each assistant segment exactly once:\n%s", got)
 	}
+	messageIDs := regexp.MustCompile(`"type":"TEXT_MESSAGE_START"[^\n]*"messageId":"([^"]+)"`).FindAllStringSubmatch(got, -1)
+	if len(messageIDs) != 2 || messageIDs[0][1] == messageIDs[1][1] {
+		t.Fatalf("expected distinct assistant message IDs:\n%s", got)
+	}
 	firstEnd := strings.Index(got, `"type":"TEXT_MESSAGE_END"`)
 	toolStart := strings.Index(got, `"type":"TOOL_CALL_START"`)
 	secondStart := strings.LastIndex(got, `"type":"TEXT_MESSAGE_START"`)
 	if firstEnd < 0 || toolStart < 0 || secondStart < 0 || !(firstEnd < toolStart && toolStart < secondStart) {
 		t.Fatalf("assistant boundary must close before tool start:\n%s", got)
+	}
+	_, messages, err := store.Session(sessionID)
+	var canonicalTexts []string
+	for _, message := range messages {
+		if message.Kind == "pi" && (message.Text == "工具前说明" || message.Text == "最终总结") {
+			canonicalTexts = append(canonicalTexts, message.Text)
+		}
+	}
+	if err != nil || strings.Join(canonicalTexts, "|") != "工具前说明|最终总结" {
+		t.Fatalf("expected canonical messages in store: messages=%#v err=%v", messages, err)
 	}
 }
 

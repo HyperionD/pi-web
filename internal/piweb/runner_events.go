@@ -76,7 +76,10 @@ func handlePiJSONEvent(line string, broker *Broker, store *Store, sessionID stri
 			if msg.Kind == "tool" && msg.Status == "running" {
 				continue
 			}
-			_ = store.AppendMessage(sessionID, msg)
+			if err := store.AppendMessage(sessionID, msg); err != nil {
+				broker.Publish(sessionID, "error", map[string]string{"error": err.Error()})
+				continue
+			}
 			broker.Publish(sessionID, eventTypeForMessage(msg), msg)
 		}
 		return true
