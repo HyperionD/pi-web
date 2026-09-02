@@ -17,6 +17,7 @@ export const messageMethods = {
   renderMessages(messages) {
     if (!this.termInner) return;
     this.piDeltaBuffer = "";
+    this.piRawTextBuffer = "";
     this.streamingRows = {};
     this.responseErrorMessageShown = false;
     this.termInner.replaceChildren();
@@ -94,6 +95,7 @@ export const messageMethods = {
     for (const duplicateRow of streamingRows.slice(1)) this.removeStreamingNode(duplicateRow);
     let delta = payload.delta;
     if (kind === "pi") {
+      this.piRawTextBuffer = `${this.piRawTextBuffer || ""}${payload.delta}`;
       const filtered = streamVisibleChoiceText(this.piDeltaBuffer + payload.delta);
       this.piDeltaBuffer = filtered.pending;
       delta = filtered.visible;
@@ -185,7 +187,10 @@ export const messageMethods = {
 
   clearStreamingState(kind) {
     this.flushStreamingRender();
-    if (kind === "pi") this.piDeltaBuffer = "";
+    if (kind === "pi") {
+      this.piDeltaBuffer = "";
+      this.piRawTextBuffer = "";
+    }
     if (this.streamingRows?.[kind]) this.streamingRows = { ...(this.streamingRows || {}), [kind]: undefined };
     if (this.pendingStreamingRow?.matches?.(`.msg.streaming[data-kind='${kind}']`)) this.pendingStreamingRow = undefined;
   },
@@ -265,6 +270,7 @@ export const messageMethods = {
   commitStreamingMessages() {
     if (!this.streamingTail) return;
     this.flushStreamingRender();
+    const hasPendingChoice = parseFallbackChoices(this.piRawTextBuffer).length > 0;
     const messages = [...this.streamingTail.querySelectorAll(".msg.streaming")]
       .filter((row) => !row.classList.contains("loading"))
       .map((row) => {
@@ -276,12 +282,14 @@ export const messageMethods = {
       .filter(Boolean);
     this.finalizeStreamingMessages();
     for (const message of messages) this.appendTranscriptNode(this.messageNode(message), { stickToBottom: false });
+    if (hasPendingChoice) this.notifyChoiceRequested?.();
     if (messages.length) this.renderTranscriptWindow({ stickToBottom: true });
   },
 
   finalizeStreamingMessages() {
     this.flushStreamingRender();
     this.piDeltaBuffer = "";
+    this.piRawTextBuffer = "";
     const streamingRows = new Set(Object.values(this.streamingRows || {}));
     this.streamingTail?.querySelectorAll(".msg.streaming").forEach((row) => streamingRows.add(row));
     streamingRows.forEach((row) => this.removeStreamingNode(row));

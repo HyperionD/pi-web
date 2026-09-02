@@ -71,6 +71,45 @@ describe("pi-app toast notifications", () => {
     expect(document.querySelector(".session-toast.success")).toBeNull();
   });
 
+  it("keeps the feedback toast when a choice response becomes idle", async () => {
+    const app = await connectPiApp();
+    setActiveToastContext(app);
+
+    app.applyEvent({ type: "session.status", payload: { status: "running" } });
+    app.applyEvent({ type: "session.message", payload: { kind: "pi", text: fallbackChoiceJson } });
+    app.applyEvent({ type: "session.status", payload: { status: "idle" } });
+
+    expect(document.querySelector(".session-toast.choice").textContent).toContain("需要反馈");
+    expect(document.querySelector(".session-toast.success")).toBeNull();
+  });
+
+  it("allows the next response to show completion after feedback is submitted", async () => {
+    const app = await connectPiApp();
+    setActiveToastContext(app);
+
+    app.applyEvent({ type: "session.status", payload: { status: "running" } });
+    app.applyEvent({ type: "session.message", payload: { kind: "pi", text: fallbackChoiceJson } });
+    app.applyEvent({ type: "session.status", payload: { status: "idle" } });
+    app.applyEvent({ type: "session.status", payload: { status: "running" } });
+    app.finalizePiStream("follow-up answer");
+
+    expect(document.querySelector(".session-toast.success").textContent).toContain("回答完成");
+  });
+
+  it("does not show completion before a delayed choice message is received", async () => {
+    const app = await connectPiApp();
+    setActiveToastContext(app);
+
+    app.applyEvent({ type: "session.status", payload: { status: "running" } });
+    app.applyEvent({ type: "session.delta", payload: { kind: "pi", delta: fallbackChoiceJson } });
+    app.applyEvent({ type: "session.status", payload: { status: "idle" } });
+    app.applyEvent({ type: "session.message", payload: { kind: "pi", text: fallbackChoiceJson } });
+
+    expect(document.querySelector(".session-toast.choice").textContent).toContain("需要反馈");
+    expect(document.querySelectorAll(".session-toast.choice")).toHaveLength(1);
+    expect(document.querySelector(".session-toast.success")).toBeNull();
+  });
+
   it("shows a backend connection toast instead of response failure for disconnects", async () => {
     const app = await connectPiApp();
     setActiveToastContext(app);

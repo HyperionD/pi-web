@@ -374,6 +374,7 @@ class PiApp extends HTMLElement {
     if (!wasRunning && willRun) {
       this.responseFailureToastShown = false;
       this.responseCompletionToastShown = false;
+      this.responseChoiceRequested = false;
       this.responseErrorMessageShown = false;
     }
     if (mode === "idle") this.finishRunningTools?.();

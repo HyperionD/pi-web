@@ -253,12 +253,16 @@ export const toastMethods = {
   },
 
   notifyResponseCompletedOnce(context) {
-    if (this.responseCompletionToastShown) return;
+    if (this.responseCompletionToastShown || this.responseChoiceRequested) return;
     this.responseCompletionToastShown = true;
     this.notifySessionCompleted(context);
   },
 
   notifyChoiceRequested(context) {
+    const sessionId = toastContextSessionId(context);
+    const isActiveSession = !sessionId || !this.dataset.activeSessionId || sessionId === this.dataset.activeSessionId;
+    if (isActiveSession && this.responseChoiceRequested) return;
+    if (isActiveSession) this.responseChoiceRequested = true;
     this.showToast("choice", undefined, context);
   },
 

@@ -162,6 +162,7 @@ export const transcriptWindowMethods = {
     this.streamingRows = {};
     this.pendingStreamingRow = undefined;
     this.piDeltaBuffer = "";
+    this.piRawTextBuffer = "";
     if (this.streamingRenderFrame != null) {
       window.cancelAnimationFrame?.(this.streamingRenderFrame);
       this.streamingRenderFrame = undefined;
