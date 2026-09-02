@@ -503,6 +503,9 @@ describe("workspace folder/render/bootstrap coverage", () => {
     expect(pickerStyles).toMatch(/\.folder-browser-head\s*\{[^}]*background:\s*var\(--bg-2\);/s);
     expect(pickerStyles).toMatch(/\.folder-tree-row\s*\{[^}]*grid-template-columns:\s*28px minmax\(0, 1fr\);/s);
     expect(pickerStyles).toMatch(/\.folder-row\s*\{[^}]*width:\s*100%;[^}]*min-height:\s*36px;/s);
+    expect(pickerStyles).toMatch(/\.folder-tree-node\[aria-selected="true"\]\s*>\s*\.folder-tree-row\s*>\s*\.folder-row/);
+    expect(pickerStyles).toMatch(/\.folder-tree-node\[aria-selected="true"\]\s*>\s*\.folder-tree-row\s*>\s*\.folder-row \.folder-name/);
+    expect(pickerStyles).toMatch(/\.folder-confirm\s*\{[^}]*color:\s*var\(--ansi-white\);/s);
     expect(pickerStyles).toMatch(/\.folder-confirm\s*\{[^}]*min-height:\s*40px;[^}]*margin:\s*10px 14px 14px;/s);
   });
 

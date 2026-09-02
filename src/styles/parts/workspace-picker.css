@@ -79,7 +79,7 @@
   border: 1px solid var(--accent);
   border-radius: var(--radius-1);
   background: var(--accent);
-  color: var(--selection-fg);
+  color: var(--ansi-white);
   font-family: var(--font-mono);
   min-height: 40px;
   font-size: var(--text-sm);
@@ -258,7 +258,7 @@
   border-color: var(--border-dim);
   background: var(--accent-bg);
 }
-.folder-tree-node[aria-selected="true"] .folder-row {
+.folder-tree-node[aria-selected="true"] > .folder-tree-row > .folder-row {
   border-color: var(--accent);
   background: var(--accent-bg);
   box-shadow: inset 2px 0 0 var(--accent);
@@ -279,7 +279,7 @@
   color: var(--fg-3);
 }
 .folder-row:hover:not(:disabled) .folder-name,
-.folder-tree-node[aria-selected="true"] .folder-name { color: var(--accent); }
+.folder-tree-node[aria-selected="true"] > .folder-tree-row > .folder-row .folder-name { color: var(--accent); }
 .folder-tree-children {
   border-left: 1px solid var(--border-dim);
 }
