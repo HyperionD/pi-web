@@ -373,6 +373,8 @@ describe("pi-app input methods coverage", () => {
     app.apiConnected = true;
     app.dataset.activeWorkspaceId = "w1";
     app.settingsState = { project: {}, global: {}, effective: {}, paths: {} };
+    app.appConfigState = { config: { version: 1, brand: "pi.dev / web" }, path: "/config" };
+    app.fillAppConfigForm();
     app.querySelector("[data-app-setting='brand']").value = "Custom";
     app.settingsPatchFromForm = vi.fn(() => ({ defaultThinkingLevel: "high" }));
     globalThis.fetch = vi.fn(async (url, options = {}) => {
