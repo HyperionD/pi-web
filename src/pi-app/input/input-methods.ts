@@ -47,29 +47,34 @@ export const inputMethods = {
       if (this.attachments) this.attachments.hidden = true;
       this.updatePrompt();
       if (waitForServerEcho) {
-        this.eventSource?.close();
-        this.eventSource = null;
+        this.invalidateEventStream();
         this.setMode("running");
         let replayEventsOnReconnect = true;
+        const aguiSubscriber = this.aguiSubscriber(sessionId);
+        const aguiRunToken = this.aguiRunToken;
         try {
           const completedInAguiStream = await runAguiSessionPrompt(
             sessionId,
             text,
             attachments,
-            this.aguiSubscriber(sessionId),
+            aguiSubscriber,
           );
           replayEventsOnReconnect = !completedInAguiStream;
-          if (completedInAguiStream && this.dataset.activeSessionId === sessionId) {
+          if (completedInAguiStream && this.dataset.activeSessionId === sessionId
+            && this.aguiRunToken === aguiRunToken) {
             this.setMode("idle");
             this.finalizeStreamingMessages();
             this.removeLoadingMessage();
           }
         } catch {
+          if (this.dataset.activeSessionId !== sessionId || this.aguiRunToken !== aguiRunToken) return;
           this.setMode("idle");
           this.removeLoadingMessage();
           this.setConnection("err");
         } finally {
-          if (this.dataset.activeSessionId === sessionId && typeof EventSource !== "undefined") {
+          if (this.dataset.activeSessionId === sessionId
+            && this.aguiRunToken === aguiRunToken
+            && typeof EventSource !== "undefined") {
             this.connectEvents(sessionId, { replay: replayEventsOnReconnect });
           }
         }
@@ -325,22 +330,27 @@ export const inputMethods = {
     this.appendMessage({ kind: "user", text: prompt });
     this.appendLoadingMessage();
     this.setMode("running");
+    const sessionId = this.dataset.activeSessionId;
+    this.invalidateEventStream();
+    const aguiSubscriber = this.aguiSubscriber(sessionId);
+    const aguiRunToken = this.aguiRunToken;
     try {
-      this.eventSource?.close();
-      this.eventSource = null;
-      const sessionId = this.dataset.activeSessionId;
-      const completedInAguiStream = await runAguiSessionPrompt(sessionId, prompt, [], this.aguiSubscriber(sessionId));
-      if (completedInAguiStream && this.dataset.activeSessionId === sessionId) {
+      const completedInAguiStream = await runAguiSessionPrompt(sessionId, prompt, [], aguiSubscriber);
+      if (completedInAguiStream && this.dataset.activeSessionId === sessionId
+        && this.aguiRunToken === aguiRunToken) {
         this.setMode("idle");
         this.finalizeStreamingMessages();
         this.removeLoadingMessage();
       }
     } catch {
+      if (this.dataset.activeSessionId !== sessionId || this.aguiRunToken !== aguiRunToken) return;
       this.setMode("idle");
       this.removeLoadingMessage();
       this.setConnection("err");
     } finally {
-      if (this.dataset.activeSessionId && typeof EventSource !== "undefined") {
+      if (this.dataset.activeSessionId === sessionId
+        && this.aguiRunToken === aguiRunToken
+        && typeof EventSource !== "undefined") {
         this.connectEvents(this.dataset.activeSessionId, { replay: false });
       }
     }

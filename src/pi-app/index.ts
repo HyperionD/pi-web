@@ -61,7 +61,7 @@ class PiApp extends HTMLElement {
   }
   disconnectedCallback() {
     this.destroyFilePreviewEditor?.();
-    this.eventSource?.close();
+    this.invalidateEventStream();
     this.backgroundSessionWatches?.forEach((watch) => watch.source?.close?.());
     this.backgroundSessionWatches?.clear?.();
     if (this.spinnerTimer) clearInterval(this.spinnerTimer);
@@ -183,8 +183,16 @@ class PiApp extends HTMLElement {
     window.parent?.postMessage({ type: "__edit_mode_available" }, "*");
   }
 
-  connectEvents(sessionId: string, options: any = {}) {
+  invalidateEventStream() {
+    this.eventStreamId = undefined;
+    this.aguiRunActive = false;
+    this.aguiRunToken = undefined;
     this.eventSource?.close();
+    this.eventSource = null;
+  }
+
+  connectEvents(sessionId: string, options: any = {}) {
+    this.invalidateEventStream();
     const eventStreamId = Symbol(sessionId);
     this.eventStreamId = eventStreamId;
     this.eventSource = sessionEvents(sessionId, {
@@ -208,51 +216,58 @@ class PiApp extends HTMLElement {
   }
 
   aguiSubscriber(sessionId) {
+    const runToken = Symbol(sessionId);
+    this.aguiRunToken = runToken;
+    const isCurrentToken = () => this.dataset.activeSessionId === sessionId && this.aguiRunToken === runToken;
+    const isCurrentRun = () => isCurrentToken() && this.aguiRunActive;
     let textBuffer = "";
     return {
       onRunStarted: () => {
-        if (this.dataset.activeSessionId !== sessionId) return;
+        if (!isCurrentToken()) return;
+        this.aguiRunToken = runToken;
+        this.aguiRunActive = true;
         textBuffer = "";
         this.confirmConnection();
         this.setMode("running");
       },
       onTextDelta: (delta) => {
-        if (this.dataset.activeSessionId !== sessionId || !delta) return;
+        if (!isCurrentRun() || !delta) return;
         textBuffer += delta;
         this.setMode("running");
         this.appendDelta({ kind: "pi", delta });
       },
       onTextEnd: (text) => {
-        if (this.dataset.activeSessionId !== sessionId || (!text && !textBuffer)) return;
+        if (!isCurrentRun() || (!text && !textBuffer)) return;
         const finalText = textBuffer || text;
         textBuffer = "";
         this.finalizePiStream(finalText);
       },
       onThinkingDelta: (delta) => {
-        if (this.dataset.activeSessionId !== sessionId || !delta) return;
+        if (!isCurrentRun() || !delta) return;
         this.setMode("running");
         this.appendDelta({ kind: "think", delta });
       },
       onToolStart: ({ id, name }) => {
-        if (this.dataset.activeSessionId !== sessionId) return;
+        if (!isCurrentRun()) return;
         this.setMode("running");
         this.appendMessage({ id, kind: "tool", tool: name, status: "running", collapsedByDefault: true });
       },
       onToolArgs: ({ id, name, chunk }) => {
-        if (this.dataset.activeSessionId !== sessionId || !chunk) return;
+        if (!isCurrentRun() || !chunk) return;
         this.setMode("running");
         this.updateToolArgs({ id, tool: name, chunk });
       },
       onToolResult: ({ id, name, content, mode = "replace" }) => {
-        if (this.dataset.activeSessionId !== sessionId || !content) return;
+        if (!isCurrentRun() || !content) return;
         this.appendToolOutput({ id, tool: name, chunk: content, mode });
       },
       onToolEnd: ({ id, name, args, body }) => {
-        if (this.dataset.activeSessionId !== sessionId) return;
+        if (!isCurrentRun()) return;
         this.finishTool({ id, kind: "tool", tool: name, args, status: "ok", resultMeta: "done", body });
       },
       onRunError: (message) => {
-        if (this.dataset.activeSessionId !== sessionId) return;
+        if (!isCurrentRun()) return;
+        this.aguiRunActive = false;
         textBuffer = "";
         this.commitStreamingMessages?.();
         this.appendErrorMessage?.(message);
@@ -260,7 +275,8 @@ class PiApp extends HTMLElement {
         this.setMode("idle");
       },
       onRunFinished: () => {
-        if (this.dataset.activeSessionId !== sessionId) return;
+        if (!isCurrentRun()) return;
+        this.aguiRunActive = false;
         textBuffer = "";
         this.commitStreamingMessages?.();
         this.setMode(this.isSessionCancellationPending(sessionId) ? "cancelled" : "idle");
@@ -272,7 +288,7 @@ class PiApp extends HTMLElement {
     if (!this.isCurrentSessionEvent(event)) return;
     if (event.type === "heartbeat") return;
     if (event.type === "error") {
-      this.commitStreamingMessages?.();
+      this.commitStreamingMessages?.({ preserveAguiText: this.aguiRunActive });
       this.appendErrorMessage?.(event.payload?.error);
       this.notifyResponseFailure?.(event.payload?.error);
       return;
@@ -285,7 +301,7 @@ class PiApp extends HTMLElement {
       }
       if (mode === "idle" || mode === "cancelled") {
         this.compacting = false;
-        this.commitStreamingMessages?.();
+        this.commitStreamingMessages?.({ preserveAguiText: this.aguiRunActive });
       }
       this.setMode(mode);
       return;

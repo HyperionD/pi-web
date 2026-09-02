@@ -160,9 +160,7 @@ export const workspaceBootstrapMethods = {
       this.updateSessionMeta?.(row, false);
     });
     this.markSelectedSessionRow?.("");
-    this.eventSource?.close?.();
-    this.eventSource = null;
-    this.eventStreamId = undefined;
+    this.invalidateEventStream();
     this.backgroundSessionWatches?.forEach((watch) => watch.source?.close?.());
     this.backgroundSessionWatches?.clear?.();
     this.sessionLoadToken = Symbol("cleared-workspace");
@@ -337,6 +335,7 @@ export const workspaceBootstrapMethods = {
         : (!this.dataset.activeSessionId || this.dataset.activeSessionId === sessionId)
           && (!workspaceId || !this.dataset.activeWorkspaceId || this.dataset.activeWorkspaceId === workspaceId))
     );
+    this.invalidateEventStream?.();
     this.showSessionSwitchLoading(sessionId);
     try {
       const loaded = await getSession(sessionId, { limit: SESSION_MESSAGE_PAGE_SIZE });

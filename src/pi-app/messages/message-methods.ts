@@ -283,12 +283,13 @@ export const messageMethods = {
     return !!(historyActive || tailActive);
   },
 
-  commitStreamingMessages() {
+  commitStreamingMessages({ preserveAguiText = false } = {}) {
     if (!this.streamingTail) return;
     this.flushStreamingRender();
     const hasPendingChoice = parseFallbackChoices(this.piRawTextBuffer).length > 0;
-    const messages = [...this.streamingTail.querySelectorAll(".msg.streaming")]
-      .filter((row) => !row.classList.contains("loading"))
+    const rows = [...this.streamingTail.querySelectorAll(".msg.streaming")];
+    const messages = rows
+      .filter((row) => !row.classList.contains("loading") && (!preserveAguiText || row.dataset.kind !== "pi"))
       .map((row) => {
         const kind = row.dataset.kind;
         const streamBody = row.querySelector("[data-stream-text]") || row.querySelector(".body");
@@ -296,7 +297,13 @@ export const messageMethods = {
         return kind && text ? { kind, text } : undefined;
       })
       .filter(Boolean);
-    this.finalizeStreamingMessages();
+    if (preserveAguiText) {
+      for (const row of rows) {
+        if (row.dataset.kind !== "pi") this.removeStreamingNode(row);
+      }
+    } else {
+      this.finalizeStreamingMessages();
+    }
     for (const message of messages) this.appendTranscriptNode(this.messageNode(message), { stickToBottom: false });
     if (hasPendingChoice) this.notifyChoiceRequested?.();
     if (messages.length) this.renderTranscriptWindow({ stickToBottom: true });

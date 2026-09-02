@@ -43,13 +43,14 @@ describe("pi-app core events", () => {
 
     const backgroundSource = { close: vi.fn() };
     app.eventSource = { close: vi.fn() };
+    const eventSource = app.eventSource;
     app.backgroundSessionWatches = new Map([["s2", { source: backgroundSource }]]);
     app.streamingRenderFrame = 1;
     app.scrollFrame = 2;
     app.uninstallViewportSizing = vi.fn();
     vi.spyOn(window, "cancelAnimationFrame").mockImplementation(() => undefined);
     app.disconnectedCallback();
-    expect(app.eventSource.close).toHaveBeenCalled();
+    expect(eventSource.close).toHaveBeenCalled();
     expect(backgroundSource.close).toHaveBeenCalled();
     expect(app.uninstallViewportSizing).toHaveBeenCalled();
     expect(app.streamingRenderFrame).toBeUndefined();
@@ -323,6 +324,60 @@ describe("pi-app core events", () => {
     app.prompt.dispatchEvent(slashEnter);
     expect(app.navigateList).toHaveBeenCalledWith(slashEnter, ".slash-item", expect.any(Function));
     expect(app.submitPrompt).toHaveBeenCalledTimes(1);
+  });
+
+  it("invalidates event callbacks when the app disconnects", async () => {
+    const listeners = {};
+    class FakeEventSource {
+      constructor(url) { this.url = url; }
+      addEventListener(type, callback) { listeners[type] = callback; }
+      close = vi.fn();
+    }
+    vi.stubGlobal("EventSource", FakeEventSource);
+    const app = await connectPiApp();
+    app.dataset.activeSessionId = "s1";
+    app.applyEvent = vi.fn();
+    app.connectEvents("s1");
+    const staleSource = app.eventSource;
+
+    app.disconnectedCallback();
+    listeners["session.message"]({
+      data: JSON.stringify({
+        type: "session.message",
+        sessionId: "s1",
+        payload: { kind: "pi", text: "stale" },
+      }),
+    });
+
+    expect(staleSource.close).toHaveBeenCalled();
+    expect(app.applyEvent).not.toHaveBeenCalled();
+  });
+
+  it("invalidates a closed event stream before AG-UI takes over", async () => {
+    const listeners = {};
+    class FakeEventSource {
+      constructor(url) { this.url = url; }
+      addEventListener(type, callback) { listeners[type] = callback; }
+      close = vi.fn();
+    }
+    vi.stubGlobal("EventSource", FakeEventSource);
+    const app = await connectPiApp();
+    app.dataset.activeSessionId = "s1";
+    app.applyEvent = vi.fn();
+    app.connectEvents("s1");
+    const staleSource = app.eventSource;
+
+    app.invalidateEventStream();
+    listeners["session.message"]({
+      data: JSON.stringify({
+        type: "session.message",
+        sessionId: "s1",
+        payload: { kind: "pi", text: "stale" },
+      }),
+    });
+
+    expect(staleSource.close).toHaveBeenCalled();
+    expect(app.applyEvent).not.toHaveBeenCalled();
   });
 
   it("connects event streams and applies every event branch", async () => {

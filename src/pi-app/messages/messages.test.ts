@@ -336,6 +336,22 @@ describe("pi-app messages", () => {
     expect(app.querySelector(".term-inner .msg[data-kind='pi']").textContent).toContain("complete");
   });
 
+  it("keeps a live AG-UI stream out of idle-event commits", async () => {
+    const app = await connectPiApp();
+    app.dataset.activeSessionId = "s1";
+    app.renderMessages([]);
+    const subscriber = app.aguiSubscriber("s1");
+    subscriber.onRunStarted();
+    subscriber.onTextDelta("partial");
+
+    app.applyEvent({ type: "session.status", payload: { status: "idle" } });
+    subscriber.onTextDelta(" complete");
+    subscriber.onTextEnd("partial complete");
+
+    expect(app.querySelectorAll(".term-inner .msg[data-kind='pi']")).toHaveLength(1);
+    expect(app.querySelector(".term-inner .msg[data-kind='pi']").dataset.rawText).toBe("partial complete");
+  });
+
   it("cleans a duplicate message's matching streaming tail row", async () => {
     const app = await connectPiApp();
     app.renderMessages([{ kind: "pi", text: "answer" }]);

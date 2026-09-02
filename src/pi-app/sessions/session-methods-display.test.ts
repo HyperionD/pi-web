@@ -43,9 +43,10 @@ describe("pi-app session method display states", () => {
     const { activeTitle } = appendSessionShell(app);
     app.dataset.activeSessionId = "s1";
     app.eventSource = { close: vi.fn() };
+    const eventSource = app.eventSource;
     localStorage.setItem("pi.activeSession", JSON.stringify({ workspaceId: "w1", sessionId: "s1" }));
     app.clearActiveSession("s1");
-    expect(app.eventSource.close).toHaveBeenCalled();
+    expect(eventSource.close).toHaveBeenCalled();
     expect(activeTitle.textContent).toBe("无会话");
     expect(localStorage.getItem("pi.activeSession")).toBeNull();
 

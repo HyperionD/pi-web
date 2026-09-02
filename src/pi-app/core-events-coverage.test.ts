@@ -103,9 +103,8 @@ describe("pi-app core events coverage", () => {
     app.running = true;
     subscriber.onTextDelta("hello again");
     subscriber.onTextEnd("done");
-    const textOnlySubscriber = app.aguiSubscriber("s1");
-    textOnlySubscriber.onTextEnd("final only");
-    textOnlySubscriber.onTextEnd("");
+    subscriber.onTextEnd("final only");
+    subscriber.onTextEnd("");
     app.running = false;
     subscriber.onThinkingDelta("think");
     app.running = true;
@@ -158,12 +157,31 @@ describe("pi-app core events coverage", () => {
     expect(app.finalizePiStream).not.toHaveBeenCalledWith("skip");
   });
 
+  it("ignores callbacks from a superseded AG-UI run", async () => {
+    const app = await connectPiApp();
+    app.dataset.activeSessionId = "s1";
+    app.appendDelta = vi.fn();
+    const staleSubscriber = app.aguiSubscriber("s1");
+    staleSubscriber.onRunStarted();
+    const currentSubscriber = app.aguiSubscriber("s1");
+    currentSubscriber.onRunStarted();
+    staleSubscriber.onRunStarted();
+
+    staleSubscriber.onTextDelta("stale");
+    currentSubscriber.onTextDelta("current");
+
+    expect(app.appendDelta).toHaveBeenCalledTimes(1);
+    expect(app.appendDelta).toHaveBeenCalledWith({ kind: "pi", delta: "current" });
+  });
+
   it("forwards AG-UI tool result replacement mode to the transcript", async () => {
     const app = await connectPiApp();
     app.dataset.activeSessionId = "s1";
     app.appendToolOutput = vi.fn();
 
-    app.aguiSubscriber("s1").onToolResult({
+    const subscriber = app.aguiSubscriber("s1");
+    subscriber.onRunStarted();
+    subscriber.onToolResult({
       id: "call-1",
       name: "bash",
       content: "latest output",
@@ -229,7 +247,9 @@ describe("pi-app core events coverage", () => {
     expect(app.isSessionCancellationPending("s1")).toBe(false);
 
     app.markSessionCancellationPending("s1");
-    app.aguiSubscriber("s1").onRunFinished();
+    const subscriber = app.aguiSubscriber("s1");
+    subscriber.onRunStarted();
+    subscriber.onRunFinished();
     expect(app.isSessionCancellationPending("s1")).toBe(false);
   });
 

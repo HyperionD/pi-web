@@ -190,8 +190,7 @@ export const sessionMethods = {
 
   clearActiveSession(sessionId) {
     clearStoredActiveSession(sessionId);
-    this.eventSource?.close();
-    this.eventStreamId = undefined;
+    this.invalidateEventStream();
     this.dataset.activeSessionId = "";
     this.resetActiveSessionState();
     this.renderMessages([]);
