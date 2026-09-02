@@ -352,6 +352,30 @@ describe("pi-app messages", () => {
     expect(app.querySelector(".term-inner .msg[data-kind='pi']").dataset.rawText).toBe("partial complete");
   });
 
+  it("replaces each streamed segment with its canonical message around tools", async () => {
+    const app = await connectPiApp();
+    app.renderMessages([]);
+    app.setMode("running");
+
+    app.applyEvent({ type: "session.delta", payload: { kind: "pi", delta: "工具前说明" } });
+    app.applyEvent({ type: "session.message", payload: { kind: "pi", text: "工具前说明" } });
+    app.applyEvent({
+      type: "tool.started",
+      payload: { id: "call-1", kind: "tool", tool: "bash", status: "running" },
+    });
+    app.applyEvent({
+      type: "tool.finished",
+      payload: { id: "call-1", kind: "tool", tool: "bash", status: "ok" },
+    });
+    app.applyEvent({ type: "session.delta", payload: { kind: "pi", delta: "最终总结" } });
+    app.applyEvent({ type: "session.message", payload: { kind: "pi", text: "最终总结" } });
+    app.applyEvent({ type: "session.status", payload: { status: "idle" } });
+
+    expect([...app.querySelectorAll(".term-inner .msg[data-kind='pi']")]
+      .map((row) => row.dataset.rawText)).toEqual(["工具前说明", "最终总结"]);
+    expect(app.querySelector(".streaming-tail .msg.streaming")).toBeNull();
+  });
+
   it("cleans a duplicate message's matching streaming tail row", async () => {
     const app = await connectPiApp();
     app.renderMessages([{ kind: "pi", text: "answer" }]);
