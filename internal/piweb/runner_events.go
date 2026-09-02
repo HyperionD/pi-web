@@ -95,13 +95,16 @@ func handlePiJSONEvent(line string, broker *Broker, store *Store, sessionID stri
 		})
 		return true
 	case "tool_execution_end":
-		state.markToolFinished(event.ToolCallID, event.ToolName)
 		status := "ok"
 		if event.IsError {
 			status = "err"
 		}
 		msg := Message{ID: event.ToolCallID, Kind: "tool", Tool: event.ToolName, Args: string(event.Args), Status: status, Body: jsonChunk(event.Result), CollapsedByDefault: true}
-		_ = store.AppendMessage(sessionID, msg)
+		if err := store.AppendMessage(sessionID, msg); err != nil {
+			broker.Publish(sessionID, "error", map[string]string{"error": err.Error()})
+			return true
+		}
+		state.markToolFinished(event.ToolCallID, event.ToolName)
 		broker.Publish(sessionID, "tool.finished", msg)
 		return true
 	case "agent_end", "turn_end":

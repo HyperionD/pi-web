@@ -87,11 +87,11 @@ func TestHandlePiJSONEventPreservesToolCallID(t *testing.T) {
 	update := `{"type":"tool_execution_update","toolCallId":"call-1","toolName":"bash","partialResult":"ok"}`
 	finish := `{"type":"tool_execution_end","toolCallId":"call-1","toolName":"bash","args":{"command":"pwd"},"result":"ok"}`
 
-	handlePiJSONEvent(start, broker, store, "session", state)
-	handlePiJSONEvent(update, broker, store, "session", state)
-	handlePiJSONEvent(finish, broker, store, "session", state)
+	handlePiJSONEvent(start, broker, store, "8e7c-44ff", state)
+	handlePiJSONEvent(update, broker, store, "8e7c-44ff", state)
+	handlePiJSONEvent(finish, broker, store, "8e7c-44ff", state)
 
-	events := broker.Replay("session", 0)
+	events := broker.Replay("8e7c-44ff", 0)
 	if len(events) != 3 {
 		t.Fatalf("expected start, output, and finish events: %#v", events)
 	}
@@ -113,11 +113,11 @@ func TestHandlePiJSONEventRendersStructuredToolResultText(t *testing.T) {
 	broker := NewBroker()
 	store := NewMockStore()
 	state := &jsonStreamState{}
-	handlePiJSONEvent(`{"type":"tool_execution_start","toolCallId":"call-1","toolName":"bash","args":{"command":"ls"}}`, broker, store, "session", state)
-	handlePiJSONEvent(`{"type":"tool_execution_update","toolCallId":"call-1","toolName":"bash","partialResult":{"content":[{"type":"text","text":"partial output"}],"details":{"truncation":null}}}`, broker, store, "session", state)
-	handlePiJSONEvent(`{"type":"tool_execution_end","toolCallId":"call-1","toolName":"bash","result":{"content":[{"type":"text","text":"total output"}],"details":{}}}`, broker, store, "session", state)
+	handlePiJSONEvent(`{"type":"tool_execution_start","toolCallId":"call-1","toolName":"bash","args":{"command":"ls"}}`, broker, store, "8e7c-44ff", state)
+	handlePiJSONEvent(`{"type":"tool_execution_update","toolCallId":"call-1","toolName":"bash","partialResult":{"content":[{"type":"text","text":"partial output"}],"details":{"truncation":null}}}`, broker, store, "8e7c-44ff", state)
+	handlePiJSONEvent(`{"type":"tool_execution_end","toolCallId":"call-1","toolName":"bash","result":{"content":[{"type":"text","text":"total output"}],"details":{}}}`, broker, store, "8e7c-44ff", state)
 
-	events := broker.Replay("session", 0)
+	events := broker.Replay("8e7c-44ff", 0)
 	if len(events) != 3 {
 		t.Fatalf("unexpected tool events: %#v", events)
 	}
@@ -140,12 +140,28 @@ func TestHandlePiJSONEventDoesNotDuplicateFinishedToolResult(t *testing.T) {
 	finish := `{"type":"tool_execution_end","toolCallId":"call-1","toolName":"bash","args":{"command":"pwd"},"result":"ok"}`
 	messageEnd := `{"type":"message_end","message":{"role":"toolResult","toolCallId":"call-1","toolName":"bash","content":"ok"}}`
 
-	handlePiJSONEvent(start, broker, store, "session", state)
-	handlePiJSONEvent(finish, broker, store, "session", state)
-	handlePiJSONEvent(messageEnd, broker, store, "session", state)
+	handlePiJSONEvent(start, broker, store, "8e7c-44ff", state)
+	handlePiJSONEvent(finish, broker, store, "8e7c-44ff", state)
+	handlePiJSONEvent(messageEnd, broker, store, "8e7c-44ff", state)
 
-	if events := broker.Replay("session", 0); len(events) != 2 {
+	if events := broker.Replay("8e7c-44ff", 0); len(events) != 2 {
 		t.Fatalf("expected no duplicate tool events: %#v", events)
+	}
+}
+
+func TestHandlePiJSONEventDoesNotPublishUnpersistedFinishedTool(t *testing.T) {
+	broker := NewBroker()
+	store := NewMockStore()
+	state := &jsonStreamState{}
+
+	handlePiJSONEvent(`{"type":"tool_execution_end","toolCallId":"call-1","toolName":"bash","result":"orphan"}`, broker, store, "missing", state)
+
+	events := broker.Replay("missing", 0)
+	if len(events) != 1 || events[0].Type != "error" {
+		t.Fatalf("expected persistence error without finished tool: %#v", events)
+	}
+	if state.toolWasFinished(Message{ID: "call-1", Tool: "bash"}) {
+		t.Fatal("unpersisted tool result must remain eligible for message_end recovery")
 	}
 }
 
@@ -153,10 +169,10 @@ func TestHandlePiJSONEventKeepsUnmatchedSameNameToolResult(t *testing.T) {
 	broker := NewBroker()
 	store := NewMockStore()
 	state := &jsonStreamState{}
-	handlePiJSONEvent(`{"type":"tool_execution_end","toolCallId":"call-1","toolName":"bash","result":"first"}`, broker, store, "session", state)
-	handlePiJSONEvent(`{"type":"message_end","message":{"role":"toolResult","toolCallId":"call-2","toolName":"bash","content":"second"}}`, broker, store, "session", state)
+	handlePiJSONEvent(`{"type":"tool_execution_end","toolCallId":"call-1","toolName":"bash","result":"first"}`, broker, store, "8e7c-44ff", state)
+	handlePiJSONEvent(`{"type":"message_end","message":{"role":"toolResult","toolCallId":"call-2","toolName":"bash","content":"second"}}`, broker, store, "8e7c-44ff", state)
 
-	if events := broker.Replay("session", 0); len(events) != 2 {
+	if events := broker.Replay("8e7c-44ff", 0); len(events) != 2 {
 		t.Fatalf("expected unmatched same-name result to be preserved: %#v", events)
 	}
 }
