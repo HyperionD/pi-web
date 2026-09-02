@@ -19,9 +19,11 @@ function mountPreview() {
           <div class="fp-head">
             <div><strong class="fp-path">file</strong><small></small></div>
             <div class="fp-actions">
-              <button type="button" data-action="save-file-preview" hidden>save</button>
-              <button type="button" data-action="toggle-file-preview-mode" hidden>text</button>
-              <button type="button" data-action="close-file-preview">×</button>
+              <div class="fp-save-slot"><button type="button" data-action="save-file-preview" hidden>save</button></div>
+              <div class="fp-mode-actions">
+                <button type="button" data-action="toggle-file-preview-mode" hidden>text</button>
+                <button type="button" data-action="close-file-preview">×</button>
+              </div>
             </div>
           </div>
           <div class="fp-body"></div>
@@ -66,6 +68,24 @@ describe("file preview CodeMirror editor", () => {
     expect(app.querySelector("[data-file-preview-editor]")).toBeFalsy();
     expect(app.querySelector("[data-action='toggle-file-preview-mode']").textContent).toBe("文本");
     expect(app.querySelector("[data-action='save-file-preview']").hidden).toBe(true);
+  });
+
+  it("keeps the mode toggle beside the close button", () => {
+    const app = mountPreview();
+    app.renderFilePreview({
+      path: "README.md",
+      mime: "text/markdown",
+      previewKind: "text",
+      content: "# Hello",
+    });
+
+    const modeActions = app.querySelector(".fp-mode-actions");
+    const toggle = modeActions?.querySelector("[data-action='toggle-file-preview-mode']");
+    const close = modeActions?.querySelector("[data-action='close-file-preview']");
+    expect(toggle).toBeTruthy();
+    expect(close).toBeTruthy();
+    expect(toggle!.compareDocumentPosition(close!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(modeActions?.previousElementSibling?.classList.contains("fp-save-slot")).toBe(true);
   });
 
   it("resolves relative Markdown images through the active workspace", () => {

@@ -462,6 +462,10 @@ pre.ascii-banner .dim { color: var(--fg-3); }
   border-bottom: 1px solid var(--border-dim);
   background: var(--bg-2);
 }
+.file-preview-panel .fp-head > div:first-child {
+  min-width: 0;
+  overflow: hidden;
+}
 .file-preview-panel .fp-path {
   color: var(--fg-0);
   font-size: var(--text-sm);
@@ -470,8 +474,26 @@ pre.ascii-banner .dim { color: var(--fg-3); }
   white-space: nowrap;
   display: block;
 }
-.file-preview-panel small { color: var(--fg-3); font-size: 10px; }
-.file-preview-panel .fp-actions { display: flex; gap: var(--space-2); }
+.file-preview-panel small {
+  display: block;
+  overflow: hidden;
+  color: var(--fg-3);
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.file-preview-panel .fp-actions {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+}
+.file-preview-panel .fp-save-slot { min-width: 0; }
+.file-preview-panel .fp-mode-actions {
+  display: flex;
+  flex-shrink: 0;
+  gap: var(--space-2);
+  margin-left: auto;
+}
 .file-preview-panel button {
   border: 1px solid var(--border);
   border-radius: var(--radius-1);

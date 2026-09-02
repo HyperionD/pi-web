@@ -67,7 +67,7 @@ export function installPiAppFixture() {
         <main data-main="empty" hidden><div class="empty-shell">new session</div></main>
         <div class="file-preview-panel" data-file-preview hidden>
           <div class="fp-dialog">
-            <div class="fp-head"><strong class="fp-path">file</strong><small></small><div class="fp-actions"><button type="button" data-action="save-file-preview" hidden>save</button><button type="button" data-action="toggle-file-preview-mode" hidden>text</button><button type="button" data-action="close-file-preview">×</button></div></div>
+            <div class="fp-head"><div><strong class="fp-path">file</strong><small></small></div><div class="fp-actions"><div class="fp-save-slot"><button type="button" data-action="save-file-preview" hidden>save</button></div><div class="fp-mode-actions"><button type="button" data-action="toggle-file-preview-mode" hidden>text</button><button type="button" data-action="close-file-preview">×</button></div></div></div>
             <div class="fp-body"></div>
           </div>
         </div>
