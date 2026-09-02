@@ -184,6 +184,8 @@ describe("app config methods", () => {
     app.adminPasswordConfigured = true;
     app.settingsState = { project: {}, global: {}, effective: {}, paths: {} };
     app.appConfigState = { config: { version: 1, brand: "old" }, path: "/config" };
+    Object.assign(app, appConfigMethods);
+    app.fillAppConfigForm();
     app.querySelector("[data-app-setting='brand']").value = "Custom";
     vi.spyOn(window, "prompt").mockReturnValue("secret");
     globalThis.fetch = vi.fn(async () => ok({ config: { version: 1, brand: "Custom" }, path: "/config" }));
@@ -192,6 +194,24 @@ describe("app config methods", () => {
 
     const patchCalls = globalThis.fetch.mock.calls.filter(([, options]) => options?.method === "PATCH");
     expect(patchCalls[0][1].headers).toMatchObject({ "X-Admin-Password": "secret" });
+  });
+
+  it("does not request admin confirmation when app config has no loaded baseline", async () => {
+    const app = await connectPiApp();
+    app.apiConnected = true;
+    app.adminPasswordConfigured = true;
+    app.dataset.activeWorkspaceId = "w1";
+    app.settingsState = { project: {}, global: {}, effective: {}, paths: {} };
+    app.querySelector("[data-setting='defaultThinkingLevel']").value = "high";
+    app.requestAdminPassword = vi.fn();
+    globalThis.fetch = vi.fn(async (url, options = {}) => options.method === "PUT"
+      ? ok({ settings: { project: {}, global: {}, effective: {}, paths: {} } })
+      : ok({ config: { version: 1, brand: "Custom" }, path: "/config" }));
+
+    await app.saveSettingsForm({ preventDefault: vi.fn() });
+
+    expect(app.appConfigPatchFromForm()).toEqual({});
+    expect(app.requestAdminPassword).not.toHaveBeenCalled();
   });
 
   it("does not request admin confirmation when app settings are unchanged", async () => {
@@ -219,6 +239,9 @@ describe("app config methods", () => {
     const app = await connectPiApp();
     app.apiConnected = true;
     app.settingsState = { project: {}, global: {}, effective: {}, paths: {} };
+    app.appConfigState = { config: { version: 1, brand: "pi.dev / web" }, path: "/config" };
+    Object.assign(app, appConfigMethods);
+    app.fillAppConfigForm();
     app.querySelector("[data-app-setting='brand']").value = "Custom";
     globalThis.fetch = vi.fn(async () => ok({ config: { version: 1, brand: "Custom" }, path: "/config" }));
 
@@ -307,7 +330,10 @@ describe("app config methods", () => {
     const app = await connectPiApp();
     app.apiConnected = true;
     app.settingsState = { project: {}, global: {}, effective: {}, paths: {} };
+    app.appConfigState = { config: { version: 1, brand: "pi.dev / web" }, path: "/config" };
     Object.assign(app, appConfigMethods);
+    app.fillAppConfigForm();
+    app.querySelector("[data-app-setting='brand']").value = "";
     app.renderAllowedRootRows(["/a", "/b"]);
     globalThis.fetch = vi.fn(async () => ok({
       config: { version: 1, brand: "x", workspace: { allowedRoots: ["/a", "/b"] } },
@@ -340,6 +366,9 @@ describe("app config methods", () => {
     app.apiConnected = true;
     app.dataset.activeWorkspaceId = "w1";
     app.settingsState = { project: {}, global: {}, effective: {}, paths: {} };
+    app.appConfigState = { config: { version: 1, brand: "pi.dev / web" }, path: "/config" };
+    Object.assign(app, appConfigMethods);
+    app.fillAppConfigForm();
     app.querySelector("[data-app-setting='brand']").value = "Custom";
     globalThis.fetch = vi.fn(async (url, options = {}) => {
       if (options.method === "PATCH") return ok({ config: { version: 1, brand: "Custom" }, path: "/config" });
@@ -360,6 +389,9 @@ describe("app config methods", () => {
     const app = await connectPiApp();
     app.apiConnected = true;
     app.settingsState = { project: {}, global: {}, effective: {}, paths: {} };
+    app.appConfigState = { config: { version: 1, brand: "pi.dev / web" }, path: "/config" };
+    Object.assign(app, appConfigMethods);
+    app.fillAppConfigForm();
     const unsafe = "<img src=x onerror=alert(1)>";
     app.querySelector("[data-app-setting='brand']").value = unsafe;
     globalThis.fetch = vi.fn(async () => ok({ config: { version: 1, brand: unsafe }, path: "/config" }));
@@ -391,8 +423,10 @@ describe("app config methods", () => {
   it("saves only the app brand patch", async () => {
     const app = await connectPiApp();
     const input = app.querySelector("[data-app-setting='brand']");
-    input.value = "next";
     Object.assign(app, appConfigMethods);
+    app.appConfigState = { config: { version: 1, brand: "pi.dev / web" }, path: "/config" };
+    app.fillAppConfigForm();
+    input.value = "next";
     globalThis.fetch = vi.fn(async () => ok({
       config: { version: 1, brand: "next" },
       path: "/config",

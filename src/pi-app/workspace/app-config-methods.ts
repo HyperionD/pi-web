@@ -188,7 +188,7 @@ export const appConfigMethods = {
     const brand = brandControl?.value.trim();
     const initialBrand = brandControl?.dataset.initialAppBrand;
     const patch: AppConfigPatch = {};
-    if (brandControl && (initialBrand === undefined || brand !== initialBrand)) patch.brand = brand;
+    if (brandControl && initialBrand !== undefined && brand !== initialBrand) patch.brand = brand;
     const rootsControl = this.querySelector("[data-app-setting='allowed-roots']");
     if (!rootsControl) return patch;
     const roots = this.collectAllowedRoots();
