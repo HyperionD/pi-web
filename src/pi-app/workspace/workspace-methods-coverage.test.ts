@@ -434,6 +434,15 @@ describe("workspace folder/render/bootstrap coverage", () => {
     expect(pickerStyles).toMatch(/\.folder-confirm\s*\{[^}]*flex:\s*0 0 auto;/s);
   });
 
+  it("keeps workspace picker chrome aligned with the terminal shell", () => {
+    expect(pickerStyles).toMatch(/\.folder-popover-head\s*\{[^}]*padding:\s*12px 14px;/s);
+    expect(pickerStyles).toMatch(/\.folder-popover-head\s*\{[^}]*border-bottom:\s*1px solid var\(--border\);/s);
+    expect(pickerStyles).toMatch(/\.folder-popover-head button\s*\{[^}]*width:\s*28px;[^}]*height:\s*28px;/s);
+    expect(pickerStyles).toMatch(/\.folder-browser-head\s*\{[^}]*background:\s*var\(--bg-2\);/s);
+    expect(pickerStyles).toMatch(/\.folder-row\s*\{[^}]*grid-template-columns:\s*18px minmax\(96px, \.8fr\) minmax\(0, 1fr\);/s);
+    expect(pickerStyles).toMatch(/\.folder-confirm\s*\{[^}]*margin:\s*10px 14px 14px;/s);
+  });
+
   it("handles folder and delete failure branches", async () => {
     const app = await connectPiApp();
     app.apiConnected = false;
