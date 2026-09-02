@@ -290,7 +290,9 @@ describe("pi-app sessions", () => {
     await app.bootstrapAPI();
     expect(app.dataset.activeWorkspaceId).toBe("w2");
     expect(app.dataset.activeSessionId).toBe("s2");
-    expect(app.loadWorkspaceMeta).toHaveBeenCalledWith("w2");
+    expect(app.loadWorkspaceMeta).toHaveBeenCalledWith("w2", expect.objectContaining({
+      bootstrapSessionId: "s2",
+    }));
     expect(app.connectEvents).toHaveBeenCalledWith("s2", { replay: false });
   });
 });

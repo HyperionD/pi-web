@@ -72,6 +72,134 @@ describe("workspace bootstrap coverage", () => {
     ]);
   });
 
+  it("does not reactivate a session after deferred forbidden context recovery", async () => {
+    const app = await connectPiApp();
+    app.loadAppConfigState = vi.fn(async () => undefined);
+    app.loadWorkspaceCommands = vi.fn();
+    app.loadRuntimeStatus = vi.fn();
+    let resolveMeta;
+    app.loadWorkspaceMeta = vi.fn(() => new Promise((resolve) => { resolveMeta = resolve; }));
+    app.connectEvents = vi.fn();
+    let rejectSettings;
+    const settingsRequest = new Promise((_, reject) => { rejectSettings = reject; });
+    globalThis.fetch = vi.fn(async (url) => {
+      const value = String(url);
+      if (value.endsWith("/workspaces")) {
+        return okJson({ workspaces: [{ id: "w1", name: "one", path: "/one", sessions: [{ id: "s1", title: "old" }] }] });
+      }
+      if (value.endsWith("/settings")) return settingsRequest;
+      return okJson({});
+    });
+
+    const bootstrap = app.bootstrapAPI();
+    await vi.waitFor(() => expect(globalThis.fetch).toHaveBeenCalledWith(
+      expect.stringContaining("/settings"),
+      expect.any(Object),
+    ));
+    rejectSettings(Object.assign(new Error("outside allowed roots"), { status: 403 }));
+    await vi.waitFor(() => expect(app.dataset.activeWorkspaceId).toBe(""));
+    resolveMeta();
+    await bootstrap;
+
+    expect(globalThis.fetch).not.toHaveBeenCalledWith(
+      expect.stringContaining("/sessions/s1"),
+      expect.any(Object),
+    );
+    expect(app.dataset.activeWorkspaceId).toBe("");
+    expect(app.dataset.activeSessionId).toBe("");
+    expect(app.connectEvents).not.toHaveBeenCalled();
+    expect(app.querySelector("[data-main='empty']").hidden).toBe(false);
+  });
+
+  it("ignores an older refresh response after the newest refresh", async () => {
+    const app = await connectPiApp();
+    app.apiConnected = true;
+    app.dataset.activeWorkspaceId = "w1";
+    app.dataset.activeSessionId = "s1";
+    const clearView = vi.spyOn(app, "clearActiveWorkspaceView");
+    const render = vi.spyOn(app, "renderFilteredWorkspaces");
+    let resolveOld;
+    let resolveNew;
+    let requestCount = 0;
+    globalThis.fetch = vi.fn(() => {
+      requestCount += 1;
+      return new Promise((resolve) => {
+        if (requestCount === 1) resolveOld = resolve;
+        else resolveNew = resolve;
+      });
+    });
+
+    const oldRefresh = app.refreshWorkspaces();
+    await vi.waitFor(() => expect(globalThis.fetch).toHaveBeenCalledTimes(1));
+    const newRefresh = app.refreshWorkspaces();
+    await vi.waitFor(() => expect(globalThis.fetch).toHaveBeenCalledTimes(2));
+    resolveNew(okJson({ workspaces: [{ id: "w1", name: "one", path: "/one", sessions: [{ id: "s1" }] }] }));
+    await newRefresh;
+    resolveOld(okJson({ workspaces: [] }));
+    await oldRefresh;
+
+    expect(clearView).not.toHaveBeenCalled();
+    expect(render).toHaveBeenCalledTimes(1);
+    expect(app.dataset.activeWorkspaceId).toBe("w1");
+    expect(app.querySelector("[data-workspace-group='w1']")).not.toBeNull();
+  });
+
+  it("clears active state when refresh filters out the active workspace", async () => {
+    const app = await connectPiApp();
+    app.apiConnected = true;
+    app.appConfigState = { config: { workspace: { allowedRoots: ["/allowed"] } } };
+    app.dataset.activeWorkspaceId = "outside";
+    app.dataset.activeSessionId = "s-outside";
+    localStorage.setItem("pi.activeSession", JSON.stringify({ workspaceId: "outside", sessionId: "s-outside" }));
+    globalThis.fetch = vi.fn(async () => okJson({
+      workspaces: [{ id: "inside", path: "/allowed/project", sessions: [{ id: "s-inside" }] }],
+    }));
+
+    await app.refreshWorkspaces();
+
+    expect(app.dataset.activeWorkspaceId).toBe("");
+    expect(app.dataset.activeSessionId).toBe("");
+    expect(localStorage.getItem("pi.activeSession")).toBeNull();
+    expect(app.querySelector("[data-main='empty']").hidden).toBe(false);
+  });
+
+  it("clears active state when the active session is not owned by refreshed workspace", async () => {
+    const app = await connectPiApp();
+    app.apiConnected = true;
+    app.dataset.activeWorkspaceId = "w1";
+    app.dataset.activeSessionId = "s-old";
+    localStorage.setItem("pi.activeSession", JSON.stringify({ workspaceId: "w1", sessionId: "s-old" }));
+    globalThis.fetch = vi.fn(async () => okJson({
+      workspaces: [{ id: "w1", path: "/one", sessions: [{ id: "s-new" }] }],
+    }));
+
+    await app.refreshWorkspaces();
+
+    expect(app.dataset.activeWorkspaceId).toBe("");
+    expect(app.dataset.activeSessionId).toBe("");
+    expect(localStorage.getItem("pi.activeSession")).toBeNull();
+    expect(app.querySelector("[data-main='empty']").hidden).toBe(false);
+  });
+
+  it("does not recreate background watchers while clearing active workspace view", async () => {
+    const app = await connectPiApp();
+    app.apiConnected = true;
+    app.dataset.activeWorkspaceId = "w1";
+    app.dataset.activeSessionId = "s1";
+    const row = document.createElement("div");
+    row.className = "session-row active";
+    row.dataset.session = "s2";
+    row.dataset.workspace = "w1";
+    app.append(row);
+    const watch = vi.spyOn(app, "watchBackgroundSession");
+    app.backgroundSessionWatches = new Map([["s2", { source: { close: vi.fn() } }]]);
+
+    app.clearActiveWorkspaceView();
+
+    expect(watch).not.toHaveBeenCalled();
+    expect(row.classList.contains("active")).toBe(false);
+  });
+
   it("clears the active workspace when refresh returns no allowed workspace", async () => {
     const app = await connectPiApp();
     app.apiConnected = true;

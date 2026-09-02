@@ -68,6 +68,11 @@ export const workspaceBootstrapMethods = {
     const bootstrapGeneration = Symbol("workspace-bootstrap");
     this.bootstrapGeneration = bootstrapGeneration;
     const isCurrentBootstrap = () => this.bootstrapGeneration === bootstrapGeneration;
+    const matchesBootstrapState = (workspaceId = "", sessionId = "") => (
+      isCurrentBootstrap()
+      && (this.dataset.activeWorkspaceId || "") === workspaceId
+      && (this.dataset.activeSessionId || "") === sessionId
+    );
     const appConfigRequest = Promise.resolve()
       .then(() => this.loadAppConfigState?.(bootstrapGeneration))
       .catch((error) => {
@@ -89,6 +94,7 @@ export const workspaceBootstrapMethods = {
 
       if (activeWorkspace) this.activateBootstrapWorkspace(activeWorkspace);
       if (activeSession) this.activateBootstrapSession(activeSession);
+      if (!matchesBootstrapState(activeWorkspace?.id || "", activeSession?.id || "")) return;
 
       if (activeSession) this.route("workspace");
       else {
@@ -104,12 +110,22 @@ export const workspaceBootstrapMethods = {
       }
 
       if (activeWorkspace) {
+        if (!matchesBootstrapState(activeWorkspace.id, activeSession?.id || "")) return;
         void this.loadWorkspaceCommands(activeWorkspace.id);
         void this.loadRuntimeStatus(activeWorkspace.id);
         void (this.loadWorkspaceSettingsState?.(activeWorkspace.id))?.catch?.(() => undefined);
-        await this.loadWorkspaceMeta(activeWorkspace.id);
+        if (!matchesBootstrapState(activeWorkspace.id, activeSession?.id || "")) return;
+        await this.loadWorkspaceMeta(activeWorkspace.id, {
+          bootstrapGeneration,
+          bootstrapSessionId: activeSession?.id || "",
+        });
+        if (!matchesBootstrapState(activeWorkspace.id, activeSession?.id || "")) return;
       }
-      if (activeSession) await this.loadSession(activeSession.id);
+      if (activeSession) {
+        if (!matchesBootstrapState(activeWorkspace?.id || "", activeSession.id)) return;
+        await this.loadSession(activeSession.id, { bootstrapGeneration });
+        if (!matchesBootstrapState(activeWorkspace?.id || "", activeSession.id)) return;
+      }
     } catch (error) {
       if (!isCurrentBootstrap()) return;
       if (this.recoverForbiddenWorkspace(error)) return;
@@ -120,6 +136,13 @@ export const workspaceBootstrapMethods = {
 
   clearActiveWorkspaceView() {
     clearStoredActiveSession();
+    this.dataset.activeWorkspaceId = "";
+    this.dataset.activeSessionId = "";
+    this.querySelectorAll(".session-row.active").forEach((row) => {
+      this.markSessionRunning?.(row, false);
+      this.updateSessionMeta?.(row, false);
+    });
+    this.markSelectedSessionRow?.("");
     this.eventSource?.close?.();
     this.eventSource = null;
     this.eventStreamId = undefined;
@@ -133,8 +156,6 @@ export const workspaceBootstrapMethods = {
     window.dispatchEvent(new CustomEvent("pi-workspace-tree:update", {
       detail: { files: [], statusMap: {}, selectedPath: "" },
     }));
-    this.dataset.activeWorkspaceId = "";
-    this.dataset.activeSessionId = "";
     this.resetActiveSessionState?.();
     this.renderMessages?.([]);
     this.resetActiveSessionDisplay();
@@ -181,9 +202,14 @@ export const workspaceBootstrapMethods = {
 
   async loadWorkspaceMeta(workspaceId, options: any = {}) {
     const loadToken = Symbol(workspaceId);
+    const bootstrapGeneration = options.bootstrapGeneration || this.bootstrapGeneration;
+    const bootstrapSessionId = options.bootstrapSessionId;
     this.workspaceMetaLoadToken = loadToken;
     const isCurrentLoad = () => (
-      this.dataset.activeWorkspaceId === workspaceId && this.workspaceMetaLoadToken === loadToken
+      this.dataset.activeWorkspaceId === workspaceId
+      && this.workspaceMetaLoadToken === loadToken
+      && (!bootstrapGeneration || this.bootstrapGeneration === bootstrapGeneration)
+      && (!bootstrapSessionId || (this.dataset.activeSessionId || "") === bootstrapSessionId)
     );
     try {
       const [{ files }, git] = await Promise.all([getWorkspaceFiles(workspaceId), getGitStatus(workspaceId)]);
@@ -211,11 +237,14 @@ export const workspaceBootstrapMethods = {
     if (git?.branch) this.updatePromptMeta({ currentBranch: git.branch });
   },
 
-  async loadWorkspaceCommands(workspaceId) {
+  async loadWorkspaceCommands(workspaceId, bootstrapGeneration) {
     const loadToken = Symbol(workspaceId);
+    const expectedBootstrapGeneration = bootstrapGeneration || this.bootstrapGeneration;
     this.workspaceCommandsLoadToken = loadToken;
     const isCurrentLoad = () => (
-      this.dataset.activeWorkspaceId === workspaceId && this.workspaceCommandsLoadToken === loadToken
+      this.dataset.activeWorkspaceId === workspaceId
+      && this.workspaceCommandsLoadToken === loadToken
+      && (!expectedBootstrapGeneration || this.bootstrapGeneration === expectedBootstrapGeneration)
     );
     try {
       const { commands } = await getWorkspaceCommands(workspaceId);
@@ -228,22 +257,30 @@ export const workspaceBootstrapMethods = {
 
   async refreshWorkspaces() {
     if (!this.apiConnected) return;
+    const refreshToken = Symbol("workspace-refresh");
+    this.workspaceRefreshToken = refreshToken;
     this.bootstrapGeneration = Symbol("workspace-refresh");
+    const isCurrentRefresh = () => this.workspaceRefreshToken === refreshToken;
     const button = this.querySelector("[data-action='refresh-workspaces']");
     if (button) button.disabled = true;
     try {
       const { workspaces } = await getWorkspaces();
+      if (!isCurrentRefresh()) return;
       const workspaceList = this.renderFilteredWorkspaces(workspaces || []);
+      if (!isCurrentRefresh()) return;
       const activeWorkspaceId = this.dataset.activeWorkspaceId;
-      if (activeWorkspaceId && !workspaceList.some((workspace) => workspace.id === activeWorkspaceId)) {
-        this.clearActiveWorkspaceView();
-      } else if (activeWorkspaceId) {
-        this.openActiveWorkspaceGroup(activeWorkspaceId);
-      }
+      const activeSessionId = this.dataset.activeSessionId;
+      const activeWorkspace = workspaceList.find((workspace) => workspace.id === activeWorkspaceId);
+      const activeSession = activeWorkspace?.sessions?.find((session) => session.id === activeSessionId);
+      const missingActiveState = !workspaceList.length
+        || (activeWorkspaceId && !activeWorkspace)
+        || (activeSessionId && !activeSession);
+      if (missingActiveState) this.clearActiveWorkspaceView();
+      else if (activeWorkspaceId) this.openActiveWorkspaceGroup(activeWorkspaceId);
     } catch (error) {
-      if (!this.recoverForbiddenWorkspace(error)) this.setConnection("err");
+      if (isCurrentRefresh() && !this.recoverForbiddenWorkspace(error)) this.setConnection("err");
     } finally {
-      if (button) button.disabled = false;
+      if (isCurrentRefresh() && button) button.disabled = false;
     }
   },
 
@@ -259,19 +296,23 @@ export const workspaceBootstrapMethods = {
     }
   },
 
-  async loadSession(sessionId) {
-    this.bootstrapGeneration = Symbol("session-load");
+  async loadSession(sessionId, options: any = {}) {
     const loadToken = Symbol(sessionId);
+    const { bootstrapGeneration } = options;
     const workspaceId = this.findSessionRow(sessionId)?.dataset.workspace || this.dataset.activeWorkspaceId;
     this.sessionLoadToken = loadToken;
     const isCurrentResource = () => (
-      (!this.dataset.activeSessionId || this.dataset.activeSessionId === sessionId)
-      && (!workspaceId || !this.dataset.activeWorkspaceId || this.dataset.activeWorkspaceId === workspaceId)
+      this.sessionLoadToken === loadToken
+      && (!bootstrapGeneration || this.bootstrapGeneration === bootstrapGeneration)
+      && (bootstrapGeneration
+        ? this.dataset.activeSessionId === sessionId && this.dataset.activeWorkspaceId === workspaceId
+        : (!this.dataset.activeSessionId || this.dataset.activeSessionId === sessionId)
+          && (!workspaceId || !this.dataset.activeWorkspaceId || this.dataset.activeWorkspaceId === workspaceId))
     );
     this.showSessionSwitchLoading(sessionId);
     try {
       const loaded = await getSession(sessionId, { limit: SESSION_MESSAGE_PAGE_SIZE });
-      if (this.sessionLoadToken !== loadToken || !isCurrentResource()) return;
+      if (!isCurrentResource()) return;
       this.applyLoadedSession(loaded.session, loaded.messages || [], loaded.status, loaded);
     } catch (error) {
       if (this.sessionLoadToken !== loadToken) return;
