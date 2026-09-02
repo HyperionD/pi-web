@@ -16,9 +16,15 @@
 
 ## 最终验证
 
-- 定向测试：`4` 个文件、`36/36` 通过。
-- `bun run test`：`37` 个文件、`367/367` 通过。
+- 定向测试：`4` 个文件、`41/41` 通过。
+- `bun run test`：`37` 个文件、`372/372` 通过。
 - `bun run typecheck`：通过。
 - `PI_CODING_AGENT_SESSION_DIR="$(mktemp -d)/sessions" bun run backend:test`：2 个 Go package 通过。
 - `bun run build`：通过；保留既有 chunk >500 kB warning。
 - `git diff --check -- . ':(exclude)static'`：通过；`static/` 未 staging。
+
+## Final scoped review race fixes
+
+- 空 bootstrap 先校验当前 generation，再清理旧 active workspace/session 并显示 empty main。
+- refresh 同时校验 refresh/bootstrap/open generation 与启动时 active workspace/session，旧响应不再覆盖新 open/bootstrap。
+- bootstrap runtime model/status/quota/context 请求共享 request token、generation 与 workspace guard；403 recovery 或切换后旧响应不再更新 prompt meta。

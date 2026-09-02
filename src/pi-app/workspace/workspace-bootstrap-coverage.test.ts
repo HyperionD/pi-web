@@ -312,6 +312,124 @@ describe("workspace bootstrap coverage", () => {
     expect(app.querySelector("[data-action='route-picker']")).not.toBeNull();
   });
 
+  it("clears stale active state before showing an empty bootstrap", async () => {
+    const app = await connectPiApp();
+    app.dataset.activeWorkspaceId = "stale-workspace";
+    app.dataset.activeSessionId = "stale-session";
+    globalThis.fetch = vi.fn(async (url) => String(url).endsWith("/workspaces")
+      ? okJson({ workspaces: [] })
+      : okJson({}));
+
+    await app.bootstrapAPI();
+
+    expect(app.dataset.activeWorkspaceId).toBe("");
+    expect(app.dataset.activeSessionId).toBe("");
+    expect(app.querySelector("[data-main='empty']").hidden).toBe(false);
+  });
+
+  it("ignores a refresh response after opening another workspace", async () => {
+    const app = await connectPiApp();
+    app.apiConnected = true;
+    app.dataset.activeWorkspaceId = "w-old";
+    app.dataset.activeSessionId = "s-old";
+    app.loadWorkspaceContext = vi.fn();
+    let resolveRefresh;
+    let workspaceRequestCount = 0;
+    globalThis.fetch = vi.fn(async (url) => {
+      const value = String(url);
+      if (value.endsWith("/workspaces")) {
+        workspaceRequestCount += 1;
+        if (workspaceRequestCount === 1) return new Promise((resolve) => { resolveRefresh = resolve; });
+        return okJson({ workspaces: [{ id: "w-new", name: "new", path: "/new", sessions: [] }] });
+      }
+      if (value.endsWith("/workspaces/open")) return okJson({ id: "w-new", name: "new", path: "/new" });
+      return okJson({});
+    });
+
+    const refresh = app.refreshWorkspaces();
+    await vi.waitFor(() => expect(globalThis.fetch).toHaveBeenCalledTimes(1));
+    await app.openWorkspacePath("/new");
+    resolveRefresh(okJson({ workspaces: [{ id: "w-old", name: "old", path: "/old", sessions: [{ id: "s-old" }] }] }));
+    await refresh;
+
+    expect(app.dataset.activeWorkspaceId).toBe("w-new");
+    expect(app.querySelector("[data-workspace-group='w-old']")).toBeNull();
+    expect(app.querySelector("[data-workspace-group='w-new']")).not.toBeNull();
+  });
+
+  it("ignores a refresh response after a newer bootstrap starts", async () => {
+    const app = await connectPiApp();
+    app.apiConnected = true;
+    app.dataset.activeWorkspaceId = "w-old";
+    app.dataset.activeSessionId = "s-old";
+    let resolveRefresh;
+    let workspaceRequestCount = 0;
+    globalThis.fetch = vi.fn(async (url) => {
+      const value = String(url);
+      if (value.endsWith("/workspaces")) {
+        workspaceRequestCount += 1;
+        if (workspaceRequestCount === 1) return new Promise((resolve) => { resolveRefresh = resolve; });
+        return okJson({ workspaces: [] });
+      }
+      return okJson({});
+    });
+
+    const refresh = app.refreshWorkspaces();
+    await vi.waitFor(() => expect(globalThis.fetch).toHaveBeenCalledTimes(1));
+    await app.bootstrapAPI();
+    resolveRefresh(okJson({ workspaces: [{ id: "w-old", name: "old", path: "/old", sessions: [{ id: "s-old" }] }] }));
+    await refresh;
+
+    expect(app.querySelector("[data-main='empty']").hidden).toBe(false);
+    expect(app.querySelector("[data-workspace-group='w-old']")).toBeNull();
+  });
+
+  it("ignores deferred runtime metadata after forbidden recovery", async () => {
+    const app = await connectPiApp();
+    app.apiConnected = true;
+    app.dataset.activeWorkspaceId = "w-old";
+    app.dataset.activeSessionId = "s-old";
+    let resolveModel;
+    globalThis.fetch = vi.fn(async (url) => String(url).endsWith("/runtime-model")
+      ? new Promise((resolve) => { resolveModel = resolve; })
+      : okJson({ contextUsage: null }));
+
+    const loading = app.loadRuntimeStatus("w-old");
+    await vi.waitFor(() => expect(globalThis.fetch).toHaveBeenCalledWith(
+      expect.stringContaining("/runtime-model"),
+      expect.any(Object),
+    ));
+    app.recoverForbiddenWorkspace(Object.assign(new Error("outside allowed roots"), { status: 403 }));
+    resolveModel(okJson({ status: { model: "OLD" } }));
+    await loading;
+
+    expect(app.querySelector("[data-prompt-meta]").textContent).not.toContain("OLD");
+  });
+
+  it("ignores deferred runtime quota after forbidden recovery", async () => {
+    const app = await connectPiApp();
+    app.apiConnected = true;
+    app.dataset.activeWorkspaceId = "w-old";
+    let resolveQuota;
+    globalThis.fetch = vi.fn(async (url) => {
+      const value = String(url);
+      if (value.endsWith("/runtime-quota?model=CURRENT")) {
+        return new Promise((resolve) => { resolveQuota = resolve; });
+      }
+      if (value.endsWith("/runtime-model")) return okJson({ status: { model: "CURRENT" } });
+      return okJson({ contextUsage: null });
+    });
+
+    const loading = app.loadRuntimeStatus("w-old");
+    await vi.waitFor(() => expect(resolveQuota).toBeTypeOf("function"));
+    app.recoverForbiddenWorkspace(Object.assign(new Error("outside allowed roots"), { status: 403 }));
+    resolveQuota(okJson({ status: { fiveHourQuota: 99 } }));
+    await loading;
+    await Promise.resolve();
+
+    expect(app.querySelector("[data-prompt-meta]").textContent).not.toContain("99%");
+  });
+
   it("clears folder popover state before returning to the empty workspace view", async () => {
     const app = await connectPiApp();
     const trigger = app.querySelector("[data-action='route-picker']");

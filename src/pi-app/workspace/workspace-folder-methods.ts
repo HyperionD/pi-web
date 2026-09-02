@@ -219,7 +219,12 @@ export const workspaceFolderMethods = {
 
   async openWorkspacePath(path, openingToken) {
     if (!path) return;
-    const isCurrentOpening = () => openingToken === undefined || this.folderOpeningToken === openingToken;
+    const openGeneration = Symbol("workspace-open");
+    this.workspaceOpenGeneration = openGeneration;
+    const isCurrentOpening = () => (
+      (openingToken === undefined || this.folderOpeningToken === openingToken)
+      && this.workspaceOpenGeneration === openGeneration
+    );
     const opened = await openWorkspaceRequest(path);
     if (!isCurrentOpening()) return;
     const { workspaces } = await getWorkspaces();
@@ -249,6 +254,7 @@ export const workspaceFolderMethods = {
   },
 
   async openWorkspace(workspaceId) {
+    this.workspaceOpenGeneration = Symbol("workspace-open");
     this.activateWorkspaceForSession(workspaceId, { loadContext: true, forceLoadContext: true });
     this.route("workspace");
   },

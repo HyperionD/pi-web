@@ -66,8 +66,14 @@ export const workspaceBootstrapMethods = {
 
   async bootstrapAPI() {
     const bootstrapGeneration = Symbol("workspace-bootstrap");
+    const bootstrapWorkspaceId = this.dataset.activeWorkspaceId || "";
+    const bootstrapSessionId = this.dataset.activeSessionId || "";
     this.bootstrapGeneration = bootstrapGeneration;
     const isCurrentBootstrap = () => this.bootstrapGeneration === bootstrapGeneration;
+    const ownsBootstrapState = () => (
+      (this.dataset.activeWorkspaceId || "") === bootstrapWorkspaceId
+      && (this.dataset.activeSessionId || "") === bootstrapSessionId
+    );
     const matchesBootstrapState = (workspaceId = "", sessionId = "") => (
       isCurrentBootstrap()
       && (this.dataset.activeWorkspaceId || "") === workspaceId
@@ -81,7 +87,7 @@ export const workspaceBootstrapMethods = {
       });
     try {
       const [{ workspaces }] = await Promise.all([getWorkspaces(), appConfigRequest]);
-      if (!isCurrentBootstrap()) return;
+      if (!isCurrentBootstrap() || !ownsBootstrapState()) return;
       this.apiConnected = true;
       this.setConnection("ok");
 
@@ -92,19 +98,24 @@ export const workspaceBootstrapMethods = {
       const activeWorkspace = storedSession?.workspace || workspaceList[0];
       const activeSession = storedSession?.session || activeWorkspace?.sessions?.[0];
 
-      if (activeWorkspace) this.activateBootstrapWorkspace(activeWorkspace);
+      if (!isCurrentBootstrap()) return;
+      if (!activeWorkspace) {
+        this.clearActiveWorkspaceView();
+        this.route("workspace");
+        this.showEmptyMain?.();
+        return;
+      }
+      this.activateBootstrapWorkspace(activeWorkspace);
       if (activeSession) this.activateBootstrapSession(activeSession);
-      if (!matchesBootstrapState(activeWorkspace?.id || "", activeSession?.id || "")) return;
+      else {
+        clearStoredActiveSession();
+        this.dataset.activeSessionId = "";
+        this.resetActiveSessionDisplay();
+      }
+      if (!matchesBootstrapState(activeWorkspace.id, activeSession?.id || "")) return;
 
       if (activeSession) this.route("workspace");
       else {
-        if (activeWorkspace) {
-          clearStoredActiveSession();
-          this.dataset.activeSessionId = "";
-          this.resetActiveSessionDisplay();
-        } else {
-          this.clearActiveWorkspaceView();
-        }
         this.route("workspace");
         this.showEmptyMain?.();
       }
@@ -112,7 +123,7 @@ export const workspaceBootstrapMethods = {
       if (activeWorkspace) {
         if (!matchesBootstrapState(activeWorkspace.id, activeSession?.id || "")) return;
         void this.loadWorkspaceCommands(activeWorkspace.id);
-        void this.loadRuntimeStatus(activeWorkspace.id);
+        void this.loadRuntimeStatus(activeWorkspace.id, { bootstrapGeneration });
         void (this.loadWorkspaceSettingsState?.(activeWorkspace.id))?.catch?.(() => undefined);
         if (!matchesBootstrapState(activeWorkspace.id, activeSession?.id || "")) return;
         await this.loadWorkspaceMeta(activeWorkspace.id, {
@@ -149,6 +160,7 @@ export const workspaceBootstrapMethods = {
     this.backgroundSessionWatches?.forEach((watch) => watch.source?.close?.());
     this.backgroundSessionWatches?.clear?.();
     this.sessionLoadToken = Symbol("cleared-workspace");
+    this.runtimeStatusRequestToken = Symbol("cleared-workspace");
     this.workspaceMetaLoadToken = Symbol("cleared-workspace");
     this.workspaceCommandsLoadToken = Symbol("cleared-workspace");
     this.workspaceFiles = [];
@@ -258,9 +270,19 @@ export const workspaceBootstrapMethods = {
   async refreshWorkspaces() {
     if (!this.apiConnected) return;
     const refreshToken = Symbol("workspace-refresh");
+    const refreshGeneration = Symbol("workspace-refresh");
+    const openGeneration = this.workspaceOpenGeneration;
+    const expectedWorkspaceId = this.dataset.activeWorkspaceId || "";
+    const expectedSessionId = this.dataset.activeSessionId || "";
     this.workspaceRefreshToken = refreshToken;
-    this.bootstrapGeneration = Symbol("workspace-refresh");
-    const isCurrentRefresh = () => this.workspaceRefreshToken === refreshToken;
+    this.bootstrapGeneration = refreshGeneration;
+    const isCurrentRefresh = () => (
+      this.workspaceRefreshToken === refreshToken
+      && this.bootstrapGeneration === refreshGeneration
+      && this.workspaceOpenGeneration === openGeneration
+      && (this.dataset.activeWorkspaceId || "") === expectedWorkspaceId
+      && (this.dataset.activeSessionId || "") === expectedSessionId
+    );
     const button = this.querySelector("[data-action='refresh-workspaces']");
     if (button) button.disabled = true;
     try {
@@ -280,7 +302,7 @@ export const workspaceBootstrapMethods = {
     } catch (error) {
       if (isCurrentRefresh() && !this.recoverForbiddenWorkspace(error)) this.setConnection("err");
     } finally {
-      if (isCurrentRefresh() && button) button.disabled = false;
+      if (this.workspaceRefreshToken === refreshToken && button) button.disabled = false;
     }
   },
 
