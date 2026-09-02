@@ -5,6 +5,7 @@ const markdown = new MarkdownIt({
   html: false,
   linkify: true,
 });
+markdown.enable("table");
 
 markdown.renderer.rules.link_open = (tokens, index, options, env, self) => {
   tokens[index].attrSet("target", "_blank");
@@ -14,6 +15,11 @@ markdown.renderer.rules.link_open = (tokens, index, options, env, self) => {
 
 markdown.renderer.rules.fence = (tokens, index) => renderCodeBlock(tokens[index].content, languageFromInfo(tokens[index].info));
 markdown.renderer.rules.code_block = (tokens, index) => renderCodeBlock(tokens[index].content);
+markdown.renderer.rules.table_open = (tokens, index, options, env, self) => {
+  tokens[index].attrSet("class", "markdown-table");
+  return `<div class="markdown-table-wrap">${self.renderToken(tokens, index, options)}`;
+};
+markdown.renderer.rules.table_close = () => "</table></div>\n";
 
 export function escapeHtml(value) {
   return String(value ?? "")

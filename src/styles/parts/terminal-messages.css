@@ -152,6 +152,28 @@
   margin: 0 0 0.75em;
   padding-left: 1.35em;
 }
+.msg .body.markdown-body .markdown-table-wrap {
+  max-width: 100%;
+  margin: 0 0 0.75em;
+  overflow-x: auto;
+}
+.msg .body.markdown-body .markdown-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.95em;
+}
+.msg .body.markdown-body .markdown-table th,
+.msg .body.markdown-body .markdown-table td {
+  border: 1px solid var(--border);
+  padding: 6px 8px;
+  text-align: left;
+  vertical-align: top;
+}
+.msg .body.markdown-body .markdown-table th {
+  background: var(--bg-3);
+  color: var(--fg-0);
+  font-weight: 500;
+}
 .msg .body.markdown-body pre {
   background: var(--bg-3);
   border: 1px solid var(--border);

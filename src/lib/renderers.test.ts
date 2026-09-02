@@ -27,6 +27,18 @@ describe("safe markdown rendering", () => {
     expect(html.match(/data-action="copy-code"/g)).toHaveLength(1);
   });
 
+  it("renders GFM tables in a responsive markdown container", () => {
+    const html = renderUserBody([
+      "| Feature | Status |",
+      "| --- | --- |",
+      "| Tables | supported |",
+    ].join("\n"));
+    expect(html).toContain('<div class="markdown-table-wrap"><table class="markdown-table">');
+    expect(html).toContain("<th>Feature</th>");
+    expect(html).toContain("<td>supported</td>");
+    expect(html).toContain("</table></div>");
+  });
+
   it("renders user markdown with line breaks", () => {
     const html = renderUserBody([
       "PR 올림: https://github.com/Epsilondelta-ai/juun-ai/pull/14",
