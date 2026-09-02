@@ -30,17 +30,18 @@ type sessionHeader struct {
 }
 
 type sessionEntry struct {
-	Type          string          `json:"type"`
-	ID            string          `json:"id"`
-	ParentID      *string         `json:"parentId"`
-	Timestamp     string          `json:"timestamp"`
-	Message       json.RawMessage `json:"message"`
-	Name          string          `json:"name"`
-	Summary       string          `json:"summary"`
-	TokensBefore  int             `json:"tokensBefore"`
-	Provider      string          `json:"provider"`
-	ModelID       string          `json:"modelId"`
-	ThinkingLevel string          `json:"thinkingLevel"`
+	Type             string          `json:"type"`
+	ID               string          `json:"id"`
+	ParentID         *string         `json:"parentId"`
+	Timestamp        string          `json:"timestamp"`
+	Message          json.RawMessage `json:"message"`
+	Name             string          `json:"name"`
+	Summary          string          `json:"summary"`
+	FirstKeptEntryID string          `json:"firstKeptEntryId"`
+	TokensBefore     int             `json:"tokensBefore"`
+	Provider         string          `json:"provider"`
+	ModelID          string          `json:"modelId"`
+	ThinkingLevel    string          `json:"thinkingLevel"`
 }
 
 type agentMessage struct {
@@ -76,6 +77,11 @@ type ParsedSession struct {
 	File      string
 	ModTime   time.Time
 	CreatedAt time.Time
+}
+
+type parsedSessionMessages struct {
+	id       string
+	messages []Message
 }
 
 func DefaultPiSessionDir() string {
@@ -178,6 +184,7 @@ func ParsePiSessionFile(path string) (ParsedSession, error) {
 	scanner.Buffer(make([]byte, 1024), 10*1024*1024)
 	var header sessionHeader
 	var messages []Message
+	var parsedEntries []parsedSessionMessages
 	var title string
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
@@ -205,8 +212,9 @@ func ParsePiSessionFile(path string) (ParsedSession, error) {
 			}
 		case "message":
 			converted := convertAgentMessages(entry.Message)
+			messages = append(messages, converted...)
+			parsedEntries = append(parsedEntries, parsedSessionMessages{id: entry.ID, messages: converted})
 			for _, msg := range converted {
-				messages = append(messages, msg)
 				if msg.Kind == "user" && canAutoNameTitle(title) {
 					if promptTitle := trimTitle(msg.Text); promptTitle != "" {
 						title = promptTitle
@@ -214,7 +222,21 @@ func ParsePiSessionFile(path string) (ParsedSession, error) {
 				}
 			}
 		case "compaction":
-			messages = append(messages, Message{Kind: "pi", Text: fmt.Sprintf("context summarized · %d tokens before compaction", entry.TokensBefore)})
+			var keptEntries []parsedSessionMessages
+			if entry.FirstKeptEntryID != "" {
+				for index, parsed := range parsedEntries {
+					if parsed.id == entry.FirstKeptEntryID {
+						keptEntries = parsedEntries[index:]
+						break
+					}
+				}
+			}
+			messages = []Message{{Kind: "pi", Text: fmt.Sprintf("context summarized · %d tokens before compaction", entry.TokensBefore)}}
+			parsedEntries = []parsedSessionMessages{{messages: messages}}
+			for _, kept := range keptEntries {
+				messages = append(messages, kept.messages...)
+				parsedEntries = append(parsedEntries, kept)
+			}
 		case "model_change":
 			messages = append(messages, Message{Kind: "banner", Text: fmt.Sprintf("model changed · %s/%s", entry.Provider, entry.ModelID)})
 		case "thinking_level_change":

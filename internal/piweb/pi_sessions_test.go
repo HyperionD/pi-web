@@ -59,6 +59,30 @@ func TestParsePiSessionFileUsesNewSessionTitleWhenUnnamed(t *testing.T) {
 	}
 }
 
+func TestParsePiSessionFileDropsMessagesBeforeCompaction(t *testing.T) {
+	dir := t.TempDir()
+	file := filepath.Join(dir, "session.jsonl")
+	data := `{"type":"session","version":3,"id":"s1","timestamp":"2026-01-01T00:00:00.000Z","cwd":"/tmp/project"}
+{"type":"message","id":"old-user","timestamp":"2026-01-01T00:00:01.000Z","message":{"role":"user","content":"old prompt"}}
+{"type":"message","id":"kept","timestamp":"2026-01-01T00:00:02.000Z","message":{"role":"assistant","content":[{"type":"thinking","thinking":"kept thinking"},{"type":"text","text":"kept answer"}]}}
+{"type":"compaction","id":"compact-1","firstKeptEntryId":"kept","timestamp":"2026-01-01T00:00:03.000Z","tokensBefore":120}
+{"type":"message","id":"new-user","timestamp":"2026-01-01T00:00:04.000Z","message":{"role":"user","content":"new prompt"}}
+{"type":"message","id":"new-assistant","timestamp":"2026-01-01T00:00:05.000Z","message":{"role":"assistant","content":[{"type":"thinking","thinking":"new thinking"},{"type":"text","text":"new answer"}]}}
+`
+	if err := os.WriteFile(file, []byte(data), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	parsed, err := ParsePiSessionFile(file)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := messageTexts(parsed.Messages); strings.Join(got, "|") !=
+		"context summarized · 120 tokens before compaction|kept thinking|kept answer|new prompt|new thinking|new answer" {
+		t.Fatalf("unexpected messages after compaction: %#v", parsed.Messages)
+	}
+}
+
 func TestParsePiSessionFileRenamesNewSessionFromFirstUserMessage(t *testing.T) {
 	dir := t.TempDir()
 	file := filepath.Join(dir, "session.jsonl")

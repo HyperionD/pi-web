@@ -539,7 +539,7 @@ func TestCoverageBrokerSettingsSessionsAndHelpers(t *testing.T) {
 		t.Fatal(err)
 	}
 	parsed, err := ParsePiSessionFile(path)
-	if err != nil || parsed.Session.Title != "named" || len(parsed.Messages) < 4 {
+	if err != nil || parsed.Session.Title != "named" || len(parsed.Messages) != 3 || parsed.Messages[0].Text != "context summarized · 1 tokens before compaction" {
 		t.Fatalf("parsed=%+v err=%v", parsed, err)
 	}
 	if _, err := ParsePiSessionFile(filepath.Join(sessionDir, "missing.jsonl")); err == nil {

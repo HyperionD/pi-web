@@ -54,6 +54,46 @@ func TestSessionEndpointReturnsOlderMessagePage(t *testing.T) {
 	}
 }
 
+func TestSessionMessagePageStopsAtCompactionBoundary(t *testing.T) {
+	dir := t.TempDir()
+	file := filepath.Join(dir, "session.jsonl")
+	if err := os.WriteFile(file, []byte(`{"type":"session","version":3,"id":"s1","timestamp":"2026-01-01T00:00:00Z","cwd":"/tmp/project"}
+`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	appendSessionTestLine(t, file, map[string]any{
+		"type": "message", "id": "old", "message": map[string]any{
+			"role": "user", "content": "old prompt",
+		},
+	})
+	appendSessionTestLine(t, file, map[string]any{
+		"type": "message", "id": "kept", "message": map[string]any{
+			"role": "assistant", "content": []map[string]string{{"type": "text", "text": "kept answer"}},
+		},
+	})
+	appendSessionTestLine(t, file, map[string]any{
+		"type": "compaction", "firstKeptEntryId": "kept", "tokensBefore": 120,
+	})
+	appendSessionTestLine(t, file, map[string]any{
+		"type": "message", "message": map[string]any{
+			"role": "assistant", "content": []map[string]string{{"type": "text", "text": "new answer"}},
+		},
+	})
+
+	page, err := ParsePiSessionMessagePage(file, 10, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := messageTexts(page.Messages); strings.Join(got, "|") !=
+		"context summarized · 120 tokens before compaction|kept answer|new answer" {
+		t.Fatalf("unexpected page after compaction: %#v", page.Messages)
+	}
+	if page.HasMore {
+		t.Fatalf("compaction boundary should end pagination: %+v", page)
+	}
+
+}
+
 func TestWorkspaceListingDoesNotRetainFullConversationBodies(t *testing.T) {
 	store, _ := pagedSessionStore(t, 3)
 	workspaces := store.Workspaces()

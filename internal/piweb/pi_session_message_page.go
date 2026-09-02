@@ -2,6 +2,7 @@ package piweb
 
 import (
 	"bytes"
+	"encoding/json"
 	"os"
 	"strconv"
 	"strings"
@@ -68,11 +69,20 @@ func sessionPageEndOffset(size int64, before string) int64 {
 	return offset
 }
 
+type compactionTailBoundary struct {
+	active              bool
+	firstKeptID         string
+	compactionEndOffset int64
+	summary             []Message
+}
+
 func tailSessionMessages(file *os.File, end int64, limit int) ([]Message, string, bool, error) {
 	var selected []Message
 	var prefix []byte
 	oldestOffset := end
 	position := end
+	boundary := compactionTailBoundary{}
+	compactionBoundary := false
 	for position > 0 && len(selected) < limit {
 		readSize := int64(sessionTailChunkBytes)
 		if position < readSize {
@@ -87,10 +97,25 @@ func tailSessionMessages(file *os.File, end int64, limit int) ([]Message, string
 		complete, nextPrefix, baseOffset, startsAtFileStart := completeTailData(data, start)
 		prefix = nextPrefix
 		_ = startsAtFileStart
-		selected, oldestOffset = collectTailMessages(complete, baseOffset, selected, &oldestOffset, limit)
+		var reachedBoundary bool
+		selected, oldestOffset, reachedBoundary = collectTailMessages(
+			complete, baseOffset, selected, &oldestOffset, limit, &boundary,
+		)
+		if reachedBoundary {
+			compactionBoundary = true
+			break
+		}
 		position = start
 	}
-	hasMore := position > 0 || (len(selected) >= limit && oldestOffset > 0)
+	if boundary.active && position == 0 {
+		if len(selected)+len(boundary.summary) <= limit {
+			selected = append(boundary.summary, selected...)
+			compactionBoundary = true
+		} else {
+			compactionBoundary = false
+		}
+	}
+	hasMore := !compactionBoundary && (position > 0 || (len(selected) >= limit && oldestOffset > 0))
 	return selected, strconv.FormatInt(oldestOffset, 10), hasMore, nil
 }
 
@@ -111,17 +136,62 @@ func collectTailMessages(
 	selected []Message,
 	oldestOffset *int64,
 	limit int,
-) ([]Message, int64) {
+	boundary *compactionTailBoundary,
+) ([]Message, int64, bool) {
 	lineEnd := len(data)
 	for lineEnd > 0 && len(selected) < limit {
 		lineStart := bytes.LastIndexByte(data[:lineEnd], '\n') + 1
 		line := strings.TrimSpace(string(data[lineStart:lineEnd]))
 		lineOffset := baseOffset + int64(lineStart)
+		entryType, entryID, firstKeptID := sessionLineIdentity(line)
+		if boundary.active {
+			if entryType == "message" {
+				if messages := ParsePiSessionLineMessages(line); len(messages) > 0 {
+					selected = append(messages, selected...)
+					*oldestOffset = lineOffset
+				}
+				if entryID == boundary.firstKeptID {
+					if len(selected)+len(boundary.summary) <= limit {
+						selected = append(boundary.summary, selected...)
+						return selected, *oldestOffset, true
+					}
+					*oldestOffset = boundary.compactionEndOffset
+					return selected, *oldestOffset, false
+				}
+			}
+			lineEnd = lineStart - 1
+			continue
+		}
+		if entryType == "compaction" {
+			boundary.summary = ParsePiSessionLineMessages(line)
+			*oldestOffset = lineOffset
+			boundary.active = true
+			boundary.compactionEndOffset = baseOffset + int64(lineEnd+1)
+			boundary.firstKeptID = firstKeptID
+			if boundary.firstKeptID == "" {
+				selected = append(boundary.summary, selected...)
+				return selected, *oldestOffset, true
+			}
+			lineEnd = lineStart - 1
+			continue
+		}
 		if messages := ParsePiSessionLineMessages(line); len(messages) > 0 {
 			selected = append(messages, selected...)
 			*oldestOffset = lineOffset
 		}
 		lineEnd = lineStart - 1
 	}
-	return selected, *oldestOffset
+	return selected, *oldestOffset, false
+}
+
+func sessionLineIdentity(line string) (string, string, string) {
+	var entry struct {
+		Type           string `json:"type"`
+		ID             string `json:"id"`
+		FirstKeptEntry string `json:"firstKeptEntryId"`
+	}
+	if json.Unmarshal([]byte(line), &entry) != nil {
+		return "", "", ""
+	}
+	return entry.Type, entry.ID, entry.FirstKeptEntry
 }
