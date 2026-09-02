@@ -90,7 +90,33 @@ describe("workspace folder/render/bootstrap coverage", () => {
     ));
     await vi.waitFor(() => expect(list.querySelector("[data-path='/root/src/lib']")).not.toBeNull());
     expect(app.currentFolder).toBe("/root/src");
+    expect(app.folderListingValid).toBe(true);
+    expect(list.querySelectorAll("[aria-selected='true']")).toHaveLength(1);
     expect(list.querySelector("[data-action='folder-toggle'][data-path='/root/src']").getAttribute("aria-expanded")).toBe("true");
+  });
+
+  it("starts restricted folder selection at allowed roots without a synthetic home", async () => {
+    const app = await connectPiApp();
+    const list = app.querySelector("[data-folder-list]");
+    const confirm = app.querySelector("[data-action='folder-open-current']");
+    app.renderFolderListing({
+      path: "/home/alice",
+      displayPath: "~",
+      rootListing: true,
+      folders: [{ name: "projects", path: "/workspaces/projects", displayPath: "~/workspaces/projects" }],
+    });
+
+    expect(list.querySelector("[data-folder-tree-node][data-path='/home/alice']")).toBeNull();
+    expect(list.querySelector("[data-folder-tree-node][data-path='/workspaces/projects']")).not.toBeNull();
+    expect(app.folderListingValid).toBe(false);
+    expect(confirm.disabled).toBe(true);
+    expect(app.querySelector("[data-action='folder-up']").disabled).toBe(true);
+
+    list.querySelector("[data-action='folder-select'][data-path='/workspaces/projects']").click();
+    expect(app.currentFolder).toBe("/workspaces/projects");
+    expect(app.folderListingValid).toBe(true);
+    expect(confirm.disabled).toBe(false);
+    expect(list.querySelectorAll("[aria-selected='true']")).toHaveLength(1);
   });
 
   it("loads folders and opens workspaces through backend responses", async () => {

@@ -129,6 +129,15 @@ func TestFolderPickerShowsAllowedRootFromOutsidePath(t *testing.T) {
 	if err := json.Unmarshal(response.Body.Bytes(), &rootListing); err != nil {
 		t.Fatal(err)
 	}
+	var rootMarker struct {
+		RootListing bool `json:"rootListing"`
+	}
+	if err := json.Unmarshal(response.Body.Bytes(), &rootMarker); err != nil {
+		t.Fatal(err)
+	}
+	if !rootMarker.RootListing {
+		t.Fatalf("root listing marker missing: %s", response.Body.String())
+	}
 	if len(rootListing.Folders) != 1 || rootListing.Folders[0].Path != allowed {
 		t.Fatalf("root entries = %+v, want only %q", rootListing.Folders, allowed)
 	}

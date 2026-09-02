@@ -127,6 +127,7 @@ func (p WorkspacePolicy) AllowedRootListing(path string) (FolderListing, error) 
 	return FolderListing{
 		Path:              clean,
 		DisplayPath:       DisplayPath(clean),
+		RootListing:       true,
 		Parent:            parent,
 		ParentDisplayPath: DisplayPath(parent),
 		Folders:           folders,

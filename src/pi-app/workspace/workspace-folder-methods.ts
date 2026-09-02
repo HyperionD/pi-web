@@ -84,7 +84,7 @@ export const workspaceFolderMethods = {
     if (purpose === "workspace" && popover && !popover.hidden) return;
     if (this.folderLoadPending) return;
     const pickerToken = this.beginFolderPicker(purpose);
-    this.folderTreeRoot = undefined;
+    this.folderTreeRoots = [];
     this.folderTreeNodes = new Map();
     this.folderSelectedPath = undefined;
     const browser = this.querySelector("[data-folder-browser]");
@@ -149,7 +149,7 @@ export const workspaceFolderMethods = {
       : !this.folderPickerToken;
     this.folderLoadToken = requestToken;
     this.folderLoadPending = true;
-    this.folderListingValid = false;
+    if (mode !== "children") this.folderListingValid = false;
     this.setFolderLoading(true);
 
     try {
@@ -182,6 +182,8 @@ export const workspaceFolderMethods = {
 
   renderFolderError(error) {
     this.folderListingValid = false;
+    this.folderTreeRoots = [];
+    this.folderTreeNodes = new Map();
     this.setFolderLoading(false);
     const list = this.querySelector("[data-folder-list]");
     if (!list) return;
@@ -192,22 +194,27 @@ export const workspaceFolderMethods = {
   },
 
   renderFolderListing(listing) {
-    this.folderListingValid = true;
-    this.currentFolder = listing.path;
-    this.folderSelectedPath = listing.path;
-    const displayPath = listing.displayPath || listing.path;
+    const isRootListing = listing.rootListing === true;
+    const folders = (listing.folders || []).map((folder) => this.createFolderTreeNode(folder));
+    const displayPath = isRootListing ? "允许的工作区目录" : listing.displayPath || listing.path;
+    this.folderListingValid = !isRootListing;
+    this.currentFolder = isRootListing ? "" : listing.path;
+    this.currentFolderParent = isRootListing ? "" : listing.parent || listing.path;
+    this.folderSelectedPath = isRootListing ? undefined : listing.path;
     const label = this.querySelector("[data-folder-path]");
     if (label) label.textContent = displayPath;
     const upButton = this.querySelector("[data-folder-browser] [data-action='folder-up']");
-    if (upButton) upButton.disabled = (listing.parent || listing.path) === listing.path;
-    this.folderTreeRoot = {
+    if (upButton) upButton.disabled = isRootListing || (listing.parent || listing.path) === listing.path;
+    const confirm = this.querySelector("[data-action='folder-open-current']");
+    if (confirm) confirm.disabled = isRootListing || this.folderLoadPending || this.folderOpeningPending;
+    this.folderTreeRoots = isRootListing ? folders : [{
       name: displayPath,
       path: listing.path,
       displayPath,
-      children: (listing.folders || []).map((folder) => this.createFolderTreeNode(folder)),
+      children: folders,
       loaded: true,
       expanded: true,
-    };
+    }];
     this.renderFolderTree();
   },
 
@@ -219,11 +226,11 @@ export const workspaceFolderMethods = {
     const list = this.querySelector("[data-folder-list]");
     if (!list) return;
     this.folderTreeNodes = new Map();
-    if (!this.folderTreeRoot) {
+    if (!this.folderTreeRoots?.length) {
       list.replaceChildren(this.emptyFolderRow());
       return;
     }
-    list.replaceChildren(this.folderTreeItem(this.folderTreeRoot, 0));
+    list.replaceChildren(...this.folderTreeRoots.map((root) => this.folderTreeItem(root, 0)));
   },
 
   folderTreeItem(node, depth) {
@@ -233,6 +240,7 @@ export const workspaceFolderMethods = {
     item.dataset.folderTreeNode = "";
     item.dataset.path = node.path;
     item.setAttribute("role", "treeitem");
+    item.setAttribute("aria-level", String(depth + 1));
     item.setAttribute("aria-selected", String(node.path === this.folderSelectedPath));
 
     const row = document.createElement("div");

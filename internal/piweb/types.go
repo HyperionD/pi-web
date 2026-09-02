@@ -148,6 +148,7 @@ type FolderListing struct {
 	DisplayPath       string        `json:"displayPath"`
 	Parent            string        `json:"parent,omitempty"`
 	ParentDisplayPath string        `json:"parentDisplayPath,omitempty"`
+	RootListing       bool          `json:"rootListing,omitempty"`
 	Folders           []FolderEntry `json:"folders"`
 }
 

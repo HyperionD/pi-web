@@ -13,6 +13,7 @@ export type FolderListing = {
   displayPath?: string;
   parent?: string;
   parentDisplayPath?: string;
+  rootListing?: boolean;
   folders?: Array<{ name: string; path: string; displayPath?: string }>;
 };
 
