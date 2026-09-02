@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"sync"
 	"time"
 )
 
@@ -21,11 +22,14 @@ type Config struct {
 }
 
 type Server struct {
-	store  *Store
-	broker *Broker
-	runner *Runner
-	mux    *http.ServeMux
-	config Config
+	store                   *Store
+	broker                  *Broker
+	runner                  *Runner
+	mux                     *http.ServeMux
+	config                  Config
+	adminPasswordConfigured bool
+	adminPasswordCheckError error
+	adminPasswordStateMu    sync.RWMutex
 }
 
 func NewServer(config Config, store *Store, broker *Broker) *Server {
@@ -43,7 +47,16 @@ func NewServer(config Config, store *Store, broker *Broker) *Server {
 			"http://127.0.0.1:6006",
 		}
 	}
-	s := &Server{store: store, broker: broker, runner: NewRunner(), mux: http.NewServeMux(), config: config}
+	adminPasswordConfigured, adminPasswordCheckError := AdminPasswordConfigured()
+	s := &Server{
+		store:                   store,
+		broker:                  broker,
+		runner:                  NewRunner(),
+		mux:                     http.NewServeMux(),
+		config:                  config,
+		adminPasswordConfigured: adminPasswordConfigured,
+		adminPasswordCheckError: adminPasswordCheckError,
+	}
 	s.routes()
 	return s
 }
@@ -56,6 +69,8 @@ func (s *Server) Handler() http.Handler {
 }
 func (s *Server) routes() {
 	s.mux.HandleFunc("GET /api/health", s.health)
+	s.mux.HandleFunc("GET /api/admin/password/status", s.adminPasswordStatus)
+	s.mux.HandleFunc("POST /api/admin/password", s.setupAdminPassword)
 	s.mux.HandleFunc("GET /api/app-config", s.appConfig)
 	s.mux.HandleFunc("PATCH /api/app-config", s.patchAppConfig)
 	s.mux.HandleFunc("GET /api/auth/providers", s.authProviders)

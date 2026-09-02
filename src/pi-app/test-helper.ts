@@ -89,6 +89,16 @@ export function installPiAppFixture() {
         <input data-file-input type="file" />
         <div class="prompt-meta"><span data-prompt-meta></span><button type="button" data-action="compact-session" disabled>压缩上下文</button></div>
       </div>
+      <div class="admin-password-gate" data-admin-password-gate hidden>
+        <form data-admin-password-setup-form>
+          <h2>设置管理员密码</h2>
+          <p>首次使用前必须设置管理员密码。</p>
+          <input data-admin-password type="password" autocomplete="new-password" />
+          <input data-admin-password-confirmation type="password" autocomplete="new-password" />
+          <span data-admin-password-status></span>
+          <button type="submit">继续</button>
+        </form>
+      </div>
       <div class="settings-modal" data-settings-modal hidden>
         <form data-settings-form>
           <select name="uiLanguage" data-ui-language>

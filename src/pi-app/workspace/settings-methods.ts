@@ -416,8 +416,16 @@ export const settingsMethods = {
       const appConfigPatch = this.appConfigPatchFromForm?.() || {};
       const scope = settingsScopeSchema.parse(scopeValue);
       const patch = workspaceId ? parseSettingsPatch(this.settingsPatchFromForm(form)) : {};
+      let adminPassword = "";
+      if (Object.keys(appConfigPatch).length) {
+        adminPassword = await this.requestAdminPassword?.();
+        if (adminPassword === undefined) {
+          this.setSettingsStatus("需要管理员密码", true);
+          return;
+        }
+      }
       const appConfigRequest = Object.keys(appConfigPatch).length
-        ? saveAppConfig(appConfigPatch)
+        ? saveAppConfig(appConfigPatch, adminPassword)
         : Promise.resolve(undefined);
       const settingsRequest = workspaceId && Object.keys(patch).length
         ? saveWorkspaceSettings(workspaceId, scope, patch)

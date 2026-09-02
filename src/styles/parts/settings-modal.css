@@ -18,6 +18,43 @@
   background: var(--bg-1);
 }
 
+.admin-password-gate {
+  position: fixed;
+  inset: 0;
+  z-index: 130;
+  display: grid;
+  place-items: center;
+  padding: var(--space-5);
+  background: rgba(0, 0, 0, 0.82);
+}
+.admin-password-dialog {
+  width: min(420px, 92vw);
+  display: grid;
+  gap: var(--space-3);
+  padding: 24px;
+  border: 1px solid var(--border-hi);
+  border-radius: var(--radius-2);
+  background: var(--bg-1);
+  box-shadow: var(--shadow-drawer);
+}
+.admin-password-dialog strong {
+  color: var(--fg-0);
+  font-size: var(--text-md);
+}
+.admin-password-dialog p,
+.admin-password-dialog small {
+  color: var(--fg-3);
+  font-size: var(--text-xs);
+}
+.admin-password-dialog label {
+  display: grid;
+  gap: 6px;
+  color: var(--fg-2);
+  font-size: var(--text-xs);
+}
+.admin-password-dialog button {
+  justify-self: end;
+}
 .settings-modal {
   position: fixed;
   inset: 0;

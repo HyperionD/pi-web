@@ -8,6 +8,10 @@ export type AppConfigPatch = {
   workspace?: { allowedRoots: string[] } | null;
 };
 
+export type AdminPasswordStatus = {
+  configured: boolean;
+};
+
 export type FolderListing = {
   path: string;
   displayPath?: string;
@@ -52,13 +56,25 @@ export function getWorkspaces() {
   return request("/api/workspaces");
 }
 
+export function getAdminPasswordStatus(): Promise<AdminPasswordStatus> {
+  return request("/api/admin/password/status");
+}
+
+export function setupAdminPassword(password: string, confirmation: string) {
+  return request("/api/admin/password", {
+    method: "POST",
+    body: JSON.stringify({ password, confirmation }),
+  });
+}
+
 export function getAppConfig() {
   return request("/api/app-config");
 }
 
-export function saveAppConfig(config: AppConfigPatch) {
+export function saveAppConfig(config: AppConfigPatch, adminPassword = "") {
   return request("/api/app-config", {
     method: "PATCH",
+    headers: adminPassword ? { "X-Admin-Password": adminPassword } : undefined,
     body: JSON.stringify(config),
   });
 }

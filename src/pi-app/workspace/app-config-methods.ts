@@ -1,4 +1,4 @@
-import { getAppConfig } from "../../lib/api";
+import { getAdminPasswordStatus, getAppConfig, setupAdminPassword } from "../../lib/api";
 import type { AppConfigPatch } from "../../lib/api";
 import { DEFAULT_APP_BRAND, parseAppConfigResponse } from "./app-config-schema";
 
@@ -14,6 +14,57 @@ function allowedRootsFromState(state) {
 }
 
 export const appConfigMethods = {
+  async loadAdminPasswordState() {
+    const status = await getAdminPasswordStatus();
+    if (typeof status?.configured !== "boolean") return;
+    this.adminPasswordConfigured = status.configured;
+    this.syncAdminPasswordGate();
+  },
+
+  syncAdminPasswordGate() {
+    const gate = this.querySelector("[data-admin-password-gate]");
+    if (!gate) return;
+    gate.hidden = this.adminPasswordConfigured !== false;
+    if (this.adminPasswordConfigured === false) {
+      this.querySelector("[data-admin-password]")?.focus?.();
+    }
+  },
+
+  showAdminPasswordGate() {
+    this.adminPasswordConfigured = false;
+    this.syncAdminPasswordGate();
+  },
+
+  setAdminPasswordStatus(message, error = false) {
+    const status = this.querySelector("[data-admin-password-status]");
+    if (!status) return;
+    status.textContent = message;
+    status.classList.toggle("err", error);
+  },
+
+  async submitAdminPasswordSetup(event) {
+    event?.preventDefault();
+    const password = this.querySelector("[data-admin-password]")?.value || "";
+    const confirmation = this.querySelector("[data-admin-password-confirmation]")?.value || "";
+    this.setAdminPasswordStatus("正在设置…");
+    try {
+      await setupAdminPassword(password, confirmation);
+      this.adminPasswordConfigured = true;
+      this.querySelector("[data-admin-password]").value = "";
+      this.querySelector("[data-admin-password-confirmation]").value = "";
+      this.setAdminPasswordStatus("");
+      this.syncAdminPasswordGate();
+    } catch (error) {
+      this.setAdminPasswordStatus(error instanceof Error ? error.message : String(error), true);
+    }
+  },
+
+  async requestAdminPassword() {
+    if (this.adminPasswordConfigured !== true) return "";
+    const password = window.prompt("请输入管理员密码");
+    return password || undefined;
+  },
+
   async loadAppConfigState(bootstrapGeneration) {
     const state = parseAppConfigResponse(await getAppConfig());
     if (bootstrapGeneration && this.bootstrapGeneration !== bootstrapGeneration) return undefined;
@@ -45,11 +96,7 @@ export const appConfigMethods = {
     const control = this.querySelector("[data-app-setting='brand']");
     if (control) {
       control.value = normalizedBrand(this.appConfigState?.config?.brand);
-      if (this.appConfigState?.config?.workspace !== undefined) {
-        control.dataset.initialAppBrand = control.value;
-      } else {
-        delete control.dataset.initialAppBrand;
-      }
+      control.dataset.initialAppBrand = control.value;
     }
     const roots = allowedRootsFromState(this.appConfigState);
     const rootsControl = this.querySelector("[data-app-setting='allowed-roots']");

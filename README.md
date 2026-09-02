@@ -53,6 +53,8 @@ To restrict selectable workspaces, add `allowedRoots` to `pi-web-config.json`:
 
 When `allowedRoots` is missing or an empty array, workspace access is unrestricted. When it is non-empty, every root must resolve to a real, existing directory. Workspace paths that escape an allowed root through a symlink are rejected. Historical workspaces outside the configured roots are hidden and rejected. Deleting `pi-web-config.json` restores the default unrestricted workspace behavior.
 
+On the first launch, pi-web requires an administrator password to be created in the main screen. The password is stored as a salted hash in `pi-web-config.json`. Changing the brand or allowed workspace directories in the application settings requires this password; normal pi settings and authentication actions do not.
+
 ## Features
 
 - **Workspace management**: Open local folders, view recent workspaces, and open workspaces after cloning Git repositories.

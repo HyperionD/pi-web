@@ -73,8 +73,10 @@ func SaveAppConfig(patch map[string]any) (AppConfigResponse, error) {
 }
 
 func appConfigResponse(path string, stored map[string]any) AppConfigResponse {
+	public := cloneAppConfigValue(stored).(map[string]any)
+	delete(public, adminPasswordHashKey)
 	effective := defaultAppConfig()
-	mergeAppConfig(effective, stored)
+	mergeAppConfig(effective, public)
 	return AppConfigResponse{Config: effective, Path: path}
 }
 
@@ -233,6 +235,9 @@ func expandAppConfigPath(path string) (string, error) {
 
 func applyAppConfigPatch(stored, patch map[string]any) error {
 	for key, value := range patch {
+		if key == adminPasswordHashKey {
+			return appConfigValidationError("admin password hash cannot be changed through app config")
+		}
 		if key == "brand" {
 			brand, err := normalizedAppBrand(value)
 			if err != nil {

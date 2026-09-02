@@ -227,6 +227,21 @@ function toolStatus(msg) {
 
 
 
+  <div class="admin-password-gate" data-admin-password-gate hidden>
+    <form class="admin-password-dialog" data-admin-password-setup-form role="dialog" aria-modal="true" aria-labelledby="admin-password-title">
+      <strong id="admin-password-title">设置管理员密码</strong>
+      <p>首次使用 pi-web 前，必须设置管理员密码。</p>
+      <label>管理员密码
+        <input data-admin-password type="password" autocomplete="new-password" required minlength="8" />
+      </label>
+      <label>确认密码
+        <input data-admin-password-confirmation type="password" autocomplete="new-password" required minlength="8" />
+      </label>
+      <small data-admin-password-status aria-live="polite"></small>
+      <button type="submit">设置并继续</button>
+    </form>
+  </div>
+
   <div class="settings-modal" data-settings-modal hidden>
     <form class="settings-dialog" data-settings-form role="dialog" aria-modal="true" aria-labelledby="settings-title" tabindex="-1">
       <div class="settings-head">

@@ -85,8 +85,14 @@ export const workspaceBootstrapMethods = {
         if (isCurrentBootstrap()) this.reportAppConfigLoadFailure(error);
         return undefined;
       });
+    const adminPasswordRequest = Promise.resolve()
+      .then(() => this.loadAdminPasswordState?.())
+      .catch((error) => {
+        if (isCurrentBootstrap()) this.reportAppConfigLoadFailure(error);
+        return undefined;
+      });
     try {
-      const [{ workspaces }] = await Promise.all([getWorkspaces(), appConfigRequest]);
+      const [{ workspaces }] = await Promise.all([getWorkspaces(), appConfigRequest, adminPasswordRequest]);
       if (!isCurrentBootstrap() || !ownsBootstrapState()) return;
       this.apiConnected = true;
       this.setConnection("ok");

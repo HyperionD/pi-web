@@ -1,6 +1,11 @@
 // @ts-nocheck
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { getAppConfig, listFolders, saveAppConfig } from "../../lib/api";
+import {
+  getAdminPasswordStatus,
+  getAppConfig,
+  listFolders,
+  saveAppConfig,
+} from "../../lib/api";
 import { cleanupPiAppFixture, connectPiApp, installPiAppFixture } from "../test-helper";
 import { appConfigMethods } from "./app-config-methods";
 import { DEFAULT_APP_BRAND, parseAppConfigResponse } from "./app-config-schema";
@@ -58,6 +63,45 @@ describe("app config methods", () => {
     expect(globalThis.fetch.mock.calls[0][0]).toBe(
       "http://backend.test/api/system/folders?path=%2Fa&purpose=allowed-root",
     );
+  });
+
+  it("sends the admin password in a header for app config saves", async () => {
+    globalThis.fetch = vi.fn(async () => ok({ config: {}, path: "/config" }));
+
+    await saveAppConfig({ brand: "Custom" }, "secret");
+
+    expect(globalThis.fetch.mock.calls[0][1]).toMatchObject({
+      method: "PATCH",
+      headers: { "X-Admin-Password": "secret" },
+    });
+  });
+
+  it("loads the admin password status and shows the first-use gate", async () => {
+    const app = await connectPiApp();
+    Object.assign(app, appConfigMethods);
+    globalThis.fetch = vi.fn(async () => ok({ configured: false }));
+
+    await app.loadAdminPasswordState();
+
+    expect(app.adminPasswordConfigured).toBe(false);
+    expect(app.querySelector("[data-admin-password-gate]").hidden).toBe(false);
+    expect(globalThis.fetch.mock.calls[0][0]).toBe("http://backend.test/api/admin/password/status");
+  });
+
+  it("sets the first admin password and releases the gate", async () => {
+    const app = await connectPiApp();
+    Object.assign(app, appConfigMethods);
+    app.adminPasswordConfigured = false;
+    app.showAdminPasswordGate();
+    app.querySelector("[data-admin-password]").value = "correct horse battery";
+    app.querySelector("[data-admin-password-confirmation]").value = "correct horse battery";
+    globalThis.fetch = vi.fn(async () => ok({ configured: true }));
+
+    await app.submitAdminPasswordSetup({ preventDefault: vi.fn() });
+
+    expect(app.adminPasswordConfigured).toBe(true);
+    expect(app.querySelector("[data-admin-password-gate]").hidden).toBe(true);
+    expect(globalThis.fetch.mock.calls[0][0]).toBe("http://backend.test/api/admin/password");
   });
 
   it("loads the server brand without a workspace id", async () => {
@@ -132,6 +176,43 @@ describe("app config methods", () => {
     expect(requests).toContain("http://backend.test/api/app-config");
     expect(requests).toContain("http://backend.test/api/workspaces");
     expect(app.querySelector("[data-brand]").textContent).toBe(DEFAULT_APP_BRAND);
+  });
+
+  it("confirms the administrator before saving app config changes", async () => {
+    const app = await connectPiApp();
+    app.apiConnected = true;
+    app.adminPasswordConfigured = true;
+    app.settingsState = { project: {}, global: {}, effective: {}, paths: {} };
+    app.appConfigState = { config: { version: 1, brand: "old" }, path: "/config" };
+    app.querySelector("[data-app-setting='brand']").value = "Custom";
+    vi.spyOn(window, "prompt").mockReturnValue("secret");
+    globalThis.fetch = vi.fn(async () => ok({ config: { version: 1, brand: "Custom" }, path: "/config" }));
+
+    await app.saveSettingsForm({ preventDefault: vi.fn() });
+
+    const patchCalls = globalThis.fetch.mock.calls.filter(([, options]) => options?.method === "PATCH");
+    expect(patchCalls[0][1].headers).toMatchObject({ "X-Admin-Password": "secret" });
+  });
+
+  it("does not request admin confirmation when app settings are unchanged", async () => {
+    const app = await connectPiApp();
+    app.apiConnected = true;
+    app.adminPasswordConfigured = true;
+    app.dataset.activeWorkspaceId = "w1";
+    app.settingsState = { project: {}, global: {}, effective: {}, paths: {} };
+    app.appConfigState = { config: { version: 1, brand: "Custom" }, path: "/config" };
+    Object.assign(app, appConfigMethods);
+    app.fillAppConfigForm();
+    app.querySelector("[data-setting='defaultThinkingLevel']").value = "high";
+    app.requestAdminPassword = vi.fn();
+    globalThis.fetch = vi.fn(async (url, options = {}) => options.method === "PUT"
+      ? ok({ settings: { project: {}, global: {}, effective: {}, paths: {} } })
+      : ok({ config: { version: 1, brand: "Custom" }, path: "/config" }));
+
+    await app.saveSettingsForm({ preventDefault: vi.fn() });
+
+    expect(app.appConfigPatchFromForm()).toEqual({});
+    expect(app.requestAdminPassword).not.toHaveBeenCalled();
   });
 
   it("saves app config without an active workspace", async () => {
@@ -270,8 +351,8 @@ describe("app config methods", () => {
     await app.saveSettingsForm({ preventDefault: vi.fn() });
 
     const patchCalls = globalThis.fetch.mock.calls.filter(([, options]) => options?.method === "PATCH");
-    expect(patchCalls).toHaveLength(2);
-    expect(patchCalls.map(([, options]) => JSON.parse(options.body))).toEqual([{ brand: "Custom" }, { brand: "Custom" }]);
+    expect(patchCalls).toHaveLength(1);
+    expect(patchCalls.map(([, options]) => JSON.parse(options.body))).toEqual([{ brand: "Custom" }]);
     expect(globalThis.fetch.mock.calls.some(([, options]) => options?.method === "PUT")).toBe(false);
   });
 
@@ -448,5 +529,13 @@ describe("app config methods", () => {
     await getAppConfig();
 
     expect(globalThis.fetch.mock.calls[0][0]).toBe("http://backend.test/api/app-config");
+  });
+
+  it("exposes the admin password status API wrapper", async () => {
+    globalThis.fetch = vi.fn(async () => ok({ configured: true }));
+
+    await getAdminPasswordStatus();
+
+    expect(globalThis.fetch.mock.calls[0][0]).toBe("http://backend.test/api/admin/password/status");
   });
 });

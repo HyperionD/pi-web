@@ -24,6 +24,16 @@ func (s *Server) patchAppConfig(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, errors.New("app config patch must be a JSON object"))
 		return
 	}
+	if len(patch) > 0 {
+		if err := s.requireAdminPassword(r); err != nil {
+			if errors.Is(err, ErrAdminPasswordInvalid) || errors.Is(err, ErrAdminPasswordRequired) {
+				writeError(w, http.StatusUnauthorized, errors.New("admin password is invalid or missing"))
+			} else {
+				writeError(w, http.StatusInternalServerError, err)
+			}
+			return
+		}
+	}
 	response, err := SaveAppConfig(patch)
 	if err != nil {
 		status := http.StatusInternalServerError

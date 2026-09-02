@@ -13,6 +13,9 @@ func TestAppConfigAPIWorksWithoutWorkspace(t *testing.T) {
 	root := t.TempDir()
 	t.Setenv("PI_CODING_AGENT_SESSION_DIR", filepath.Join(root, "sessions"))
 	server := NewServer(Config{}, NewWebStore(filepath.Join(root, "web.db")), NewBroker())
+	if err := SetupAdminPassword("correct horse battery"); err != nil {
+		t.Fatal(err)
+	}
 
 	get := httptest.NewRecorder()
 	server.Handler().ServeHTTP(get, httptest.NewRequest(http.MethodGet, "/api/app-config", nil))
@@ -22,6 +25,7 @@ func TestAppConfigAPIWorksWithoutWorkspace(t *testing.T) {
 
 	patch := httptest.NewRecorder()
 	request := httptest.NewRequest(http.MethodPatch, "/api/app-config", strings.NewReader(`{"brand":"JuunAI / web"}`))
+	request.Header.Set(adminPasswordHeader, "correct horse battery")
 	server.Handler().ServeHTTP(patch, request)
 	if patch.Code != http.StatusOK || !strings.Contains(patch.Body.String(), `"brand":"JuunAI / web"`) {
 		t.Fatalf("PATCH %d %s", patch.Code, patch.Body.String())
@@ -55,6 +59,7 @@ func TestAppConfigAPIPatchRejectsNullObject(t *testing.T) {
 func TestAppConfigAPIPatchRejectsInvalidBrand(t *testing.T) {
 	server := newAppConfigAPIServer(t)
 	request := httptest.NewRequest(http.MethodPatch, "/api/app-config", strings.NewReader(`{"brand":42}`))
+	request.Header.Set(adminPasswordHeader, "correct horse battery")
 	response := httptest.NewRecorder()
 
 	server.Handler().ServeHTTP(response, request)
@@ -69,6 +74,7 @@ func TestAppConfigAPIPatchClassifiesAllowedRootsValidation(t *testing.T) {
 	request := httptest.NewRequest(http.MethodPatch, "/api/app-config", strings.NewReader(
 		`{"workspace":{"allowedRoots":["/path/that/does/not/exist"]}}`,
 	))
+	request.Header.Set(adminPasswordHeader, "correct horse battery")
 	response := httptest.NewRecorder()
 
 	server.Handler().ServeHTTP(response, request)
@@ -118,5 +124,9 @@ func newAppConfigAPIServer(t *testing.T) *Server {
 	t.Helper()
 	root := t.TempDir()
 	t.Setenv("PI_CODING_AGENT_SESSION_DIR", filepath.Join(root, "sessions"))
-	return NewServer(Config{}, NewWebStore(filepath.Join(root, "web.db")), NewBroker())
+	server := NewServer(Config{}, NewWebStore(filepath.Join(root, "web.db")), NewBroker())
+	if err := SetupAdminPassword("correct horse battery"); err != nil {
+		t.Fatal(err)
+	}
+	return server
 }
