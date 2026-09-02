@@ -1,4 +1,4 @@
-import { getWorkspaceFile, saveWorkspaceFile } from "../../lib/api";
+import { getWorkspaceFile, getWorkspaceFileAssetURL, saveWorkspaceFile } from "../../lib/api";
 import { renderMarkdownBody } from "../../lib/renderers";
 import { CodeMirrorFileEditor, codeMirrorLanguageName, editableFileState, isTextFile } from "./file-editor";
 
@@ -67,6 +67,7 @@ export const filePreviewMethods = {
     if (mode === "markdown" && isMarkdownFile(file)) {
       body.classList.add("markdown-body");
       body.innerHTML = renderMarkdownBody(`${file.content || ""}${file.truncated ? "\n\n[truncated]" : ""}`);
+      resolveMarkdownImages(body, file, state.workspaceId);
       return;
     }
     if (mode === "text" && isTextFile(file)) {
@@ -248,6 +249,39 @@ function textPreviewNode(app, state) {
   });
   container.setAttribute("aria-label", `${readOnly ? "view" : "edit"} ${file.path || "file"}`);
   return container;
+}
+
+function resolveMarkdownImages(body, file, workspaceId) {
+  if (!workspaceId || !file?.path) return;
+  const baseURL = new URL(workspaceFileURLPath(file.path), "https://pi-web-workspace.local/");
+  body.querySelectorAll("img[src]").forEach((image) => {
+    const source = image.getAttribute("src");
+    if (!source || !isRelativeWorkspaceImageSource(source)) return;
+    let resolved;
+    try {
+      resolved = new URL(source, baseURL);
+    } catch {
+      return;
+    }
+    if (resolved.origin !== baseURL.origin) return;
+    let path;
+    try {
+      path = decodeURIComponent(resolved.pathname).replace(/^\/+/, "");
+    } catch {
+      return;
+    }
+    if (!path) return;
+    image.setAttribute("src", getWorkspaceFileAssetURL(workspaceId, path));
+  });
+}
+
+function isRelativeWorkspaceImageSource(source) {
+  return !/^[a-z][a-z\d+.-]*:/i.test(source)
+    && !source.startsWith("//") && !source.startsWith("#") && !source.startsWith("?");
+}
+
+function workspaceFileURLPath(path) {
+  return String(path).split("/").map(encodeURIComponent).join("/");
 }
 
 function imagePreviewNode(file) {

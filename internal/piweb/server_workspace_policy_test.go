@@ -37,6 +37,7 @@ func TestWorkspaceRoutesRejectForbiddenWorkspace(t *testing.T) {
 		{http.MethodPost, "/sessions"},
 		{http.MethodDelete, "/sessions"},
 		{http.MethodGet, "/files"},
+		{http.MethodGet, "/files/raw"},
 		{http.MethodGet, "/files/search"},
 		{http.MethodGet, "/commands"},
 		{http.MethodGet, "/models"},

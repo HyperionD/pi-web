@@ -27,6 +27,62 @@ func TestHealthEndpoint(t *testing.T) {
 	}
 }
 
+func TestServesWorkspaceFileAsset(t *testing.T) {
+	t.Setenv("PI_CODING_AGENT_SESSION_DIR", t.TempDir())
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "docs", "assets"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	asset := []byte("not really a png")
+	if err := os.WriteFile(filepath.Join(root, "docs", "assets", "logo.png"), asset, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	store := NewWebStore(filepath.Join(t.TempDir(), "web.db"))
+	workspace, err := store.OpenWorkspace(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	saveAllowedRootsForTest(t, root)
+	server := NewServer(Config{}, store, NewBroker())
+
+	requestPath := "/api/workspaces/" + workspace.ID + "/files/raw?path=docs%2Fassets%2Flogo.png"
+	request := httptest.NewRequest(http.MethodGet, requestPath, nil)
+	response := httptest.NewRecorder()
+	server.Handler().ServeHTTP(response, request)
+
+	if response.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", response.Code, response.Body.String())
+	}
+	if response.Header().Get("Content-Type") != "image/png" {
+		t.Fatalf("content type = %q, want image/png", response.Header().Get("Content-Type"))
+	}
+	if response.Body.String() != string(asset) {
+		t.Fatalf("asset body = %q, want %q", response.Body.String(), asset)
+	}
+
+	traversal := httptest.NewRequest(http.MethodGet, "/api/workspaces/"+workspace.ID+"/files/raw?path=..%2Fsecret", nil)
+	traversalResponse := httptest.NewRecorder()
+	server.Handler().ServeHTTP(traversalResponse, traversal)
+	if traversalResponse.Code == http.StatusOK {
+		t.Fatal("path traversal unexpectedly served an asset")
+	}
+
+	outside := t.TempDir()
+	outsideAsset := filepath.Join(outside, "secret.txt")
+	if err := os.WriteFile(outsideAsset, []byte("secret"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outsideAsset, filepath.Join(root, "linked.txt")); err != nil {
+		t.Fatal(err)
+	}
+	linked := httptest.NewRequest(http.MethodGet, "/api/workspaces/"+workspace.ID+"/files/raw?path=linked.txt", nil)
+	linkedResponse := httptest.NewRecorder()
+	server.Handler().ServeHTTP(linkedResponse, linked)
+	if linkedResponse.Code != http.StatusForbidden {
+		t.Fatalf("symlink escape got %d, want %d", linkedResponse.Code, http.StatusForbidden)
+	}
+}
+
 func TestRemovedVersionEndpoints(t *testing.T) {
 	server := NewServer(Config{}, NewMockStore(), NewBroker())
 	for _, path := range []string{"/api/version", "/api/pi/version"} {

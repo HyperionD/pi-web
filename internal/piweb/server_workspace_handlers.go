@@ -3,7 +3,10 @@ package piweb
 import (
 	"encoding/base64"
 	"errors"
+	"io"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -323,6 +326,69 @@ func (s *Server) saveWorkspaceSettings(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"settings": settings})
 }
+func (s *Server) workspaceFileAsset(w http.ResponseWriter, r *http.Request) {
+	root, err := s.store.WorkspacePath(r.PathValue("workspaceID"))
+	if err != nil {
+		writeStoreError(w, err)
+		return
+	}
+	full, err := SafeJoin(root, r.URL.Query().Get("path"))
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	realRoot, err := filepath.EvalSymlinks(root)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
+	full, err = filepath.EvalSymlinks(full)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			writeError(w, http.StatusNotFound, err)
+		} else {
+			writeError(w, http.StatusInternalServerError, err)
+		}
+		return
+	}
+	if !pathWithinRoot(realRoot, full) {
+		writeError(w, http.StatusForbidden, ErrWorkspaceForbidden)
+		return
+	}
+	file, err := os.Open(full)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			writeError(w, http.StatusNotFound, err)
+		} else {
+			writeError(w, http.StatusInternalServerError, err)
+		}
+		return
+	}
+	defer file.Close()
+	info, err := file.Stat()
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
+	if info.IsDir() {
+		writeError(w, http.StatusBadRequest, errors.New("path is a directory"))
+		return
+	}
+	probe := make([]byte, 512)
+	n, readErr := file.Read(probe)
+	if readErr != nil && !errors.Is(readErr, io.EOF) {
+		writeError(w, http.StatusInternalServerError, readErr)
+		return
+	}
+	if _, err := file.Seek(0, io.SeekStart); err != nil {
+		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
+	w.Header().Set("Content-Type", detectPreviewMIME(full, probe[:n]))
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	http.ServeContent(w, r, info.Name(), info.ModTime(), file)
+}
+
 func (s *Server) readWorkspaceFile(w http.ResponseWriter, r *http.Request) {
 	file, err := s.store.ReadFile(r.PathValue("workspaceID"), r.URL.Query().Get("path"))
 	if err != nil {

@@ -68,6 +68,32 @@ describe("file preview CodeMirror editor", () => {
     expect(app.querySelector("[data-action='save-file-preview']").hidden).toBe(true);
   });
 
+  it("resolves relative Markdown images through the active workspace", () => {
+    const app = mountPreview();
+    app.renderFilePreview({
+      path: "README.md",
+      mime: "text/markdown",
+      previewKind: "text",
+      content: "![logo](docs/assets/logo.png)",
+    });
+
+    expect(app.querySelector(".fp-body.markdown-body img")?.getAttribute("src")).toBe(
+      "/api/workspaces/workspace-1/files/raw?path=docs%2Fassets%2Flogo.png",
+    );
+  });
+
+  it("preserves external Markdown image URLs", () => {
+    const app = mountPreview();
+    app.renderFilePreview({
+      path: "README.md",
+      mime: "text/markdown",
+      previewKind: "text",
+      content: "![logo](https://example.com/logo.png)",
+    });
+
+    expect(app.querySelector(".fp-body.markdown-body img")?.getAttribute("src")).toBe("https://example.com/logo.png");
+  });
+
   it("switches Markdown between rendered preview and text editing", () => {
     const app = mountPreview();
     app.renderFilePreview({ path: "README.md", mime: "text/markdown", previewKind: "text", content: "# Hello" });

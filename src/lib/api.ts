@@ -195,6 +195,10 @@ export function getWorkspaceFile(workspaceId, path) {
   return request(`/api/workspaces/${encodeURIComponent(workspaceId)}/files/read?path=${encodeURIComponent(path)}`);
 }
 
+export function getWorkspaceFileAssetURL(workspaceId, path) {
+  return `${apiBase()}/api/workspaces/${encodeURIComponent(workspaceId)}/files/raw?path=${encodeURIComponent(path)}`;
+}
+
 export function saveWorkspaceFile(workspaceId, path, content) {
   return request(`/api/workspaces/${encodeURIComponent(workspaceId)}/files/write?path=${encodeURIComponent(path)}`, {
     method: "PUT",
