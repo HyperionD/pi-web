@@ -54,10 +54,43 @@ describe("workspace folder/render/bootstrap coverage", () => {
     expect(app.querySelector("[data-workspace-group='w2'] .sessions").hidden).toBe(false);
     expect(app.querySelector("[data-workspace-group='w2'] .ws-name .dot").classList.contains("live")).toBe(true);
     expect(path.textContent).toBe("tmp");
-    expect(list.querySelector(".folder-row").dataset.path).toBe("/tmp/child");
+    expect(list.querySelector("[data-action='folder-select']").dataset.path).toBe("/tmp");
+    expect(list.querySelector("[data-action='folder-select'][data-path='/tmp/child'] .folder-path").textContent).toBe("~/child");
 
     app.renderFolderListing({ path: "/empty", folders: [] });
     expect(list.querySelector(".folder-empty").textContent).toBe("暂无文件夹");
+  });
+
+  it("separates folder expansion from folder selection", async () => {
+    const app = await connectPiApp();
+    const list = app.querySelector("[data-folder-list]");
+    app.apiConnected = true;
+    globalThis.fetch = vi.fn(async (url) => String(url).includes("path=%2Froot%2Fsrc")
+      ? okJson({ path: "/root/src", parent: "/root", folders: [{ name: "lib", path: "/root/src/lib", displayPath: "~/project/src/lib" }] })
+      : okJson({ path: "/root", parent: "/", folders: [{ name: "src", path: "/root/src", displayPath: "~/project/src" }] }));
+
+    app.renderFolderListing({
+      path: "/root",
+      displayPath: "~/project",
+      folders: [{ name: "src", path: "/root/src", displayPath: "~/project/src" }],
+    });
+
+    const srcToggle = list.querySelector("[data-action='folder-toggle'][data-path='/root/src']");
+    const srcLabel = list.querySelector("[data-action='folder-select'][data-path='/root/src']");
+    expect(srcToggle.getAttribute("aria-expanded")).toBe("false");
+    srcLabel.click();
+    expect(app.currentFolder).toBe("/root/src");
+    expect(app.querySelector("[data-folder-path]").textContent).toBe("~/project/src");
+    expect(list.querySelector("[data-action='folder-select'][data-path='/root/src']").closest("[data-folder-tree-node]").getAttribute("aria-selected")).toBe("true");
+
+    list.querySelector("[data-action='folder-toggle'][data-path='/root/src']").click();
+    await vi.waitFor(() => expect(globalThis.fetch).toHaveBeenCalledWith(
+      expect.stringContaining("path=%2Froot%2Fsrc&purpose=workspace"),
+      expect.any(Object),
+    ));
+    await vi.waitFor(() => expect(list.querySelector("[data-path='/root/src/lib']")).not.toBeNull());
+    expect(app.currentFolder).toBe("/root/src");
+    expect(list.querySelector("[data-action='folder-toggle'][data-path='/root/src']").getAttribute("aria-expanded")).toBe("true");
   });
 
   it("loads folders and opens workspaces through backend responses", async () => {
@@ -175,15 +208,18 @@ describe("workspace folder/render/bootstrap coverage", () => {
     expect(trigger.disabled).toBe(false);
     expect(popover.querySelector("[data-action='folder-open-current']").disabled).toBe(false);
 
-    popover.querySelector("[data-folder-list] .folder-row").click();
-    await vi.waitFor(() => expect(globalThis.fetch).toHaveBeenCalledWith(
-      expect.stringContaining("path=%2Fallowed%2Fchild&purpose=workspace"),
-      expect.any(Object),
-    ));
-    await vi.waitFor(() => expect(app.currentFolder).toBe("/allowed/child"));
+    const childLabel = popover.querySelector("[data-action='folder-select'][data-path='/allowed/child']");
+    childLabel.click();
+    expect(app.currentFolder).toBe("/allowed/child");
 
+    const confirm = popover.querySelector("[data-action='folder-open-current']");
+    expect(app.folderListingValid).toBe(true);
+    expect(app.folderLoadPending).toBe(false);
+    expect(app.folderOpeningPending).toBeFalsy();
+    expect(confirm.disabled).toBe(false);
+    expect(app.folderBrowsePurpose).toBe("workspace");
     app.openWorkspacePath = vi.fn();
-    popover.querySelector("[data-action='folder-open-current']").click();
+    confirm.click();
     expect(app.openWorkspacePath).toHaveBeenCalledWith("/allowed/child", expect.any(Symbol));
   });
 
@@ -354,7 +390,7 @@ describe("workspace folder/render/bootstrap coverage", () => {
     await first;
     expect(popover.hidden).toBe(false);
 
-    expect(document.activeElement).toBe(confirm);
+    expect(document.activeElement).toBe(popover.querySelector("[data-action='folder-select']"));
   });
 
   it("renders server-controlled folder values as text without HTML nodes", async () => {
@@ -368,12 +404,12 @@ describe("workspace folder/render/bootstrap coverage", () => {
     app.renderFolderListing({
       path: maliciousPath,
       displayPath: maliciousPath,
-      folders: [{ name: maliciousName, path: maliciousPath, displayPath: maliciousPath }],
+      folders: [{ name: maliciousName, path: "/allowed/child", displayPath: maliciousPath }],
     });
 
     expect(path.textContent).toBe(maliciousPath);
     expect(path.querySelector("*")).toBeNull();
-    const row = list.querySelector(".folder-row");
+    const row = list.querySelector("[data-action='folder-select'][data-path='/allowed/child']");
     expect(row.querySelector(".folder-name").textContent).toBe(maliciousName);
     expect(row.querySelector(".folder-name").querySelector("*")).toBeNull();
     expect(row.querySelector(".folder-path").textContent).toBe(maliciousPath);
@@ -439,8 +475,9 @@ describe("workspace folder/render/bootstrap coverage", () => {
     expect(pickerStyles).toMatch(/\.folder-popover-head\s*\{[^}]*border-bottom:\s*1px solid var\(--border\);/s);
     expect(pickerStyles).toMatch(/\.folder-popover-head button\s*\{[^}]*width:\s*28px;[^}]*height:\s*28px;/s);
     expect(pickerStyles).toMatch(/\.folder-browser-head\s*\{[^}]*background:\s*var\(--bg-2\);/s);
-    expect(pickerStyles).toMatch(/\.folder-row\s*\{[^}]*grid-template-columns:\s*18px minmax\(96px, \.8fr\) minmax\(0, 1fr\);/s);
-    expect(pickerStyles).toMatch(/\.folder-confirm\s*\{[^}]*margin:\s*10px 14px 14px;/s);
+    expect(pickerStyles).toMatch(/\.folder-tree-row\s*\{[^}]*grid-template-columns:\s*28px minmax\(0, 1fr\);/s);
+    expect(pickerStyles).toMatch(/\.folder-row\s*\{[^}]*width:\s*100%;[^}]*min-height:\s*36px;/s);
+    expect(pickerStyles).toMatch(/\.folder-confirm\s*\{[^}]*min-height:\s*40px;[^}]*margin:\s*10px 14px 14px;/s);
   });
 
   it("handles folder and delete failure branches", async () => {

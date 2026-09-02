@@ -81,6 +81,7 @@
   background: var(--accent);
   color: var(--selection-fg);
   font-family: var(--font-mono);
+  min-height: 40px;
   font-size: var(--text-sm);
   font-weight: 600;
   line-height: 1.4;
@@ -204,37 +205,68 @@
   flex: 1 1 auto;
   max-height: 300px;
   overflow: auto;
-  padding: 6px 4px;
+  padding: 8px 4px 6px;
 }
-.folder-row {
+.folder-tree-node { min-width: 0; }
+.folder-tree-row {
   display: grid;
-  grid-template-columns: 18px minmax(96px, .8fr) minmax(0, 1fr);
+  grid-template-columns: 28px minmax(0, 1fr);
+  align-items: stretch;
+  min-width: 0;
+  padding-left: calc(var(--folder-depth) * 14px);
+}
+.folder-toggle {
+  display: inline-flex;
   align-items: center;
+  justify-content: center;
+  width: 28px;
+  min-height: 36px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: var(--radius-1);
+  background: transparent;
+  color: var(--fg-3);
+  font-family: var(--font-mono);
+  font-size: 18px;
+  line-height: 1;
+}
+.folder-toggle:hover:not(:disabled) {
+  border-color: var(--border-dim);
+  background: var(--bg-2);
+  color: var(--accent);
+}
+.folder-toggle[aria-expanded="true"] { color: var(--accent); }
+.folder-row {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
   width: 100%;
   min-height: 36px;
-  text-align: left;
+  min-width: 0;
   margin: 2px 0;
-  gap: 8px;
-  padding: 7px 8px;
+  padding: 7px 10px;
   border: 1px solid transparent;
   border-radius: var(--radius-1);
   background: transparent;
   color: var(--fg-1);
   font-size: var(--text-xs);
   line-height: 1.35;
+  text-align: left;
 }
 .folder-row:hover:not(:disabled) {
   border-color: var(--border-dim);
   background: var(--accent-bg);
-  color: var(--accent);
 }
-.folder-row > span:first-child {
-  color: var(--accent);
-  font-size: 11px;
-  text-align: center;
+.folder-tree-node[aria-selected="true"] .folder-row {
+  border-color: var(--accent);
+  background: var(--accent-bg);
+  box-shadow: inset 2px 0 0 var(--accent);
 }
 .folder-row .folder-name,
 .folder-row .folder-path {
+  display: block;
+  max-width: 100%;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -245,6 +277,11 @@
 .folder-empty,
 .folder-error {
   color: var(--fg-3);
+}
+.folder-row:hover:not(:disabled) .folder-name,
+.folder-tree-node[aria-selected="true"] .folder-name { color: var(--accent); }
+.folder-tree-children {
+  border-left: 1px solid var(--border-dim);
 }
 .folder-empty,
 .folder-error {

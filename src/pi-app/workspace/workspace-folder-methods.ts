@@ -21,7 +21,7 @@ export const workspaceFolderMethods = {
     loadingLabel?.toggleAttribute("hidden", !loading);
     const trigger = this.folderPickerTrigger;
     if (trigger) trigger.disabled = loading;
-    this.querySelectorAll("[data-folder-browser] [data-action='folder-enter'], [data-folder-browser] [data-action='folder-up'], [data-folder-browser] [data-action='folder-open-current']")
+    this.querySelectorAll("[data-folder-browser] [data-action='folder-toggle'], [data-folder-browser] [data-action='folder-select'], [data-folder-browser] [data-action='folder-up'], [data-folder-browser] [data-action='folder-open-current']")
       .forEach((button) => { button.disabled = loading; });
     const confirm = this.querySelector("[data-action='folder-open-current']");
     if (confirm) confirm.disabled = loading || this.folderOpeningPending || !this.folderListingValid;
@@ -84,6 +84,9 @@ export const workspaceFolderMethods = {
     if (purpose === "workspace" && popover && !popover.hidden) return;
     if (this.folderLoadPending) return;
     const pickerToken = this.beginFolderPicker(purpose);
+    this.folderTreeRoot = undefined;
+    this.folderTreeNodes = new Map();
+    this.folderSelectedPath = undefined;
     const browser = this.querySelector("[data-folder-browser]");
     const trigger = this.resolveFolderTrigger(event);
     this.folderPickerTrigger = trigger;
@@ -111,7 +114,7 @@ export const workspaceFolderMethods = {
   },
 
   focusFolderPopover() {
-    this.querySelector("[data-folder-popover] [data-folder-list] button, [data-folder-popover] [data-action='folder-open-current']")?.focus();
+    this.querySelector("[data-folder-popover] [data-action='folder-select'], [data-folder-popover] [data-action='folder-open-current']")?.focus();
   },
 
   async browseFolder(purpose = "workspace", event) {
@@ -131,7 +134,7 @@ export const workspaceFolderMethods = {
     return this.openFolderPopover(purpose, event);
   },
 
-  async loadFolder(path = "~", purpose = this.folderBrowsePurpose || "workspace") {
+  async loadFolder(path = "~", purpose = this.folderBrowsePurpose || "workspace", mode = "root") {
     if (!this.apiConnected) {
       this.folderListingValid = false;
       this.renderFolderError(new Error("后端连接已断开"));
@@ -152,9 +155,18 @@ export const workspaceFolderMethods = {
     try {
       const listing = await listFolders(path || "~", purpose);
       if (!isCurrent()) return;
-      this.currentFolder = listing.path;
-      this.currentFolderParent = listing.parent || listing.path;
-      this.renderFolderListing(listing);
+      if (mode === "children") {
+        const node = this.folderTreeNodes?.get(listing.path || path);
+        if (!node) return;
+        node.children = (listing.folders || []).map((folder) => this.createFolderTreeNode(folder));
+        node.loaded = true;
+        node.expanded = true;
+        this.renderFolderTree();
+      } else {
+        this.currentFolder = listing.path;
+        this.currentFolderParent = listing.parent || listing.path;
+        this.renderFolderListing(listing);
+      }
       if (this.querySelector("[data-folder-popover]")?.hidden === false) this.positionFolderPopover();
     } catch (error) {
       if (!isCurrent()) return;
@@ -181,15 +193,97 @@ export const workspaceFolderMethods = {
 
   renderFolderListing(listing) {
     this.folderListingValid = true;
+    this.currentFolder = listing.path;
+    this.folderSelectedPath = listing.path;
+    const displayPath = listing.displayPath || listing.path;
     const label = this.querySelector("[data-folder-path]");
-    if (label) label.textContent = listing.displayPath || listing.path;
+    if (label) label.textContent = displayPath;
     const upButton = this.querySelector("[data-folder-browser] [data-action='folder-up']");
     if (upButton) upButton.disabled = (listing.parent || listing.path) === listing.path;
+    this.folderTreeRoot = {
+      name: displayPath,
+      path: listing.path,
+      displayPath,
+      children: (listing.folders || []).map((folder) => this.createFolderTreeNode(folder)),
+      loaded: true,
+      expanded: true,
+    };
+    this.renderFolderTree();
+  },
+
+  createFolderTreeNode(folder) {
+    return { ...folder, children: [], loaded: false, expanded: false };
+  },
+
+  renderFolderTree() {
     const list = this.querySelector("[data-folder-list]");
     if (!list) return;
-    list.replaceChildren();
-    for (const folder of listing.folders || []) list.append(this.folderRow(folder));
-    if (!listing.folders?.length) list.append(this.emptyFolderRow());
+    this.folderTreeNodes = new Map();
+    if (!this.folderTreeRoot) {
+      list.replaceChildren(this.emptyFolderRow());
+      return;
+    }
+    list.replaceChildren(this.folderTreeItem(this.folderTreeRoot, 0));
+  },
+
+  folderTreeItem(node, depth) {
+    this.folderTreeNodes.set(node.path, node);
+    const item = document.createElement("div");
+    item.className = "folder-tree-node";
+    item.dataset.folderTreeNode = "";
+    item.dataset.path = node.path;
+    item.setAttribute("role", "treeitem");
+    item.setAttribute("aria-selected", String(node.path === this.folderSelectedPath));
+
+    const row = document.createElement("div");
+    row.className = "folder-tree-row";
+    row.style.setProperty("--folder-depth", String(depth));
+    const toggle = document.createElement("button");
+    toggle.type = "button";
+    toggle.className = "folder-toggle";
+    toggle.dataset.action = "folder-toggle";
+    toggle.dataset.path = node.path;
+    toggle.disabled = node.loaded && !node.children.length;
+    toggle.setAttribute("aria-expanded", String(node.expanded));
+    toggle.setAttribute("aria-label", `${node.expanded ? "收起" : "展开"} ${node.name || node.path}`);
+    toggle.textContent = node.loaded && !node.children.length ? "" : node.expanded ? "⌄" : "›";
+    row.append(toggle, this.folderRow(node));
+    item.append(row);
+
+    if (node.expanded && node.children.length) {
+      const children = document.createElement("div");
+      children.className = "folder-tree-children";
+      children.setAttribute("role", "group");
+      node.children.forEach((child) => children.append(this.folderTreeItem(child, depth + 1)));
+      item.append(children);
+    } else if (node.expanded && node.loaded) {
+      item.append(this.emptyFolderRow());
+    }
+    return item;
+  },
+
+  async toggleFolder(path) {
+    const node = this.folderTreeNodes?.get(path);
+    if (!node || this.folderLoadPending) return;
+    if (node.loaded) {
+      if (!node.children.length) return;
+      node.expanded = !node.expanded;
+      this.renderFolderTree();
+      return;
+    }
+    return this.loadFolder(path, this.folderBrowsePurpose || "workspace", "children");
+  },
+
+  selectFolder(path) {
+    const node = this.folderTreeNodes?.get(path);
+    if (!node) return;
+    this.folderSelectedPath = node.path;
+    this.currentFolder = node.path;
+    this.folderListingValid = true;
+    const label = this.querySelector("[data-folder-path]");
+    if (label) label.textContent = node.displayPath || node.path;
+    this.renderFolderTree();
+    this.setFolderLoading(false);
   },
 
   emptyFolderRow() {
@@ -203,17 +297,15 @@ export const workspaceFolderMethods = {
     const row = document.createElement("button");
     row.type = "button";
     row.className = "folder-row";
-    row.dataset.action = "folder-enter";
+    row.dataset.action = "folder-select";
     row.dataset.path = folder.path;
-    const marker = document.createElement("span");
-    marker.textContent = "▸";
     const name = document.createElement("span");
     name.className = "folder-name";
     name.textContent = folder.name;
     const path = document.createElement("span");
     path.className = "folder-path";
     path.textContent = folder.displayPath || folder.path;
-    row.append(marker, name, path);
+    row.append(name, path);
     return row;
   },
 
