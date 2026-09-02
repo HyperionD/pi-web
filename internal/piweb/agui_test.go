@@ -44,6 +44,42 @@ func TestAguiSessionRunStreamsProtocolEvents(t *testing.T) {
 	}
 }
 
+func TestAguiStreamPreservesAssistantMessageBoundariesAroundTools(t *testing.T) {
+	broker := NewBroker()
+	store := NewMockStore()
+	runnerState := &jsonStreamState{}
+
+	handlePiJSONEvent(`{"type":"message_update","assistantMessageEvent":{"type":"text_delta","delta":"工具前说明"}}`, broker, store, "session", runnerState)
+	handlePiJSONEvent(`{"type":"message_end","message":{"role":"assistant","content":[{"type":"text","text":"工具前说明"},{"type":"toolCall","name":"bash"}]}}`, broker, store, "session", runnerState)
+	handlePiJSONEvent(`{"type":"tool_execution_start","toolCallId":"call-1","toolName":"bash","args":{"command":"pwd"}}`, broker, store, "session", runnerState)
+	handlePiJSONEvent(`{"type":"tool_execution_end","toolCallId":"call-1","toolName":"bash","result":"ok"}`, broker, store, "session", runnerState)
+	handlePiJSONEvent(`{"type":"message_update","assistantMessageEvent":{"type":"text_delta","delta":"最终总结"}}`, broker, store, "session", runnerState)
+	handlePiJSONEvent(`{"type":"message_end","message":{"role":"assistant","content":[{"type":"text","text":"最终总结"}]}}`, broker, store, "session", runnerState)
+	broker.Publish("session", "session.status", map[string]string{"status": "idle"})
+
+	res := httptest.NewRecorder()
+	stream := newAguiEventStream(res, t.Context())
+	aguiState := newAguiStreamState("thread", "run", "session")
+	for _, event := range broker.Replay("session", 0) {
+		aguiState.consume(event, stream)
+	}
+
+	got := res.Body.String()
+	if strings.Count(got, `"type":"TEXT_MESSAGE_START"`) != 2 ||
+		strings.Count(got, `"type":"TEXT_MESSAGE_END"`) != 2 {
+		t.Fatalf("expected two assistant text lifecycles:\n%s", got)
+	}
+	if strings.Count(got, "工具前说明") != 1 || strings.Count(got, "最终总结") != 1 {
+		t.Fatalf("expected each assistant segment exactly once:\n%s", got)
+	}
+	firstEnd := strings.Index(got, `"type":"TEXT_MESSAGE_END"`)
+	toolStart := strings.Index(got, `"type":"TOOL_CALL_START"`)
+	secondStart := strings.LastIndex(got, `"type":"TEXT_MESSAGE_START"`)
+	if firstEnd < 0 || toolStart < 0 || secondStart < 0 || !(firstEnd < toolStart && toolStart < secondStart) {
+		t.Fatalf("assistant boundary must close before tool start:\n%s", got)
+	}
+}
+
 func TestAguiStreamPreservesWhitespaceOnlyTextDeltas(t *testing.T) {
 	res := httptest.NewRecorder()
 	stream := newAguiEventStream(res, t.Context())

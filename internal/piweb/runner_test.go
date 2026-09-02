@@ -172,6 +172,23 @@ func TestHandlePiJSONEventStreamsTextDelta(t *testing.T) {
 	}
 }
 
+func TestHandlePiJSONEventPublishesCanonicalMessageAfterTextDelta(t *testing.T) {
+	broker := NewBroker()
+	store := NewMockStore()
+	state := &jsonStreamState{}
+
+	handlePiJSONEvent(`{"type":"message_update","assistantMessageEvent":{"type":"text_delta","delta":"draft"}}`, broker, store, "8e7c-44ff", state)
+	handlePiJSONEvent(`{"type":"message_end","message":{"role":"assistant","content":[{"type":"text","text":"draft"}]}}`, broker, store, "8e7c-44ff", state)
+
+	events := broker.Replay("8e7c-44ff", 0)
+	if len(events) != 2 || events[0].Type != "session.delta" || events[1].Type != "session.message" {
+		t.Fatalf("expected delta followed by canonical message: %#v", events)
+	}
+	if got := events[1].Payload.(Message).Text; got != "draft" {
+		t.Fatalf("unexpected canonical text: %q", got)
+	}
+}
+
 func TestHandlePiJSONEventPublishesFinalFallbackChoiceAfterStreaming(t *testing.T) {
 	broker := NewBroker()
 	store := NewMockStore()

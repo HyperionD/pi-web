@@ -9,8 +9,6 @@ import (
 )
 
 type jsonStreamState struct {
-	streamedText      bool
-	streamedThinking  bool
 	errorReported     bool
 	finishedToolIDs   map[string]struct{}
 	finishedToolNames map[string]int
@@ -59,10 +57,8 @@ func handlePiJSONEvent(line string, broker *Broker, store *Store, sessionID stri
 		}
 		switch event.AssistantMessageEvent.Type {
 		case "thinking_delta", "reasoning_delta":
-			state.streamedThinking = true
 			broker.Publish(sessionID, "session.delta", map[string]string{"kind": "think", "delta": delta})
 		case "text_delta":
-			state.streamedText = true
 			broker.Publish(sessionID, "session.delta", map[string]string{"kind": "pi", "delta": delta})
 		case "toolcall_delta", "toolcall_start", "toolcall_end", "text_start", "text_end", "thinking_start", "thinking_end", "start", "done":
 			return true
@@ -81,12 +77,6 @@ func handlePiJSONEvent(line string, broker *Broker, store *Store, sessionID stri
 				continue
 			}
 			_ = store.AppendMessage(sessionID, msg)
-			if msg.Kind == "pi" && state.streamedText && !containsFallbackChoice(msg.Text) {
-				continue
-			}
-			if msg.Kind == "think" && state.streamedThinking {
-				continue
-			}
 			broker.Publish(sessionID, eventTypeForMessage(msg), msg)
 		}
 		return true
@@ -172,9 +162,6 @@ func assistantErrorMessage(raw json.RawMessage) string {
 	return msg.ErrorMessage
 }
 
-func containsFallbackChoice(text string) bool {
-	return strings.Contains(text, "piweb_choice")
-}
 func jsonChunk(raw json.RawMessage) string {
 	if len(raw) == 0 || string(raw) == "null" {
 		return ""
