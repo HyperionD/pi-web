@@ -188,7 +188,7 @@ function toolStatus(msg) {
     </main>
 
     <main class="main" data-main="empty" hidden={emptyHidden}> 
-      <div class="empty-shell"><div class="empty-inner"><div class="empty-title">在 <span class="accent" data-empty-workspace>{activeWorkspaceName}</span> 中新建会话</div><div class="empty-sub">pi 当前空闲，请说第一句话。</div><div class="empty-tips"><div class="dim">首次发送后将分配会话 ID。</div></div></div></div>
+      <div class="empty-shell"><div class="empty-inner"><div class="empty-title" data-empty-workspace-title hidden={!activeWorkspaceID}>在 <span class="accent" data-empty-workspace>{activeWorkspaceName}</span> 中新建会话</div><div class="empty-title" data-empty-no-workspace hidden={Boolean(activeWorkspaceID)}>请选择一个目录，开启你的第一个会话</div><div class="empty-sub">pi 当前空闲，请说第一句话。</div><div class="empty-tips"><div class="dim">首次发送后将分配会话 ID。</div></div></div></div>
     </main>
 
     <div class="file-preview-panel" data-file-preview hidden>

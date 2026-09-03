@@ -184,6 +184,7 @@ export const workspaceBootstrapMethods = {
     if (workspace) workspace.textContent = "工作区";
     const emptyWorkspace = this.querySelector("[data-empty-workspace]");
     if (emptyWorkspace) emptyWorkspace.textContent = "工作区";
+    this.syncEmptyWorkspaceState();
     const session = this.querySelector("[data-active-session-title]");
     if (session) {
       session.textContent = "无会话";
@@ -202,6 +203,7 @@ export const workspaceBootstrapMethods = {
 
   activateBootstrapWorkspace(workspace) {
     this.dataset.activeWorkspaceId = workspace.id;
+    this.syncEmptyWorkspaceState();
     const label = this.querySelector("[data-active-workspace]");
     if (label) label.textContent = workspace.name;
     this.syncActiveWorkspaceRows?.();
@@ -442,6 +444,7 @@ export const workspaceBootstrapMethods = {
       if (!this.hasDirtyFilePreview?.()) this.closeFilePreview?.(true);
     }
     this.dataset.activeWorkspaceId = workspaceId;
+    this.syncEmptyWorkspaceState();
     this.openActiveWorkspaceGroup(workspaceId);
     this.updateActiveWorkspaceLabel(workspaceId);
     this.syncActiveWorkspaceRows?.();
@@ -465,6 +468,12 @@ export const workspaceBootstrapMethods = {
       row?.classList.toggle("open", open);
       row?.setAttribute("aria-expanded", String(open));
     });
+  },
+
+  syncEmptyWorkspaceState() {
+    const hasWorkspace = Boolean(this.dataset.activeWorkspaceId);
+    this.querySelector("[data-empty-workspace-title]")?.toggleAttribute("hidden", !hasWorkspace);
+    this.querySelector("[data-empty-no-workspace]")?.toggleAttribute("hidden", hasWorkspace);
   },
 
   updateActiveWorkspaceLabel(workspaceId) {

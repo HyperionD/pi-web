@@ -295,6 +295,10 @@ describe("workspace bootstrap coverage", () => {
 
   it("keeps the workspace route without browsing during an empty bootstrap", async () => {
     const app = await connectPiApp();
+    const emptyPrompt = document.createElement("div");
+    emptyPrompt.dataset.emptyNoWorkspace = "";
+    emptyPrompt.hidden = true;
+    app.append(emptyPrompt);
     const emptyMain = app.querySelector("[data-main='empty']");
     expect(emptyMain.hidden).toBe(true);
     app.dataset.route = "workspace";
@@ -308,6 +312,7 @@ describe("workspace bootstrap coverage", () => {
     expect(app.browseFolder).not.toHaveBeenCalled();
     expect(app.dataset.route).toBe("workspace");
     expect(emptyMain.hidden).toBe(false);
+    expect(emptyPrompt.hidden).toBe(false);
     expect(app.querySelector('[data-view="picker"]')).toBeNull();
     expect(app.querySelector("[data-action='route-picker']")).not.toBeNull();
   });

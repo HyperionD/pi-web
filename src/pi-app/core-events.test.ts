@@ -123,6 +123,7 @@ describe("pi-app core events", () => {
     expect(appTemplate).not.toContain("克隆并打开");
     expect(appTemplate).not.toContain('data-view="picker"');
     expect(appTemplate).toContain('data-action="route-picker" aria-haspopup="dialog" aria-expanded="false"');
+    expect(appTemplate).toContain("请选择一个目录，开启你的第一个会话");
     const calls = [];
     ["submitShellCommand", "saveSettingsForm", "fillSettingsForm", "fillModelControls", "syncCustomSettingInput", "setModelControlsLoading",
       "submitPrompt", "cancelActiveSession", "handlePromptPaste", "navigateList", "pickSlash", "addFiles", "startResize", "startInspectorResize", "openFolderPopover", "closeFolderPopover",
