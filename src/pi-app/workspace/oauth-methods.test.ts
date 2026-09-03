@@ -57,6 +57,13 @@ describe("oauth methods", () => {
     expect(app.refreshAuthAfterOAuth).toHaveBeenCalled();
   });
 
+  it("hides OAuth controls when no providers are available", async () => {
+    const app = await connectPiApp();
+    app.oauthState = { providers: [] };
+    app.fillOAuthForm();
+    expect(app.querySelector("[data-oauth-fields]").hidden).toBe(true);
+  });
+
   it("starts, polls, sends input, refreshes auth, and handles failures", async () => {
     const app = await connectPiApp();
     app.apiConnected = true;

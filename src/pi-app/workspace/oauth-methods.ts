@@ -9,7 +9,13 @@ import {
 export const oauthMethods = {
   fillOAuthForm() {
     const providerSelect = this.querySelector("[data-oauth-provider]");
+    const oauthFields = this.querySelector("[data-oauth-fields]");
     if (!providerSelect || !this.oauthState?.providers) return;
+    if (this.oauthState.providers.length === 0) {
+      oauthFields?.setAttribute("hidden", "");
+      return;
+    }
+    oauthFields?.removeAttribute("hidden");
     const previousValue = providerSelect.value;
     const options = this.oauthState.providers.map((provider) => {
       const option = document.createElement("option");

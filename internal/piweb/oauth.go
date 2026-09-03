@@ -72,9 +72,14 @@ type oauthManager struct {
 
 var defaultOAuthManager = &oauthManager{sessions: map[string]*oauthSession{}}
 
+var errPiAIOAuthUnavailable = errors.New("OAuth is unavailable: pi-ai module not found")
+
 func OAuthProviders() (OAuthProvidersResponse, error) {
 	providers, err := runOAuthListHelper()
 	if err != nil {
+		if errors.Is(err, errPiAIOAuthUnavailable) {
+			return OAuthProvidersResponse{Providers: []OAuthProviderStatus{}}, nil
+		}
 		return OAuthProvidersResponse{}, err
 	}
 	path, err := authPath()
@@ -349,7 +354,7 @@ func piAIOAuthIndexPath() (string, error) {
 			return candidate, nil
 		}
 	}
-	return "", errors.New("pi-ai OAuth module not found; install pi CLI first")
+	return "", errPiAIOAuthUnavailable
 }
 
 func randomSessionID() (string, error) {

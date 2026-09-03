@@ -6,6 +6,34 @@ import (
 	"testing"
 )
 
+func TestOAuthProvidersReturnsEmptyWhenPiAIIsUnavailable(t *testing.T) {
+	withoutPiAI(t)
+
+	providers, err := OAuthProviders()
+	if err != nil {
+		t.Fatalf("OAuthProviders() error = %v", err)
+	}
+	if len(providers.Providers) != 0 {
+		t.Fatalf("expected no OAuth providers, got %+v", providers.Providers)
+	}
+}
+
+func TestStartOAuthLoginReportsUnavailableWhenPiAIIsMissing(t *testing.T) {
+	withoutPiAI(t)
+
+	_, err := StartOAuthLogin(StartOAuthRequest{Provider: "openai-codex"})
+	if err == nil || err.Error() != "OAuth is unavailable: pi-ai module not found" {
+		t.Fatalf("expected unavailable OAuth error, got %v", err)
+	}
+}
+
+func withoutPiAI(t *testing.T) {
+	t.Helper()
+	t.Setenv("PATH", t.TempDir())
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("PI_AI_OAUTH_INDEX", "")
+}
+
 func TestRunOAuthListHelperFindsPiAIOAuthModuleFromPiCommand(t *testing.T) {
 	root := t.TempDir()
 	packageRoot := filepath.Join(root, "lib", "node_modules", "@earendil-works", "pi-coding-agent")
