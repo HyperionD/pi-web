@@ -293,6 +293,29 @@ describe("workspace bootstrap coverage", () => {
     expect(app.renderWorkspaces.mock.calls.at(-1)[0]).toHaveLength(1);
   });
 
+  it("shows the active session after bootstrapping from the initial empty view", async () => {
+    const app = await connectPiApp();
+    app.showEmptyMain();
+    app.loadAppConfigState = vi.fn(async () => undefined);
+    app.loadAdminPasswordState = vi.fn(async () => undefined);
+    app.loadWorkspaceCommands = vi.fn();
+    app.loadRuntimeStatus = vi.fn();
+    app.loadWorkspaceSettingsState = vi.fn();
+    app.loadWorkspaceMeta = vi.fn();
+    app.loadSession = vi.fn();
+    globalThis.fetch = vi.fn(async (url) => String(url).endsWith("/workspaces")
+      ? okJson({ workspaces: [{ id: "w1", name: "one", path: "/one", sessions: [{ id: "s1", title: "one" }] }] })
+      : okJson({}));
+
+    await app.bootstrapAPI();
+
+    expect(app.dataset.activeWorkspaceId).toBe("w1");
+    expect(app.dataset.activeSessionId).toBe("s1");
+    expect(app.dataset.session).toBe("active");
+    expect(app.querySelector("[data-main='session']").hidden).toBe(false);
+    expect(app.querySelector("[data-main='empty']").hidden).toBe(true);
+  });
+
   it("keeps the workspace route without browsing during an empty bootstrap", async () => {
     const app = await connectPiApp();
     const emptyPrompt = document.createElement("div");

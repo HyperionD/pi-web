@@ -11,7 +11,7 @@
   gap: 0;
   width: min(300px, calc(100% - var(--space-8)));
   height: auto;
-  max-height: calc(100dvh - var(--space-8));
+  max-height: calc(100vh - var(--space-8));
   padding: 0;
   overflow: visible;
   pointer-events: none;
@@ -129,7 +129,7 @@
     right: var(--space-3);
     left: auto;
     width: min(300px, calc(100% - var(--space-6)));
-    max-height: calc(var(--app-viewport-height, 100dvh) - 44px - 52px - 136px);
+    max-height: calc(var(--app-viewport-height, 100vh) - 44px - 52px - 136px);
   }
 
   .notyf__toast.session-toast,

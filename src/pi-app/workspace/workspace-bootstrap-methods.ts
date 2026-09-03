@@ -120,8 +120,10 @@ export const workspaceBootstrapMethods = {
       }
       if (!matchesBootstrapState(activeWorkspace.id, activeSession?.id || "")) return;
 
-      if (activeSession) this.route("workspace");
-      else {
+      if (activeSession) {
+        this.route("workspace");
+        this.showSessionMain?.();
+      } else {
         this.route("workspace");
         this.showEmptyMain?.();
       }

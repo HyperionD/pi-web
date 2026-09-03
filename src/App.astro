@@ -41,7 +41,7 @@ const activeWorkspaceName = activeWorkspace?.name || "工作区";
 const activeSessionTitle = activeSession?.title || "无会话";
 const activeSessionID = activeSession?.id || "";
 const activeWorkspaceID = activeWorkspace?.id || "";
-const emptyVisible = initialSession === "empty";
+const emptyVisible = initialSession === "empty" || !activeWorkspaceID;
 const sessionVisible = !emptyVisible;
 const bodyClass = "app-body";
 const bodyGrid = sidebarCollapsed ? "1fr" : "280px 1fr";
@@ -84,7 +84,7 @@ function toolStatus(msg) {
 
 ---
 
-<pi-app class="app" data-route="workspace" data-tree={treeOpen ? "on" : "off"} data-sidebar={sidebarCollapsed ? "collapsed" : "open"} data-session={initialSession} data-active-session-id={activeSessionID} data-active-workspace-id={activeWorkspaceID}>
+<pi-app class="app" data-route="workspace" data-tree={treeOpen ? "on" : "off"} data-sidebar={sidebarCollapsed ? "collapsed" : "open"} data-session={emptyVisible ? "empty" : "active"} data-active-session-id={activeSessionID} data-active-workspace-id={activeWorkspaceID}>
   <header class="topbar">
     <button class="sb-expand-btn" type="button" data-action="expand-sidebar" aria-label="显示侧栏" style={sidebarCollapsed ? "display:inline-flex" : "display:none"}><ChevronRight size={16} strokeWidth={1.75} aria-hidden="true" /></button>
     <button class="hamburger" type="button" data-action="open-drawer" aria-label="打开侧栏"><Menu size={16} strokeWidth={1.75} aria-hidden="true" /></button>
