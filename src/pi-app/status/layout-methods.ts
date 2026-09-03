@@ -44,6 +44,11 @@ export const layoutMethods = {
         this.closeFolderPopover();
         return;
       }
+      if (this.running) {
+        event.preventDefault();
+        void this.cancelActiveSession();
+        return;
+      }
       this.closeModals();
     }
   },

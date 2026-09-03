@@ -194,6 +194,19 @@ describe("pi-app core events", () => {
     expect(calls).toContainEqual(["closeFolderPopover"]);
   });
 
+  it("cancels the running session when Escape is pressed", async () => {
+    const app = await connectPiApp();
+    const cancelActiveSession = vi.fn();
+    app.cancelActiveSession = cancelActiveSession;
+    app.running = true;
+
+    const event = new KeyboardEvent("keydown", { key: "Escape", cancelable: true });
+    window.dispatchEvent(event);
+
+    expect(cancelActiveSession).toHaveBeenCalledOnce();
+    expect(event.defaultPrevented).toBe(true);
+  });
+
   it("opens the sidebar workspace popover without entering a picker route", async () => {
     const app = await connectPiApp();
     const trigger = app.querySelector("[data-action='route-picker']");
