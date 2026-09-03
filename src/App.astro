@@ -188,7 +188,7 @@ function toolStatus(msg) {
     </main>
 
     <main class="main" data-main="empty" hidden={emptyHidden}> 
-      <div class="empty-shell"><div class="empty-inner"><div class="empty-title" data-empty-workspace-title hidden={!activeWorkspaceID}>在 <span class="accent" data-empty-workspace>{activeWorkspaceName}</span> 中新建会话</div><div class="empty-title" data-empty-no-workspace hidden={Boolean(activeWorkspaceID)}>请选择一个目录，开启你的第一个会话</div><div class="empty-sub">pi 当前空闲，请说第一句话。</div><div class="empty-tips"><div class="dim">首次发送后将分配会话 ID。</div></div></div></div>
+      <div class="empty-shell"><div class="empty-inner"><div class="empty-title" data-empty-no-workspace hidden={Boolean(activeWorkspaceID)}>点击打开按钮选择一个目录后开始你的对话</div></div></div>
     </main>
 
     <div class="file-preview-panel" data-file-preview hidden>
@@ -215,8 +215,8 @@ function toolStatus(msg) {
     <div class="prompt-bar">
       <button class="attach-btn" type="button" aria-label="attach files" title="attach files"><Paperclip size={14} strokeWidth={1.5} aria-hidden="true" /></button>
       <input type="file" multiple hidden data-file-input />
-      <div class="prompt-input-col"><div class="attach-chips" hidden></div><textarea class="prompt-textarea" placeholder="输入你的想法" rows="1"></textarea></div>
-      <div class="prompt-actions"><button class="stop-btn" type="button" aria-label="stop" title="stop" hidden><Square size={13} strokeWidth={2} aria-hidden="true" /></button><button class="send-btn" type="button" aria-label="send" title="send" aria-disabled="true"><SendHorizontal size={14} strokeWidth={2} aria-hidden="true" /></button></div>
+      <div class="prompt-input-col"><div class="attach-chips" hidden></div><textarea class="prompt-textarea" placeholder="输入你的想法" rows="1" disabled={!activeWorkspaceID}></textarea></div>
+      <div class="prompt-actions"><button class="stop-btn" type="button" aria-label="stop" title="stop" hidden><Square size={13} strokeWidth={2} aria-hidden="true" /></button><button class="send-btn" type="button" aria-label="send" title="send" disabled={!activeWorkspaceID} aria-disabled="true"><SendHorizontal size={14} strokeWidth={2} aria-hidden="true" /></button></div>
       <div class="drop-overlay" hidden><span>drop to attach</span></div>
     </div>
     <div class="prompt-meta"><span data-prompt-meta>— | <span class="prompt-meta-item prompt-meta-branch"><GitBranch size={12} strokeWidth={1.75} aria-hidden="true" /><span>—</span></span></span><button type="button" class="compact-btn" data-action="compact-session" disabled aria-label="压缩上下文" title="压缩上下文">压缩上下文</button></div>

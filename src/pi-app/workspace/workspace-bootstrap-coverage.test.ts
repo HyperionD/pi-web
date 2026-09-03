@@ -313,6 +313,9 @@ describe("workspace bootstrap coverage", () => {
     expect(app.dataset.route).toBe("workspace");
     expect(emptyMain.hidden).toBe(false);
     expect(emptyPrompt.hidden).toBe(false);
+    app.dataset.activeWorkspaceId = "w1";
+    app.syncEmptyWorkspaceState();
+    expect(emptyPrompt.hidden).toBe(true);
     expect(app.querySelector('[data-view="picker"]')).toBeNull();
     expect(app.querySelector("[data-action='route-picker']")).not.toBeNull();
   });

@@ -472,8 +472,8 @@ export const workspaceBootstrapMethods = {
 
   syncEmptyWorkspaceState() {
     const hasWorkspace = Boolean(this.dataset.activeWorkspaceId);
-    this.querySelector("[data-empty-workspace-title]")?.toggleAttribute("hidden", !hasWorkspace);
     this.querySelector("[data-empty-no-workspace]")?.toggleAttribute("hidden", hasWorkspace);
+    this.updatePrompt?.();
   },
 
   updateActiveWorkspaceLabel(workspaceId) {

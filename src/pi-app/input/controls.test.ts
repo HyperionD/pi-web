@@ -26,6 +26,8 @@ describe("pi-app controls", () => {
 
   it("enables send and shows slash commands as the prompt changes", async () => {
     const app = await connectPiApp();
+    app.dataset.activeWorkspaceId = "w1";
+    app.updatePrompt();
     const prompt = app.querySelector(".prompt-textarea");
     prompt.value = "/mo";
     prompt.dispatchEvent(new Event("input"));
@@ -33,8 +35,33 @@ describe("pi-app controls", () => {
     expect(app.querySelector(".slash-pop").hidden).toBe(false);
   });
 
+  it("disables prompt input until a workspace is opened", async () => {
+    const app = await connectPiApp();
+    const prompt = app.querySelector(".prompt-textarea");
+    const send = app.querySelector(".send-btn");
+
+    expect(prompt.disabled).toBe(true);
+    expect(send.disabled).toBe(true);
+
+    app.dataset.activeWorkspaceId = "w1";
+    app.updatePrompt();
+    expect(prompt.disabled).toBe(false);
+    expect(send.disabled).toBe(false);
+
+    prompt.value = "hello";
+    app.updatePrompt();
+    expect(send.disabled).toBe(false);
+
+    app.dataset.activeWorkspaceId = "";
+    app.updatePrompt();
+    expect(prompt.disabled).toBe(true);
+    expect(send.disabled).toBe(true);
+  });
+
   it("restores unsent prompt text and clears the draft on send", async () => {
     const app = await connectPiApp();
+    app.dataset.activeWorkspaceId = "w1";
+    app.updatePrompt();
     const prompt = app.querySelector(".prompt-textarea");
     localStorage.setItem(PROMPT_DRAFT_STORAGE_KEY, "saved draft");
     app.restorePromptDraft();
@@ -61,6 +88,8 @@ describe("pi-app controls", () => {
 
   it("sends current prompt text even when input state was not refreshed", async () => {
     const app = await connectPiApp();
+    app.dataset.activeWorkspaceId = "w1";
+    app.updatePrompt();
     app.apiConnected = false;
     app.prompt.value = "send without input event";
 
@@ -72,6 +101,8 @@ describe("pi-app controls", () => {
 
   it("keeps send and stop as separate running controls", async () => {
     const app = await connectPiApp();
+    app.dataset.activeWorkspaceId = "w1";
+    app.updatePrompt();
     const send = app.querySelector(".send-btn");
     const stop = app.querySelector(".stop-btn");
 

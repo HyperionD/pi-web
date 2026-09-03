@@ -359,10 +359,12 @@ export const inputMethods = {
   updatePrompt() {
     if (!this.prompt || !this.sendButton) return;
     const value = this.prompt.value;
+    const hasWorkspace = Boolean(this.dataset.activeWorkspaceId);
+    this.prompt.disabled = !hasWorkspace;
     this.savePromptDraft?.();
     const hasAttachments = !!this.attachments?.children.length;
-    const canSend = !!value.trim() || hasAttachments;
-    this.sendButton.disabled = false;
+    const canSend = hasWorkspace && (!!value.trim() || hasAttachments);
+    this.sendButton.disabled = !hasWorkspace;
     this.sendButton.setAttribute("aria-disabled", canSend ? "false" : "true");
     this.sendButton.classList.toggle("is-disabled", !canSend);
     this.slashPopover?.toggleAttribute("hidden", !(value.startsWith("/") && !value.includes("\n")));

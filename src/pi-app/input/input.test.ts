@@ -4,7 +4,7 @@ import "../index";
 
 function renderApp() {
   document.body.innerHTML = `
-    <pi-app>
+    <pi-app data-active-workspace-id="w1">
       <div class="attach-chips" hidden></div>
       <textarea class="prompt-textarea"></textarea>
       <button class="send-btn" aria-disabled="true">send</button>

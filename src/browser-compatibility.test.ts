@@ -15,7 +15,7 @@ describe("browser compatibility", () => {
 
   it("shows an idea-focused placeholder in the prompt composer", () => {
     const app = readFileSync(new URL("./App.astro", import.meta.url), "utf8");
-    expect(app).toContain('<textarea class="prompt-textarea" placeholder="输入你的想法" rows="1"></textarea>');
+    expect(app).toContain('<textarea class="prompt-textarea" placeholder="输入你的想法" rows="1" disabled={!activeWorkspaceID}></textarea>');
   });
 
   it("does not use authored CSS features newer than the Chrome 107 baseline", () => {
