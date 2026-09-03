@@ -19,7 +19,7 @@ import { UI_LOCALES } from "./i18n/locales";
 import { escapeHtml, renderBannerBody, renderPiBody, renderUserBody } from "./lib/renderers";
 import { formatToolArgs, toolIconHtml } from "./pi-app/messages/tool-message-methods";
 import { isLargeToolBody, renderToolBody } from "./pi-app/messages/tool-output-rendering";
-import { PI_WEB_WELCOME_TEXT, TERMINAL_SPINNER_HTML } from "./pi-app/constants";
+import { TERMINAL_SPINNER_HTML } from "./pi-app/constants";
 import { SETTINGS_FIELDS as settingsFields } from "./pi-app/workspace/settings-schema";
 
 const {
@@ -166,9 +166,7 @@ function toolStatus(msg) {
       {showDisconnect && <div class="disconn"><span class="pulse"></span><span>连接已断开 · 2 秒后重试</span></div>}
       <div class:list={["term", scanlines && "scanlines"]}>
         <div class="term-inner">
-          {conversation.length === 0 ? (
-            <pre class="ascii-banner welcome-banner" data-welcome-banner set:html={renderBannerBody(PI_WEB_WELCOME_TEXT)}></pre>
-          ) : conversation.map((msg) => (
+          {conversation.map((msg) => (
             msg.kind === "banner" ? <pre class="ascii-banner" set:html={renderBannerBody(msg.text)}></pre> :
             msg.kind === "user" ? <div class="msg"><div class="prefix user">您 &gt;</div><div class="body markdown-body" set:html={renderUserBody(msg.text)}></div></div> :
             msg.kind === "think" ? <div class="msg"><div class="prefix think">—</div><div class="body" style="flex:1"><div class="thinking-block"><span class="label">thinking</span>{msg.text}</div></div></div> :

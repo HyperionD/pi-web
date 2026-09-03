@@ -5,7 +5,7 @@ import {
   stripFallbackChoices,
   streamVisibleChoiceText,
 } from "../input/fallback-choices";
-import { PI_WEB_WELCOME_TEXT, TERMINAL_SPINNER_HTML } from "../constants";
+import { TERMINAL_SPINNER_HTML } from "../constants";
 
 function responseErrorText(detail) {
   if (typeof detail === "string") return detail.trim();
@@ -26,25 +26,7 @@ export const messageMethods = {
     this.answeredChoiceIds = this.answeredChoiceIdsFrom(messages);
     this.transcriptItems = messages.map((message) => this.createTranscriptItem(message));
     this.renderTranscriptWindow({ stickToBottom: true });
-    this.syncWelcomeBanner(messages);
     this.scrollTerm();
-  },
-
-  syncWelcomeBanner(messages) {
-    if (!this.termInner || messages.length > 0) return;
-    this.termInner.append(this.welcomeBannerNode());
-  },
-
-  removeWelcomeBanner() {
-    this.termInner?.querySelector("[data-welcome-banner]")?.remove();
-  },
-
-  welcomeBannerNode() {
-    const bannerElement = document.createElement("pre");
-    bannerElement.className = "ascii-banner welcome-banner";
-    bannerElement.dataset.welcomeBanner = "";
-    bannerElement.innerHTML = renderBannerBody(PI_WEB_WELCOME_TEXT);
-    return bannerElement;
   },
 
   answeredChoiceIdsFrom(messages) {
@@ -59,7 +41,6 @@ export const messageMethods = {
 
   appendMessage(message) {
     if (!this.termInner || !message) return;
-    this.removeWelcomeBanner();
     if (this.isDuplicateMessage(message)) {
       if (message.kind === "pi") this.clearStreamingState("pi");
       for (const streamingRow of this.streamingRowsForKind(message.kind)) this.removeStreamingNode(streamingRow);
@@ -87,7 +68,6 @@ export const messageMethods = {
 
   appendDelta(payload) {
     if (!this.termInner || !payload?.delta) return;
-    this.removeWelcomeBanner();
     this.finishRunningTools({ notifyHeight: false });
     const kind = payload.kind === "think" ? "think" : "pi";
     this.removeLoadingMessage();
@@ -166,7 +146,6 @@ export const messageMethods = {
   finalizePiStream(text) {
     if (!this.termInner) return;
     const message = { kind: "pi", text };
-    this.removeWelcomeBanner();
     this.commitStreamingKind("think");
     this.flushStreamingRender();
     const isDuplicate = this.isDuplicateMessage(message);
@@ -228,7 +207,6 @@ export const messageMethods = {
 
   appendLoadingMessage() {
     if (!this.termInner || this.hasLoadingMessage()) return;
-    this.removeWelcomeBanner();
     const row = this.simpleMessage("pi loading", "agent >", "");
     row.querySelector(".body").innerHTML = `${TERMINAL_SPINNER_HTML}<span>waiting for response…</span>`;
     row.classList.add("loading");

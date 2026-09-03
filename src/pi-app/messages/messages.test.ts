@@ -15,15 +15,12 @@ describe("pi-app messages", () => {
     expect(() => app.appendDelta({ kind: "pi", delta: "ignored" })).not.toThrow();
   });
 
-  it("renders and clears the connected welcome banner", async () => {
+  it("does not render a welcome banner for a new session", async () => {
     const app = await connectPiApp();
     app.renderMessages([]);
 
-    expect(app.querySelector("[data-welcome-banner]").textContent).toContain("____  _");
-    expect(app.textContent).not.toContain("connecting to local backend");
-
-    app.appendMessage({ kind: "user", text: "hello" });
     expect(app.querySelector("[data-welcome-banner]")).toBeNull();
+    expect(app.textContent).not.toContain("connecting to local backend");
   });
 
   it("renders localized transcript prefixes and the current model for thinking", async () => {
