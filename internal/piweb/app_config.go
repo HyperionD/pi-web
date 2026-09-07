@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"os"
 	"path/filepath"
 	"strings"
@@ -13,6 +14,12 @@ import (
 )
 
 const DefaultAppBrand = "pi.dev / web"
+
+const (
+	MinMaxUploadBytes     = 1 << 20
+	DefaultMaxUploadBytes = 10 << 20
+	MaxMaxUploadBytes     = 100 << 20
+)
 
 var ErrAppConfigValidation = errors.New("app config validation error")
 var appConfigMu sync.Mutex
@@ -84,6 +91,9 @@ func defaultAppConfig() map[string]any {
 	return map[string]any{
 		"version": float64(1),
 		"brand":   DefaultAppBrand,
+		"workspace": map[string]any{
+			"maxUploadBytes": float64(DefaultMaxUploadBytes),
+		},
 	}
 }
 
@@ -156,6 +166,17 @@ func normalizeStoredWorkspaceConfig(value any) (map[string]any, error) {
 				return nil, err
 			}
 			normalized[key] = roots
+			continue
+		}
+		if key == "maxUploadBytes" {
+			if nested == nil {
+				continue
+			}
+			maxUploadBytes, err := normalizeMaxUploadBytes(nested)
+			if err != nil {
+				return nil, err
+			}
+			normalized[key] = maxUploadBytes
 			continue
 		}
 		normalized[key] = cloneAppConfigValue(nested)
@@ -267,6 +288,11 @@ func applyAppConfigPatch(stored, patch map[string]any) error {
 				for nestedKey, nestedValue := range workspace {
 					existingWorkspace[nestedKey] = nestedValue
 				}
+				if rawWorkspace, ok := value.(map[string]any); ok {
+					if rawMaxUploadBytes, exists := rawWorkspace["maxUploadBytes"]; exists && rawMaxUploadBytes == nil {
+						delete(existingWorkspace, "maxUploadBytes")
+					}
+				}
 				stored[key] = existingWorkspace
 			} else {
 				stored[key] = workspace
@@ -280,6 +306,46 @@ func applyAppConfigPatch(stored, patch map[string]any) error {
 		stored[key] = cloneAppConfigValue(value)
 	}
 	return nil
+}
+
+func normalizeMaxUploadBytes(value any) (float64, error) {
+	var number float64
+	switch value := value.(type) {
+	case int:
+		number = float64(value)
+	case int8:
+		number = float64(value)
+	case int16:
+		number = float64(value)
+	case int32:
+		number = float64(value)
+	case int64:
+		number = float64(value)
+	case uint:
+		number = float64(value)
+	case uint8:
+		number = float64(value)
+	case uint16:
+		number = float64(value)
+	case uint32:
+		number = float64(value)
+	case uint64:
+		number = float64(value)
+	case float32:
+		number = float64(value)
+	case float64:
+		number = value
+	default:
+		return 0, appConfigValidationError("app config workspace.maxUploadBytes must be an integer")
+	}
+	if math.IsNaN(number) || math.IsInf(number, 0) || math.Trunc(number) != number ||
+		number < MinMaxUploadBytes || number > MaxMaxUploadBytes {
+		return 0, appConfigValidationf(
+			"app config workspace.maxUploadBytes must be an integer between %d and %d",
+			MinMaxUploadBytes, MaxMaxUploadBytes,
+		)
+	}
+	return number, nil
 }
 
 func normalizedAppBrand(value any) (string, error) {
@@ -355,6 +421,15 @@ func writeAppConfig(path string, stored map[string]any) error {
 
 func mergeAppConfig(dst, src map[string]any) {
 	for key, value := range src {
+		if key == "workspace" {
+			workspace, ok := value.(map[string]any)
+			if ok {
+				effectiveWorkspace, _ := dst[key].(map[string]any)
+				mergeAppConfig(effectiveWorkspace, workspace)
+				dst[key] = effectiveWorkspace
+				continue
+			}
+		}
 		dst[key] = cloneAppConfigValue(value)
 	}
 }

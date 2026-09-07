@@ -23,6 +23,56 @@ func TestAppConfigPathSharesPiAgentParentWithoutUsingPiSettingsName(t *testing.T
 	}
 }
 
+func TestLoadAppConfigReturnsDefaultMaxUploadBytes(t *testing.T) {
+	t.Setenv("PI_CODING_AGENT_SESSION_DIR", filepath.Join(t.TempDir(), "sessions"))
+
+	response, err := LoadAppConfig()
+	if err != nil {
+		t.Fatal(err)
+	}
+	workspace := response.Config["workspace"].(map[string]any)
+	if workspace["maxUploadBytes"] != float64(DefaultMaxUploadBytes) {
+		t.Fatalf("unexpected default: %#v", workspace)
+	}
+}
+
+func TestSaveAppConfigValidatesMaxUploadBytes(t *testing.T) {
+	t.Setenv("PI_CODING_AGENT_SESSION_DIR", filepath.Join(t.TempDir(), "sessions"))
+	valid := []any{float64(MinMaxUploadBytes), float64(MaxMaxUploadBytes)}
+	for _, value := range valid {
+		response, err := SaveAppConfig(map[string]any{"workspace": map[string]any{"maxUploadBytes": value}})
+		if err != nil {
+			t.Fatalf("valid value %v: %v", value, err)
+		}
+		workspace := response.Config["workspace"].(map[string]any)
+		if workspace["maxUploadBytes"] != value {
+			t.Fatalf("saved %v as %#v", value, workspace)
+		}
+	}
+	for _, value := range []any{float64(MinMaxUploadBytes - 1), float64(MaxMaxUploadBytes + 1), 1.5, "100"} {
+		if _, err := SaveAppConfig(map[string]any{"workspace": map[string]any{"maxUploadBytes": value}}); err == nil {
+			t.Fatalf("expected rejection for %#v", value)
+		}
+	}
+}
+
+func TestSaveAppConfigClearingMaxUploadBytesRestoresDefault(t *testing.T) {
+	t.Setenv("PI_CODING_AGENT_SESSION_DIR", filepath.Join(t.TempDir(), "sessions"))
+	if _, err := SaveAppConfig(map[string]any{
+		"workspace": map[string]any{"maxUploadBytes": float64(2 * MinMaxUploadBytes)},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	response, err := SaveAppConfig(map[string]any{"workspace": map[string]any{"maxUploadBytes": nil}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	workspace := response.Config["workspace"].(map[string]any)
+	if workspace["maxUploadBytes"] != float64(DefaultMaxUploadBytes) {
+		t.Fatalf("unexpected cleared value: %#v", workspace)
+	}
+}
+
 func TestLoadAppConfigReturnsDefaultWithoutCreatingFile(t *testing.T) {
 	root := t.TempDir()
 	t.Setenv("PI_CODING_AGENT_SESSION_DIR", filepath.Join(root, "sessions"))
@@ -520,7 +570,11 @@ func TestSaveAppConfigWorkspaceNullRemovesSection(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, ok := response.Config["workspace"]; ok {
-		t.Fatalf("workspace should be removed: %#v", response.Config["workspace"])
+	workspace, ok := response.Config["workspace"].(map[string]any)
+	if !ok || workspace["maxUploadBytes"] != float64(DefaultMaxUploadBytes) {
+		t.Fatalf("workspace should restore defaults: %#v", response.Config["workspace"])
+	}
+	if _, ok := workspace["future"]; ok {
+		t.Fatalf("workspace overrides should be removed: %#v", workspace)
 	}
 }

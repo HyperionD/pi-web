@@ -8,7 +8,11 @@ import {
 } from "../../lib/api";
 import { cleanupPiAppFixture, connectPiApp, installPiAppFixture } from "../test-helper";
 import { appConfigMethods } from "./app-config-methods";
-import { DEFAULT_APP_BRAND, parseAppConfigResponse } from "./app-config-schema";
+import {
+  appConfigPatchSchema,
+  DEFAULT_APP_BRAND,
+  parseAppConfigResponse,
+} from "./app-config-schema";
 
 function ok(body = {}) {
   return { ok: true, status: 200, statusText: "OK", json: async () => body };
@@ -47,6 +51,18 @@ describe("app config methods", () => {
     });
 
     expect(response.config.workspace.allowedRoots).toEqual(["/a", "/b"]);
+  });
+
+  it("preserves the workspace max upload bytes in the app config response", () => {
+    const response = parseAppConfigResponse({
+      config: { version: 1, brand: "x", workspace: { maxUploadBytes: 10485760 } },
+      path: "/config",
+    });
+
+    expect(response.config.workspace.maxUploadBytes).toBe(10485760);
+    expect(appConfigPatchSchema.parse({ workspace: { maxUploadBytes: 10485760 } })).toEqual({
+      workspace: { maxUploadBytes: 10485760 },
+    });
   });
 
   it("rejects an invalid workspace allowed-roots response", () => {

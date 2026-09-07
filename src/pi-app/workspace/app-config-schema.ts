@@ -4,14 +4,20 @@ export const DEFAULT_APP_BRAND = "pi.dev / web";
 
 export const appConfigPatchSchema = z.object({
   brand: z.string().nullable().optional(),
-  workspace: z.object({ allowedRoots: z.array(z.string()) }).nullable().optional(),
+  workspace: z.object({
+    allowedRoots: z.array(z.string()).optional(),
+    maxUploadBytes: z.number().optional(),
+  }).nullable().optional(),
 });
 
 const appConfigResponseSchema = z.object({
   config: z.object({
     version: z.number(),
     brand: z.string(),
-    workspace: z.object({ allowedRoots: z.array(z.string()).optional() }).passthrough().nullable().optional(),
+    workspace: z.object({
+      allowedRoots: z.array(z.string()).optional(),
+      maxUploadBytes: z.number().optional(),
+    }).passthrough().nullable().optional(),
   }).passthrough(),
   path: z.string(),
 }).passthrough();
