@@ -196,6 +196,17 @@
   position: relative;
 }
 .prompt-bar.drag-over { background: var(--accent-bg); }
+.attachment-guidance,
+.attachment-warning {
+  padding: 0 var(--space-3) var(--space-2);
+  color: var(--fg-3);
+  font-size: var(--text-xs);
+  line-height: 1.45;
+}
+.attachment-warning {
+  color: var(--warn);
+  overflow-wrap: anywhere;
+}
 .drop-overlay {
   position: absolute;
   inset: 4px;
@@ -271,6 +282,15 @@
   min-width: 0;
 }
 .attach-chip .ac-size { color: var(--fg-3); font-variant-numeric: tabular-nums; }
+.attach-chip.is-invalid {
+  border-color: var(--warn);
+  color: var(--fg-2);
+}
+.attach-chip .ac-status {
+  color: var(--warn);
+  font-size: 10px;
+  white-space: nowrap;
+}
 .attach-chip .ac-remove {
   background: transparent;
   border: 0;

@@ -1,4 +1,6 @@
 const INLINE_LIMIT = 256 * 1024;
+const MAX_JSON_BODY_BYTES = 1 << 20;
+const PROMPT_REQUEST_BUDGET = Math.floor(MAX_JSON_BODY_BYTES * 0.75);
 const LUCIDE_X_ICON = `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18"></path><path d="m6 6 12 12"></path></svg>`;
 
 export const attachmentMethods = {
@@ -30,15 +32,59 @@ export const attachmentMethods = {
 
   async addFiles(files) {
     if (!this.attachments) return;
+    let warning = "";
     for (const file of files || []) {
-      const attachment = file.type?.startsWith("image/")
+      if (!file) continue;
+      const isImage = file.type?.startsWith("image/");
+      if (!isImage && file.size > INLINE_LIMIT) {
+        this.attachmentContents.push("");
+        this.addAttachmentChip(file.name, file.size, file, "", {
+          sendable: false,
+          status: "不会内联",
+        });
+        warning = "普通文件超过 256 KiB 不会内联；请先上传到工作区。";
+        continue;
+      }
+      if (isImage && !this.imageFitsPrompt(file)) {
+        this.attachmentContents.push("");
+        this.addAttachmentChip(file.name, file.size, file, "", {
+          sendable: false,
+          status: "超出请求预算",
+        });
+        warning = "图片或合计附件超过约 768 KiB 请求预算；请先上传到工作区。";
+        continue;
+      }
+      const attachment = isImage
         ? await this.imageAttachment(file)
         : await this.fileAttachment(file);
       this.attachmentContents.push(attachment);
       this.addAttachmentChip(file.name, file.size, file, attachment.dataUrl);
+      warning = "";
     }
     this.attachments.hidden = !this.attachments.children.length;
+    this.setAttachmentWarning(warning);
     this.updatePrompt();
+  },
+
+  setAttachmentWarning(message = "") {
+    const warning = this.querySelector("[data-attachment-warning]");
+    if (!warning) return;
+    warning.textContent = message;
+    warning.hidden = !message;
+  },
+
+  imageFitsPrompt(file) {
+    const mimeType = file.type || "image/png";
+    const candidate = { type: "image", name: file.name, mimeType, dataUrl: "" };
+    const attachments = [...(this.attachmentContents || []).filter(Boolean), candidate];
+    const skeleton = JSON.stringify({ text: this.prompt?.value || "", attachments });
+    const dataUrlLength = `data:${mimeType};base64,`.length + Math.ceil(file.size / 3) * 4;
+    return this.utf8ByteLength(skeleton) + dataUrlLength - 2 <= PROMPT_REQUEST_BUDGET;
+  },
+
+  utf8ByteLength(value) {
+    if (typeof TextEncoder === "function") return new TextEncoder().encode(value).length;
+    return value.length;
   },
 
   async fileAttachment(file) {
@@ -75,10 +121,12 @@ export const attachmentMethods = {
     return btoa(binary);
   },
 
-  addAttachmentChip(name, size, file, previewUrl) {
+  addAttachmentChip(name, size, file, previewUrl, options: { sendable?: boolean; status?: string } = {}) {
+    const sendable = options.sendable !== false;
     const chip = document.createElement("span");
     chip.className = "attach-chip";
     chip.dataset.attachmentIndex = String(this.attachmentContents.length - 1);
+    chip.dataset.sendable = String(sendable);
     chip.innerHTML = [
       this.attachmentPreviewMarkup(file, previewUrl),
       `<span class="ac-name"></span>`,
@@ -86,6 +134,13 @@ export const attachmentMethods = {
       `<button class="ac-remove" type="button" data-remove-attachment aria-label="remove">${LUCIDE_X_ICON}</button>`,
     ].join("");
     chip.querySelector(".ac-name").textContent = name;
+    if (!sendable) {
+      chip.classList.add("is-invalid");
+      const status = document.createElement("span");
+      status.className = "ac-status";
+      status.textContent = options.status || "不可发送";
+      chip.append(status);
+    }
     this.attachments.append(chip);
   },
 

@@ -217,6 +217,10 @@ function toolStatus(msg) {
       <div class="prompt-actions"><button class="stop-btn" type="button" aria-label="stop" title="stop" hidden><Square size={13} strokeWidth={2} aria-hidden="true" /></button><button class="send-btn" type="button" aria-label="send" title="send" disabled={!activeWorkspaceID} aria-disabled="true"><SendHorizontal size={14} strokeWidth={2} aria-hidden="true" /></button></div>
       <div class="drop-overlay" hidden><span>drop to attach</span></div>
     </div>
+    <div class="attachment-guidance" data-attachment-guidance>
+      对话附件有限制；较大文件请先上传到工作区。普通文件超过 256 KiB 不会内联。图片及合计请求预算约 768 KiB。
+    </div>
+    <div class="attachment-warning" data-attachment-warning aria-live="polite" role="status" hidden></div>
     <div class="prompt-meta"><span data-prompt-meta>— | <span class="prompt-meta-item prompt-meta-branch"><GitBranch size={12} strokeWidth={1.75} aria-hidden="true" /><span>—</span></span></span><button type="button" class="compact-btn" data-action="compact-session" disabled aria-label="压缩上下文" title="压缩上下文">压缩上下文</button></div>
   </div>
 

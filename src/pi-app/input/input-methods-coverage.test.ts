@@ -214,6 +214,22 @@ describe("pi-app input methods coverage", () => {
     await Promise.all([firstSubmit, secondSubmit]);
   });
 
+  it("does not submit a prompt that only has non-sendable attachment chips", async () => {
+    const app = await connectPiApp();
+    app.apiConnected = true;
+    app.dataset.activeWorkspaceId = "w1";
+    app.dataset.activeSessionId = "s1";
+    app.attachmentContents = [""];
+    app.attachments.append(document.createElement("span"));
+    app.attachments.hidden = false;
+    globalThis.fetch = vi.fn(async () => ok({ accepted: true }));
+
+    await app.submitPrompt();
+
+    expect(globalThis.fetch).not.toHaveBeenCalled();
+    expect(app.querySelector(".send-btn").getAttribute("aria-disabled")).toBe("true");
+  });
+
   it("renders attachment-only prompts in the transcript", async () => {
     const app = await connectPiApp();
     app.apiConnected = false;

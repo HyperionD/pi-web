@@ -5,7 +5,7 @@ export const inputMethods = {
   async submitPrompt() {
     this.updatePrompt?.();
     const text = this.prompt?.value.trim() || "";
-    if (!text && !this.attachments?.children.length) return;
+    if (!text && !this.hasSendableAttachments()) return;
     this.clearPromptDraft?.();
     if (this.running) {
       await this.submitSteeringPrompt(text);
@@ -82,6 +82,10 @@ export const inputMethods = {
     } finally {
       this.promptSubmitting = false;
     }
+  },
+
+  hasSendableAttachments() {
+    return (this.attachmentContents || []).some(Boolean);
   },
 
   activeSessionBelongsToWorkspace(sessionId, workspaceId) {
@@ -176,6 +180,7 @@ export const inputMethods = {
       const index = Number(chip?.dataset.attachmentIndex);
       if (Number.isInteger(index)) this.attachmentContents[index] = "";
       chip?.remove();
+      this.setAttachmentWarning?.("");
       this.updatePrompt();
       return;
     }
@@ -362,7 +367,7 @@ export const inputMethods = {
     const hasWorkspace = Boolean(this.dataset.activeWorkspaceId);
     this.prompt.disabled = !hasWorkspace;
     this.savePromptDraft?.();
-    const hasAttachments = !!this.attachments?.children.length;
+    const hasAttachments = this.hasSendableAttachments();
     const canSend = hasWorkspace && (!!value.trim() || hasAttachments);
     this.sendButton.disabled = !hasWorkspace;
     this.sendButton.setAttribute("aria-disabled", canSend ? "false" : "true");
