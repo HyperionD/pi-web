@@ -17,8 +17,8 @@ const DefaultAppBrand = "pi.dev / web"
 
 const (
 	MinMaxUploadBytes     = 1 << 20
-	DefaultMaxUploadBytes = 10 << 20
-	MaxMaxUploadBytes     = 100 << 20
+	DefaultMaxUploadBytes = 100 << 20
+	MaxMaxUploadBytes     = 2 << 30
 )
 
 var ErrAppConfigValidation = errors.New("app config validation error")
@@ -53,6 +53,27 @@ func LoadAppConfig() (AppConfigResponse, error) {
 		return AppConfigResponse{}, err
 	}
 	return appConfigResponse(path, stored), nil
+}
+
+// LoadMaxUploadBytes returns the effective workspace upload limit for the current request.
+func LoadMaxUploadBytes() (int64, error) {
+	response, err := LoadAppConfig()
+	if err != nil {
+		return 0, err
+	}
+	workspace, ok := response.Config["workspace"].(map[string]any)
+	if !ok {
+		return int64(DefaultMaxUploadBytes), nil
+	}
+	value, ok := workspace["maxUploadBytes"]
+	if !ok || value == nil {
+		return int64(DefaultMaxUploadBytes), nil
+	}
+	number, err := normalizeMaxUploadBytes(value)
+	if err != nil {
+		return 0, err
+	}
+	return int64(number), nil
 }
 
 func SaveAppConfig(patch map[string]any) (AppConfigResponse, error) {

@@ -23,6 +23,18 @@ func TestAppConfigPathSharesPiAgentParentWithoutUsingPiSettingsName(t *testing.T
 	}
 }
 
+func TestMaxUploadBytesMatchFileTransferSpec(t *testing.T) {
+	if MinMaxUploadBytes != 1048576 {
+		t.Fatalf("minimum=%d, want 1048576", MinMaxUploadBytes)
+	}
+	if DefaultMaxUploadBytes != 104857600 {
+		t.Fatalf("default=%d, want 104857600", DefaultMaxUploadBytes)
+	}
+	if MaxMaxUploadBytes != 2147483648 {
+		t.Fatalf("maximum=%d, want 2147483648", MaxMaxUploadBytes)
+	}
+}
+
 func TestLoadAppConfigReturnsDefaultMaxUploadBytes(t *testing.T) {
 	t.Setenv("PI_CODING_AGENT_SESSION_DIR", filepath.Join(t.TempDir(), "sessions"))
 
@@ -70,6 +82,31 @@ func TestSaveAppConfigClearingMaxUploadBytesRestoresDefault(t *testing.T) {
 	workspace := response.Config["workspace"].(map[string]any)
 	if workspace["maxUploadBytes"] != float64(DefaultMaxUploadBytes) {
 		t.Fatalf("unexpected cleared value: %#v", workspace)
+	}
+}
+
+func TestLoadMaxUploadBytesReturnsEffectiveConfiguredValue(t *testing.T) {
+	t.Setenv("PI_CODING_AGENT_SESSION_DIR", filepath.Join(t.TempDir(), "sessions"))
+
+	got, err := LoadMaxUploadBytes()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != 104857600 {
+		t.Fatalf("default max upload bytes=%d, want 104857600", got)
+	}
+
+	if _, err := SaveAppConfig(map[string]any{
+		"workspace": map[string]any{"maxUploadBytes": float64(268435456)},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	got, err = LoadMaxUploadBytes()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != 268435456 {
+		t.Fatalf("configured max upload bytes=%d, want 268435456", got)
 	}
 }
 
