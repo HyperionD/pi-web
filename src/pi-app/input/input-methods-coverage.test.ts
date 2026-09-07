@@ -214,19 +214,19 @@ describe("pi-app input methods coverage", () => {
     await Promise.all([firstSubmit, secondSubmit]);
   });
 
-  it("does not submit a prompt that only has non-sendable attachment chips", async () => {
+  it("does not submit a prompt that only has a real non-sendable attachment chip", async () => {
     const app = await connectPiApp();
     app.apiConnected = true;
     app.dataset.activeWorkspaceId = "w1";
     app.dataset.activeSessionId = "s1";
-    app.attachmentContents = [""];
-    app.attachments.append(document.createElement("span"));
-    app.attachments.hidden = false;
+    await app.addFiles([new File(["a".repeat(256 * 1024 + 1)], "large.txt", { type: "text/plain" })]);
     globalThis.fetch = vi.fn(async () => ok({ accepted: true }));
 
+    expect(app.querySelector(".attach-chip.is-invalid")?.dataset.sendable).toBe("false");
     await app.submitPrompt();
 
     expect(globalThis.fetch).not.toHaveBeenCalled();
+    expect(app.querySelector(".send-btn").disabled).toBe(true);
     expect(app.querySelector(".send-btn").getAttribute("aria-disabled")).toBe("true");
   });
 

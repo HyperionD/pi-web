@@ -6,6 +6,7 @@ function renderApp() {
   document.body.innerHTML = `
     <pi-app data-active-workspace-id="w1">
       <div class="attach-chips" hidden></div>
+      <div data-attachment-guidance></div>
       <div data-attachment-warning aria-live="polite" hidden></div>
       <textarea class="prompt-textarea"></textarea>
       <button class="send-btn" aria-disabled="true">send</button>
@@ -37,6 +38,54 @@ describe("pi-app prompt input", () => {
     expect(app.querySelector(".msg-image").getAttribute("src")).toBe("data:image/png;base64,ZmFrZQ==");
   });
 
+  it("accepts an ordinary file at 256 KiB but rejects the next byte", async () => {
+    const app = document.querySelector("pi-app");
+    await customElements.whenDefined("pi-app");
+    app.connectedCallback();
+
+    await app.addFiles([new File(["a".repeat(256 * 1024)], "boundary.txt", { type: "text/plain" })]);
+    expect(app.attachmentContents.filter(Boolean)).toHaveLength(1);
+    expect(app.querySelector(".attach-chip").dataset.sendable).toBe("true");
+
+    await app.addFiles([new File(["a".repeat(256 * 1024 + 1)], "over.txt", { type: "text/plain" })]);
+    expect(app.attachmentContents.filter(Boolean)).toHaveLength(1);
+    expect(app.querySelectorAll(".attach-chip")[1].dataset.sendable).toBe("false");
+  });
+
+  it("rejects ordinary attachments when their aggregate prompt JSON exceeds the budget", async () => {
+    const app = document.querySelector("pi-app");
+    await customElements.whenDefined("pi-app");
+    app.connectedCallback();
+
+    const files = [1, 2, 3].map((index) => new File(
+      ["a".repeat(256 * 1024)],
+      `part-${index}.txt`,
+      { type: "text/plain" },
+    ));
+    await app.addFiles(files);
+
+    expect(app.attachmentContents.filter(Boolean)).toHaveLength(2);
+    expect(app.querySelectorAll(".attach-chip")[2].dataset.sendable).toBe("false");
+    expect(app.querySelector("[data-attachment-warning]").textContent).toContain("上传到工作区");
+  });
+
+  it("applies the aggregate budget to mixed attachments in either order", async () => {
+    const image = new File([new Uint8Array(400 * 1024)], "large.png", { type: "image/png" });
+    const file = new File(["a".repeat(256 * 1024)], "part.txt", { type: "text/plain" });
+    const orders = [[image, file], [file, image]];
+
+    for (const files of orders) {
+      renderApp();
+      const app = document.querySelector("pi-app");
+      await customElements.whenDefined("pi-app");
+      app.connectedCallback();
+      await app.addFiles(files);
+
+      expect(app.attachmentContents.filter(Boolean)).toHaveLength(1);
+      expect(app.querySelectorAll(".attach-chip")[1].dataset.sendable).toBe("false");
+    }
+  });
+
   it("rejects ordinary files over 256 KiB without making them sendable", async () => {
     const app = document.querySelector("pi-app");
     await customElements.whenDefined("pi-app");
@@ -49,6 +98,18 @@ describe("pi-app prompt input", () => {
     expect(app.querySelector(".attach-chip").dataset.sendable).toBe("false");
     expect(app.querySelector("[data-attachment-warning]").textContent).toContain("上传到工作区");
     expect(app.querySelector(".send-btn").getAttribute("aria-disabled")).toBe("true");
+    expect(app.querySelector(".send-btn").disabled).toBe(true);
+  });
+
+  it("renders the current workspace upload limit with a 100 MiB default", async () => {
+    const app = document.querySelector("pi-app");
+    await customElements.whenDefined("pi-app");
+    app.connectedCallback();
+
+    expect(app.querySelector("[data-attachment-guidance]").textContent).toContain("100 MiB");
+    app.appConfigState = { config: { workspace: { maxUploadBytes: 256 * 1024 * 1024 } } };
+    app.updatePrompt();
+    expect(app.querySelector("[data-attachment-guidance]").textContent).toContain("256 MiB");
   });
 
   it("rejects an image when the conservative prompt request budget would overflow", async () => {

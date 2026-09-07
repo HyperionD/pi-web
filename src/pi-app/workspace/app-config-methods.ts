@@ -87,6 +87,7 @@ export const appConfigMethods = {
     if (bootstrapGeneration && this.bootstrapGeneration !== bootstrapGeneration) return undefined;
     this.appConfigState = state;
     this.applyBrand(state.config.brand);
+    this.updateAttachmentGuidance?.();
     return state;
   },
 

@@ -46,7 +46,7 @@ describe("pi-app controls", () => {
     app.dataset.activeWorkspaceId = "w1";
     app.updatePrompt();
     expect(prompt.disabled).toBe(false);
-    expect(send.disabled).toBe(false);
+    expect(send.disabled).toBe(true);
 
     prompt.value = "hello";
     app.updatePrompt();
@@ -86,16 +86,19 @@ describe("pi-app controls", () => {
     expect(() => app.savePromptDraft()).not.toThrow();
   });
 
-  it("sends current prompt text even when input state was not refreshed", async () => {
+  it("keeps send disabled until the current prompt state is refreshed", async () => {
     const app = await connectPiApp();
     app.dataset.activeWorkspaceId = "w1";
     app.updatePrompt();
     app.apiConnected = false;
     app.prompt.value = "send without input event";
 
+    expect(app.sendButton.disabled).toBe(true);
+    app.updatePrompt();
     app.sendButton.click();
 
     expect(app.prompt.value).toBe("");
+    expect(app.sendButton.disabled).toBe(true);
     expect(app.sendButton.getAttribute("aria-disabled")).toBe("true");
   });
 
@@ -109,7 +112,7 @@ describe("pi-app controls", () => {
     app.setMode("running");
     expect(stop.hidden).toBe(false);
     expect(send.textContent).toBe("send");
-    expect(send.disabled).toBe(false);
+    expect(send.disabled).toBe(true);
     expect(send.getAttribute("aria-disabled")).toBe("true");
 
     app.prompt.value = "one more thing";

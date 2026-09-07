@@ -37,26 +37,21 @@ export const attachmentMethods = {
       if (!file) continue;
       const isImage = file.type?.startsWith("image/");
       if (!isImage && file.size > INLINE_LIMIT) {
-        this.attachmentContents.push("");
-        this.addAttachmentChip(file.name, file.size, file, "", {
-          sendable: false,
-          status: "不会内联",
-        });
+        this.addInvalidAttachment(file, "不会内联");
         warning = "普通文件超过 256 KiB 不会内联；请先上传到工作区。";
         continue;
       }
-      if (isImage && !this.imageFitsPrompt(file)) {
-        this.attachmentContents.push("");
-        this.addAttachmentChip(file.name, file.size, file, "", {
-          sendable: false,
-          status: "超出请求预算",
-        });
+
+      const candidate = isImage
+        ? this.estimatedImageAttachment(file)
+        : await this.fileAttachment(file);
+      if (!this.promptFitsAttachment(candidate)) {
+        this.addInvalidAttachment(file, "超出请求预算");
         warning = "图片或合计附件超过约 768 KiB 请求预算；请先上传到工作区。";
         continue;
       }
-      const attachment = isImage
-        ? await this.imageAttachment(file)
-        : await this.fileAttachment(file);
+
+      const attachment = isImage ? await this.imageAttachment(file) : candidate;
       this.attachmentContents.push(attachment);
       this.addAttachmentChip(file.name, file.size, file, attachment.dataUrl);
       warning = "";
@@ -66,6 +61,14 @@ export const attachmentMethods = {
     this.updatePrompt();
   },
 
+  addInvalidAttachment(file, status) {
+    this.attachmentContents.push("");
+    this.addAttachmentChip(file.name, file.size, file, "", {
+      sendable: false,
+      status,
+    });
+  },
+
   setAttachmentWarning(message = "") {
     const warning = this.querySelector("[data-attachment-warning]");
     if (!warning) return;
@@ -73,13 +76,30 @@ export const attachmentMethods = {
     warning.hidden = !message;
   },
 
-  imageFitsPrompt(file) {
+  estimatedImageAttachment(file) {
     const mimeType = file.type || "image/png";
-    const candidate = { type: "image", name: file.name, mimeType, dataUrl: "" };
+    return {
+      type: "image",
+      name: file.name,
+      mimeType,
+      dataUrl: "",
+      dataUrlByteLength: this.utf8ByteLength(`data:${mimeType};base64,`) + 4 * Math.ceil(file.size / 3),
+    };
+  },
+
+  promptFitsAttachment(candidate) {
     const attachments = [...(this.attachmentContents || []).filter(Boolean), candidate];
-    const skeleton = JSON.stringify({ text: this.prompt?.value || "", attachments });
-    const dataUrlLength = `data:${mimeType};base64,`.length + Math.ceil(file.size / 3) * 4;
-    return this.utf8ByteLength(skeleton) + dataUrlLength - 2 <= PROMPT_REQUEST_BUDGET;
+    return this.estimatePromptJsonBytes(this.prompt?.value || "", attachments) <= PROMPT_REQUEST_BUDGET;
+  },
+
+  estimatePromptJsonBytes(text, attachments) {
+    const serializedAttachments = attachments.map(({ dataUrlByteLength, ...attachment }) => attachment);
+    const skeletonBytes = this.utf8ByteLength(JSON.stringify({ text, attachments: serializedAttachments }));
+    const projectedDataUrlBytes = attachments.reduce(
+      (total, attachment) => total + (attachment.dataUrlByteLength || 0),
+      0,
+    );
+    return skeletonBytes + projectedDataUrlBytes;
   },
 
   utf8ByteLength(value) {

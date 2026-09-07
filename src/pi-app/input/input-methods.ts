@@ -1,5 +1,6 @@
 import { cancelSession, createSession, runAguiSessionPrompt, runShellCommand, steerSession } from "../../lib/api";
 import { fallbackChoicePrompt } from "./fallback-choices";
+import { maxUploadBytesToMiB } from "../workspace/app-config-methods";
 
 export const inputMethods = {
   async submitPrompt() {
@@ -369,13 +370,21 @@ export const inputMethods = {
     this.savePromptDraft?.();
     const hasAttachments = this.hasSendableAttachments();
     const canSend = hasWorkspace && (!!value.trim() || hasAttachments);
-    this.sendButton.disabled = !hasWorkspace;
+    this.updateAttachmentGuidance?.();
+    this.sendButton.disabled = !canSend;
     this.sendButton.setAttribute("aria-disabled", canSend ? "false" : "true");
     this.sendButton.classList.toggle("is-disabled", !canSend);
     this.slashPopover?.toggleAttribute("hidden", !(value.startsWith("/") && !value.includes("\n")));
     this.filterSlash(value);
     this.prompt.style.height = "auto";
     this.prompt.style.height = Math.min(180, this.prompt.scrollHeight) + "px";
+  },
+
+  updateAttachmentGuidance() {
+    const guidance = this.querySelector("[data-attachment-guidance]");
+    if (!guidance) return;
+    const maxUploadMiB = maxUploadBytesToMiB(this.appConfigState?.config?.workspace?.maxUploadBytes);
+    guidance.textContent = `对话附件有限制；较大文件请先上传到工作区。工作区单文件上传上限 ${maxUploadMiB} MiB；普通文件超过 256 KiB 不会内联。图片及合计请求预算约 768 KiB。`;
   },
 
   fillPrompt(value) {
