@@ -509,7 +509,7 @@ func (s *Server) uploadMultipartWorkspaceFile(w http.ResponseWriter, r *http.Req
 		writeMultipartFileError(w, err, maxBytes)
 		return
 	}
-	file, err := ReadWorkspaceFile(root, path, 256*1024)
+	file, err := tx.readResult(root, path)
 	if err != nil {
 		writeMultipartFileError(w, err, maxBytes)
 		return
@@ -642,6 +642,10 @@ func writeMultipartRequestError(w http.ResponseWriter, err error, maxBytes int64
 	var tooLarge *uploadTooLargeError
 	if errors.As(err, &tooLarge) {
 		writeUploadTooLarge(w, maxBytes)
+		return
+	}
+	if errors.Is(err, ErrSafeUploadUnsupported) {
+		writeError(w, http.StatusNotImplemented, err)
 		return
 	}
 	writeError(w, http.StatusBadRequest, err)

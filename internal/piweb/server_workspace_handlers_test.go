@@ -56,6 +56,8 @@ func TestUploadWorkspaceFileEndpointWritesMultipartFileAndSupportsOverwrite(t *t
 
 	if response := upload("first", false); response.Code != http.StatusOK {
 		t.Fatalf("first upload: %d %s", response.Code, response.Body.String())
+	} else if !strings.Contains(response.Body.String(), `"content":"first"`) {
+		t.Fatalf("first response missing uploaded content: %s", response.Body.String())
 	}
 	path := filepath.Join(root, "docs", "a.txt")
 	if data, err := os.ReadFile(path); err != nil || string(data) != "first" {
@@ -73,6 +75,8 @@ func TestUploadWorkspaceFileEndpointWritesMultipartFileAndSupportsOverwrite(t *t
 	}
 	if response := upload("second", true); response.Code != http.StatusOK {
 		t.Fatalf("overwrite upload: %d %s", response.Code, response.Body.String())
+	} else if !strings.Contains(response.Body.String(), `"content":"second"`) {
+		t.Fatalf("overwrite response missing uploaded content: %s", response.Body.String())
 	}
 	if data, err := os.ReadFile(path); err != nil || string(data) != "second" {
 		t.Fatalf("replacement contents=%q err=%v", data, err)
@@ -182,6 +186,14 @@ func (r *countingReader) Read(p []byte) (int, error) {
 	n, err := r.Reader.Read(p)
 	r.read += int64(n)
 	return n, err
+}
+
+func TestMultipartUploadMapsUnsupportedSafeUploadToNotImplemented(t *testing.T) {
+	response := httptest.NewRecorder()
+	writeMultipartRequestError(response, ErrSafeUploadUnsupported, MinMaxUploadBytes)
+	if response.Code != http.StatusNotImplemented {
+		t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
+	}
 }
 
 func TestUploadWorkspaceFileStreamRemovesTempAfterOversize(t *testing.T) {

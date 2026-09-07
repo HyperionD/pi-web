@@ -131,7 +131,7 @@ func createUploadTemp(parent *os.File) (*os.File, string, error) {
 		}
 		name := fmt.Sprintf(".pi-upload-%x.tmp", random)
 		fd, err := unix.Openat(int(parent.Fd()), name,
-			unix.O_WRONLY|unix.O_CREAT|unix.O_EXCL|unix.O_CLOEXEC|unix.O_NOFOLLOW, 0o600)
+			unix.O_RDWR|unix.O_CREAT|unix.O_EXCL|unix.O_CLOEXEC|unix.O_NOFOLLOW, 0o600)
 		if errors.Is(err, unix.EEXIST) {
 			continue
 		}

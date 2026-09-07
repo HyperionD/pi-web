@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"errors"
 	"io"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -270,6 +272,46 @@ func TestUploadWorkspaceFileStreamNoOverwriteIsAtomicNoClobber(t *testing.T) {
 	assertNoUploadTemps(t, root)
 }
 
+func TestUploadWorkspaceFileStreamResponseUsesPinnedTargetAfterParentSymlinkReplacement(t *testing.T) {
+	root := t.TempDir()
+	outside := t.TempDir()
+	safe := filepath.Join(root, "safe")
+	if err := os.Mkdir(safe, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(outside, "payload.txt"), []byte("outside"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	tx, err := newUploadTransaction(root, "safe/payload.txt", false)
+	if errors.Is(err, ErrSafeUploadUnsupported) {
+		t.Skipf("safe upload operations unavailable: %v", err)
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.cleanup()
+	if err := tx.copyFrom(strings.NewReader("inside"), 0); err != nil {
+		t.Fatal(err)
+	}
+	if err := tx.commit(false); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Rename(safe, filepath.Join(root, "safe-real")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, safe); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+
+	response, err := tx.readResult(root, "safe/payload.txt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if response.Content != "inside" {
+		t.Fatalf("response content=%q, want committed upload", response.Content)
+	}
+}
+
 func TestUploadWorkspaceFileStreamPinsParentDuringSymlinkReplacement(t *testing.T) {
 	root := t.TempDir()
 	outside := t.TempDir()
@@ -341,6 +383,14 @@ type failingUploadReader struct{}
 
 func (failingUploadReader) Read([]byte) (int, error) {
 	return 0, errors.New("source failed")
+}
+
+func TestWriteStoreErrorMapsUnsupportedSafeUploadToNotImplemented(t *testing.T) {
+	response := httptest.NewRecorder()
+	writeStoreError(response, ErrSafeUploadUnsupported)
+	if response.Code != http.StatusNotImplemented {
+		t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
+	}
 }
 
 func TestUploadWorkspaceFileStreamRejectsOversizeAndCleansTemp(t *testing.T) {

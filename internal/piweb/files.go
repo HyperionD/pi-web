@@ -15,6 +15,8 @@ import (
 
 const maxSearchFileBytes = 256 * 1024
 
+var ErrSafeUploadUnsupported = errors.New("safe upload operations are unavailable on this platform")
+
 func RealFileTree(root string, maxDepth int) ([]FileNode, error) {
 	root = filepath.Clean(root)
 	entries, err := os.ReadDir(root)
@@ -117,7 +119,6 @@ func ReadWorkspaceFile(root, rel string, maxBytes int64) (FileContent, error) {
 	if err != nil {
 		return FileContent{}, err
 	}
-	cleanRel := filepath.ToSlash(filepath.Clean(strings.TrimPrefix(rel, "/")))
 	info, err := os.Stat(full)
 	if err != nil {
 		return FileContent{}, err
@@ -130,18 +131,33 @@ func ReadWorkspaceFile(root, rel string, maxBytes int64) (FileContent, error) {
 		return FileContent{}, err
 	}
 	defer file.Close()
+	return readWorkspaceFileFromHandle(root, rel, full, file, maxBytes)
+}
+
+func readWorkspaceFileFromHandle(root, rel, displayPath string, file *os.File, maxBytes int64) (FileContent, error) {
+	info, err := file.Stat()
+	if err != nil {
+		return FileContent{}, err
+	}
+	if info.IsDir() {
+		return FileContent{}, errors.New("path is a directory")
+	}
+	if _, err := file.Seek(0, io.SeekStart); err != nil {
+		return FileContent{}, err
+	}
 	limit := maxBytes
 	if limit <= 0 {
 		limit = 256 * 1024
 	}
-	buf := make([]byte, limit+1)
-	n, _ := file.Read(buf)
-	truncated := int64(n) > limit
-	if truncated {
-		n = int(limit)
+	data, err := io.ReadAll(io.LimitReader(file, limit+1))
+	if err != nil {
+		return FileContent{}, err
 	}
-	data := buf[:n]
-	mimeType := detectPreviewMIME(full, data)
+	truncated := int64(len(data)) > limit
+	if truncated {
+		data = data[:limit]
+	}
+	mimeType := detectPreviewMIME(displayPath, data)
 	previewKind := previewKindForMIME(mimeType)
 	content := ""
 	dataURL := ""
@@ -155,6 +171,7 @@ func ReadWorkspaceFile(root, rel string, maxBytes int64) (FileContent, error) {
 	if previewKind == "image" && truncated {
 		previewKind = "unsupported"
 	}
+	cleanRel := filepath.ToSlash(filepath.Clean(strings.TrimPrefix(rel, "/")))
 	originalContent, gitStatus := GitOriginalFileContent(root, cleanRel)
 	return FileContent{
 		Path:            cleanRel,
@@ -279,7 +296,14 @@ func UploadWorkspaceFileStream(root, rel string, source io.Reader, maxBytes int6
 	if err := tx.commit(overwrite); err != nil {
 		return FileContent{}, err
 	}
-	return ReadWorkspaceFile(root, rel, 256*1024)
+	return tx.readResult(root, rel)
+}
+
+func (tx *uploadTransaction) readResult(root, rel string) (FileContent, error) {
+	if tx.temp == nil {
+		return FileContent{}, errors.New("uploaded file handle is unavailable")
+	}
+	return readWorkspaceFileFromHandle(root, rel, filepath.Join(root, rel), tx.temp, 256*1024)
 }
 
 func (tx *uploadTransaction) copyFrom(source io.Reader, maxBytes int64) error {
@@ -301,10 +325,6 @@ func (tx *uploadTransaction) commit(overwrite bool) error {
 	if err := tx.temp.Sync(); err != nil {
 		return err
 	}
-	if err := tx.temp.Close(); err != nil {
-		return err
-	}
-	tx.temp = nil
 	if err := commitUploadTransaction(tx, overwrite); err != nil {
 		return err
 	}

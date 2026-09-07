@@ -301,6 +301,10 @@ func writeStoreError(w http.ResponseWriter, err error) {
 		writeError(w, http.StatusNotFound, err)
 		return
 	}
+	if errors.Is(err, ErrSafeUploadUnsupported) {
+		writeError(w, http.StatusNotImplemented, err)
+		return
+	}
 	writeError(w, http.StatusInternalServerError, err)
 }
 

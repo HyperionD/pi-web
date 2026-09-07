@@ -2,19 +2,16 @@
 
 package piweb
 
-import (
-	"errors"
-	"os"
-)
+import "os"
 
 func newUploadTransaction(root, rel string, overwrite bool) (*uploadTransaction, error) {
-	return nil, errors.New("safe upload operations are unavailable on this platform")
+	return nil, ErrSafeUploadUnsupported
 }
 
 func commitUploadTransaction(tx *uploadTransaction, overwrite bool) error {
-	return errors.New("safe upload operations are unavailable on this platform")
+	return ErrSafeUploadUnsupported
 }
 
 func removeUploadTemp(parent *os.File, name string) error {
-	return errors.New("safe upload operations are unavailable on this platform")
+	return ErrSafeUploadUnsupported
 }
