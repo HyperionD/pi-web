@@ -1,5 +1,5 @@
 import { HttpAgent } from "@ag-ui/client";
-import { downloadWorkspaceFile, uploadWorkspaceFile as uploadWorkspaceFileWithProgress } from "./file-transfer";
+import { downloadWorkspaceFile, uploadWorkspaceFile } from "./file-transfer";
 
 const DEV_API_BASE = "http://127.0.0.1:8732";
 const DEV_PORTS = new Set(["4321", "6006"]);
@@ -228,32 +228,7 @@ export function deleteWorkspaceFile(workspaceId, path) {
   });
 }
 
-export { downloadWorkspaceFile };
-
-export function uploadWorkspaceFile(
-  workspaceId: string,
-  path: string,
-  file: File,
-  overwrite: boolean,
-  onProgress?: (loaded: number, total?: number) => void,
-): Promise<unknown>;
-/** @deprecated Use a File to send a multipart upload. */
-export function uploadWorkspaceFile(workspaceId: string, path: string, content: string, overwrite?: boolean): Promise<unknown>;
-export function uploadWorkspaceFile(
-  workspaceId: string,
-  path: string,
-  fileOrContent: File | string,
-  overwrite = false,
-  onProgress?: (loaded: number, total?: number) => void,
-) {
-  if (typeof fileOrContent === "string") {
-    return request(`/api/workspaces/${encodeURIComponent(workspaceId)}/files/upload`, {
-      method: "POST",
-      body: JSON.stringify({ path, content: fileOrContent, overwrite }),
-    });
-  }
-  return uploadWorkspaceFileWithProgress(workspaceId, path, fileOrContent, overwrite, onProgress);
-}
+export { downloadWorkspaceFile, uploadWorkspaceFile };
 
 export function getGitStatus(workspaceId) {
   return request(`/api/workspaces/${encodeURIComponent(workspaceId)}/git/status`);

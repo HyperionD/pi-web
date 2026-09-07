@@ -36,8 +36,11 @@ import {
   uploadWorkspaceFile,
 } from "./api";
 
+let originalXMLHttpRequest: typeof XMLHttpRequest;
+
 describe("api adapter", () => {
   beforeEach(() => {
+    originalXMLHttpRequest = globalThis.XMLHttpRequest;
     globalThis.PI_WEB_API_BASE = "http://backend.test";
     globalThis.fetch = vi.fn(async (url, options) => ({
       ok: true,
@@ -48,6 +51,7 @@ describe("api adapter", () => {
   });
 
   afterEach(() => {
+    globalThis.XMLHttpRequest = originalXMLHttpRequest;
     delete globalThis.PI_WEB_API_BASE;
     vi.restoreAllMocks();
   });
@@ -158,7 +162,6 @@ describe("api adapter", () => {
   });
 
   it("uploads workspace files as multipart without overriding Content-Type", async () => {
-    const OriginalXMLHttpRequest = globalThis.XMLHttpRequest;
     let requestBody;
     globalThis.XMLHttpRequest = class {
       upload = {};
@@ -182,18 +185,14 @@ describe("api adapter", () => {
       }
     };
 
-    try {
-      const file = new File(["hello"], "hello.txt", { type: "text/plain" });
-      await expect(uploadWorkspaceFile("w1", "hello.txt", file, false)).resolves.toEqual({ uploaded: true });
-      expect(Array.from(requestBody.entries())).toEqual([
-        ["path", "hello.txt"],
-        ["overwrite", "false"],
-        ["file", file],
-      ]);
-      expect(globalThis.fetch).not.toHaveBeenCalled();
-    } finally {
-      globalThis.XMLHttpRequest = OriginalXMLHttpRequest;
-    }
+    const file = new File(["hello"], "hello.txt", { type: "text/plain" });
+    await expect(uploadWorkspaceFile("w1", "hello.txt", file, false)).resolves.toEqual({ uploaded: true });
+    expect(Array.from(requestBody.entries())).toEqual([
+      ["path", "hello.txt"],
+      ["overwrite", "false"],
+      ["file", file],
+    ]);
+    expect(globalThis.fetch).not.toHaveBeenCalled();
   });
 
   it("posts prompts as json", async () => {

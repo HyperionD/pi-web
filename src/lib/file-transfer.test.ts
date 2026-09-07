@@ -17,8 +17,12 @@ type FakeResponse = {
 
 class FakeXMLHttpRequest {
   static nextResponse: FakeResponse = { status: 200, statusText: "OK", responseText: "{}" };
+  static nextProgress = {
+    upload: { loaded: 4, total: 10, lengthComputable: true },
+    download: { loaded: 8, total: 20, lengthComputable: true },
+  };
   static instances: FakeXMLHttpRequest[] = [];
-  upload = {};
+  upload: { onprogress?: (event: ProgressEvent) => void } = {};
   method = "";
   url = "";
   responseType = "";
@@ -54,25 +58,34 @@ class FakeXMLHttpRequest {
   send(body: unknown) {
     this.requestBody = body;
     const response = FakeXMLHttpRequest.nextResponse;
+    const progress = FakeXMLHttpRequest.nextProgress;
     this.status = response.status;
     this.statusText = response.statusText;
     this.response = response.response;
     this.responseText = response.responseText || "";
-    if (this.upload.onprogress) this.upload.onprogress({ loaded: 4, total: 10, lengthComputable: true } as ProgressEvent);
-    if (this.onprogress) this.onprogress({ loaded: 8, total: 20, lengthComputable: true } as ProgressEvent);
-    this.onload?.();
+    if (this.upload.onprogress) this.upload.onprogress(progress.upload as ProgressEvent);
+    if (this.onprogress) this.onprogress(progress.download as ProgressEvent);
+    queueMicrotask(() => this.onload?.());
   }
 }
 
+let originalXMLHttpRequest: typeof XMLHttpRequest;
+
 describe("file transfer transport", () => {
   beforeEach(() => {
+    originalXMLHttpRequest = globalThis.XMLHttpRequest;
     globalThis.PI_WEB_API_BASE = "http://backend.test";
     FakeXMLHttpRequest.instances = [];
     FakeXMLHttpRequest.nextResponse = { status: 200, statusText: "OK", responseText: '{"uploaded":true}' };
+    FakeXMLHttpRequest.nextProgress = {
+      upload: { loaded: 4, total: 10, lengthComputable: true },
+      download: { loaded: 8, total: 20, lengthComputable: true },
+    };
     globalThis.XMLHttpRequest = FakeXMLHttpRequest as any;
   });
 
   afterEach(() => {
+    globalThis.XMLHttpRequest = originalXMLHttpRequest;
     delete globalThis.PI_WEB_API_BASE;
     vi.restoreAllMocks();
   });
@@ -105,6 +118,64 @@ describe("file transfer transport", () => {
     await expect(uploadWorkspaceFile("w1", "large.bin", new File(["x"], "large.bin"), false)).rejects.toMatchObject({
       message: "file exceeds limit",
       status: 413,
+    });
+  });
+
+  it("preserves JSON errors returned in Blob download responses", async () => {
+    FakeXMLHttpRequest.nextResponse = {
+      status: 404,
+      statusText: "Not Found",
+      response: new Blob(['{"error":"file not found"}'], { type: "application/json" }),
+    };
+
+    await expect(downloadWorkspaceFile("w1", "missing.txt")).rejects.toMatchObject({
+      message: "file not found",
+      status: 404,
+    });
+  });
+
+  it("rejects instead of hanging when a 2xx upload response is invalid JSON", async () => {
+    FakeXMLHttpRequest.nextResponse = { status: 200, statusText: "OK", responseText: "not-json" };
+
+    const outcome = await Promise.race([
+      uploadWorkspaceFile("w1", "invalid.json", new File(["x"], "invalid.json"), false).then(
+        () => ({ kind: "resolved" as const }),
+        (error) => ({ kind: "rejected" as const, error }),
+      ),
+      new Promise<{ kind: "timeout" }>((resolve) => setTimeout(() => resolve({ kind: "timeout" }), 100)),
+    ]);
+
+    expect(outcome.kind).toBe("rejected");
+    if (outcome.kind === "rejected") expect(outcome.error).toBeInstanceOf(SyntaxError);
+  });
+
+  it("reports unknown progress totals as undefined", async () => {
+    FakeXMLHttpRequest.nextProgress = {
+      upload: { loaded: 4, total: 0, lengthComputable: false },
+      download: { loaded: 8, total: 0, lengthComputable: false },
+    };
+    const uploadProgress = vi.fn();
+    const downloadProgress = vi.fn();
+
+    await uploadWorkspaceFile("w1", "unknown.bin", new File(["x"], "unknown.bin"), false, uploadProgress);
+    await downloadWorkspaceFile("w1", "unknown.bin", downloadProgress);
+
+    expect(uploadProgress).toHaveBeenCalledWith(4, undefined);
+    expect(downloadProgress).toHaveBeenCalledWith(8, undefined);
+  });
+
+  it("falls back to the requested basename for malformed filename encoding", async () => {
+    const blob = new Blob(["downloaded"], { type: "text/plain" });
+    FakeXMLHttpRequest.nextResponse = {
+      status: 200,
+      statusText: "OK",
+      response: blob,
+      headers: { "content-disposition": "attachment; filename*=UTF-8''%E0%A4%A" },
+    };
+
+    await expect(downloadWorkspaceFile("w1", "docs/report.txt")).resolves.toMatchObject({
+      blob,
+      filename: "report.txt",
     });
   });
 

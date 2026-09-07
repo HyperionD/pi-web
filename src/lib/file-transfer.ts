@@ -24,12 +24,16 @@ function transferRequest<T>(
     if (!options.uploadProgress && options.onProgress) {
       xhr.onprogress = (event) => options.onProgress?.(event.loaded, event.lengthComputable === false ? undefined : event.total || undefined);
     }
-    xhr.onload = () => {
-      if (xhr.status < 200 || xhr.status >= 300) {
-        reject(createTransferError(xhr));
-        return;
+    xhr.onload = async () => {
+      try {
+        if (xhr.status < 200 || xhr.status >= 300) {
+          reject(await createTransferError(xhr));
+          return;
+        }
+        resolve({ response: await readSuccess<T>(xhr), xhr });
+      } catch (error) {
+        reject(error);
       }
-      resolve({ response: readSuccess<T>(xhr), xhr });
     };
     xhr.onerror = () => reject(new Error("Network request failed"));
     xhr.onabort = () => reject(new Error("Request aborted"));
@@ -38,15 +42,14 @@ function transferRequest<T>(
   });
 }
 
-function readSuccess<T>(xhr: XMLHttpRequest): T {
+async function readSuccess<T>(xhr: XMLHttpRequest): Promise<T> {
   if (xhr.responseType === "blob") return xhr.response as T;
-  const text = xhr.responseText;
-  return text ? (JSON.parse(text) as T) : (undefined as T);
+  return JSON.parse(await readResponseText(xhr)) as T;
 }
 
-function createTransferError(xhr: XMLHttpRequest): Error & { status?: number } {
+async function createTransferError(xhr: XMLHttpRequest): Promise<Error & { status?: number }> {
   let message = `${xhr.status} ${xhr.statusText}`.trim();
-  const text = readResponseText(xhr);
+  const text = await readResponseText(xhr);
   if (text) {
     try {
       const body = JSON.parse(text);
@@ -60,7 +63,15 @@ function createTransferError(xhr: XMLHttpRequest): Error & { status?: number } {
   return error;
 }
 
-function readResponseText(xhr: XMLHttpRequest): string {
+async function readResponseText(xhr: XMLHttpRequest): Promise<string> {
+  if (xhr.responseType === "blob") {
+    try {
+      const response = xhr.response as { text?: () => Promise<string> } | null;
+      if (typeof response?.text === "function") return await response.text();
+    } catch {
+      // Fall through to the other response representations.
+    }
+  }
   try {
     return typeof xhr.responseText === "string" ? xhr.responseText : "";
   } catch {
@@ -69,11 +80,40 @@ function readResponseText(xhr: XMLHttpRequest): string {
 }
 
 function transferFilename(xhr: XMLHttpRequest, path: string): string {
+  const fallback = safeBasename(path) || "download";
   const disposition = xhr.getResponseHeader("Content-Disposition") || "";
-  const encoded = disposition.match(/filename\*=UTF-8''([^;]+)/i)?.[1];
-  if (encoded) return decodeURIComponent(encoded);
-  const plain = disposition.match(/filename\s*=\s*"([^"]+)"/i)?.[1] || disposition.match(/filename\s*=\s*([^;]+)/i)?.[1];
-  return plain?.trim() || path.split("/").pop() || "download";
+  const hasEncodedFilename = /(?:^|;)\s*filename\*\s*=/i.test(disposition);
+  if (hasEncodedFilename) {
+    const encoded = readDispositionParameter(disposition, "filename*");
+    return decodeFilename(encoded) || fallback;
+  }
+  const plain = readDispositionParameter(disposition, "filename");
+  return safeBasename(plain) || fallback;
+}
+
+function readDispositionParameter(header: string, name: string): string | undefined {
+  const escapedName = name.replace("*", "\\*");
+  const match = header.match(new RegExp(`(?:^|;)\\s*${escapedName}\\s*=\\s*(?:"((?:\\\\.|[^"])*)"|([^;]*))`, "i"));
+  if (!match) return undefined;
+  return (match[1] ?? match[2] ?? "").replace(/\\(.)/g, "$1").trim();
+}
+
+function decodeFilename(value: string | undefined): string | undefined {
+  if (!value) return undefined;
+  const match = value.match(/^([^']*)'[^']*'(.*)$/);
+  if (!match || match[1].toLowerCase() !== "utf-8") return undefined;
+  try {
+    return safeBasename(decodeURIComponent(match[2]));
+  } catch {
+    return undefined;
+  }
+}
+
+function safeBasename(value: string | undefined): string | undefined {
+  if (!value) return undefined;
+  const basename = value.replaceAll("\\", "/").split("/").pop()?.trim();
+  if (!basename || basename === "." || basename === ".." || /[\u0000-\u001f\u007f]/.test(basename)) return undefined;
+  return basename;
 }
 
 export function uploadWorkspaceFile(
