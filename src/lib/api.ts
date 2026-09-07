@@ -6,7 +6,7 @@ const DEV_PORTS = new Set(["4321", "6006"]);
 
 export type AppConfigPatch = {
   brand?: string | null;
-  workspace?: { allowedRoots: string[] } | null;
+  workspace?: { allowedRoots?: string[]; maxUploadBytes?: number } | null;
 };
 
 export type AdminPasswordStatus = {

@@ -2,6 +2,23 @@ import { getAdminPasswordStatus, getAppConfig, setupAdminPassword } from "../../
 import type { AppConfigPatch } from "../../lib/api";
 import { DEFAULT_APP_BRAND, parseAppConfigResponse } from "./app-config-schema";
 
+export const DEFAULT_MAX_UPLOAD_MIB = 100;
+const BYTES_PER_MIB = 1024 * 1024;
+const MAX_UPLOAD_MIB_ERROR = "上传上限必须是 1–2048 MiB 的整数";
+
+export function maxUploadBytesToMiB(bytes: unknown) {
+  if (bytes === undefined || bytes === null) return DEFAULT_MAX_UPLOAD_MIB;
+  const mib = typeof bytes === "number" && Number.isInteger(bytes) ? bytes / BYTES_PER_MIB : NaN;
+  return Number.isInteger(mib) && mib >= 1 && mib <= 2048 ? mib : DEFAULT_MAX_UPLOAD_MIB;
+}
+
+export function maxUploadMiBToBytes(value: unknown) {
+  const normalized = typeof value === "string" ? value.trim() : value;
+  const mib = normalized === "" ? NaN : Number(normalized);
+  if (!Number.isInteger(mib) || mib < 1 || mib > 2048) throw new Error(MAX_UPLOAD_MIB_ERROR);
+  return mib * BYTES_PER_MIB;
+}
+
 function normalizedBrand(value: unknown) {
   if (typeof value !== "string") return DEFAULT_APP_BRAND;
   const brand = value.trim();
@@ -99,6 +116,11 @@ export const appConfigMethods = {
       control.value = normalizedBrand(this.appConfigState?.config?.brand);
       control.dataset.initialAppBrand = control.value;
     }
+    const uploadControl = this.querySelector("[data-app-setting='max-upload-mib']");
+    if (uploadControl) {
+      uploadControl.value = String(maxUploadBytesToMiB(this.appConfigState?.config?.workspace?.maxUploadBytes));
+      uploadControl.dataset.initialMaxUploadBytes = String(maxUploadMiBToBytes(uploadControl.value));
+    }
     const roots = allowedRootsFromState(this.appConfigState);
     const rootsControl = this.querySelector("[data-app-setting='allowed-roots']");
     if (rootsControl) {
@@ -190,14 +212,21 @@ export const appConfigMethods = {
     const initialBrand = brandControl?.dataset.initialAppBrand;
     const patch: AppConfigPatch = {};
     if (brandControl && initialBrand !== undefined && brand !== initialBrand) patch.brand = brand;
-    const rootsControl = this.querySelector("[data-app-setting='allowed-roots']");
-    if (!rootsControl) return patch;
-    const roots = this.collectAllowedRoots();
-    const initial = rootsControl.dataset.initialAllowedRoots;
-    const initialRoots = initial ? JSON.parse(initial) : [];
-    if (JSON.stringify(roots) !== JSON.stringify(initialRoots)) {
-      patch.workspace = { allowedRoots: roots };
+    const workspacePatch: NonNullable<AppConfigPatch["workspace"]> = {};
+    const uploadControl = this.querySelector("[data-app-setting='max-upload-mib']");
+    const initialMaxUploadBytes = uploadControl?.dataset.initialMaxUploadBytes;
+    if (uploadControl && initialMaxUploadBytes !== undefined) {
+      const maxUploadBytes = maxUploadMiBToBytes(uploadControl.value);
+      if (maxUploadBytes !== Number(initialMaxUploadBytes)) workspacePatch.maxUploadBytes = maxUploadBytes;
     }
+    const rootsControl = this.querySelector("[data-app-setting='allowed-roots']");
+    if (rootsControl) {
+      const roots = this.collectAllowedRoots();
+      const initial = rootsControl.dataset.initialAllowedRoots;
+      const initialRoots = initial ? JSON.parse(initial) : [];
+      if (JSON.stringify(roots) !== JSON.stringify(initialRoots)) workspacePatch.allowedRoots = roots;
+    }
+    if (Object.keys(workspacePatch).length) patch.workspace = workspacePatch;
     return patch;
   },
 };

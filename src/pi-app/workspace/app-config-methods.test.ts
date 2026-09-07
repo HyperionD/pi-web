@@ -481,6 +481,82 @@ describe("app config methods", () => {
     expect(globalThis.fetch.mock.calls[0][1]).toMatchObject({ method: "PATCH", body: '{"brand":"next"}' });
   });
 
+  it("fills the default upload limit in MiB", async () => {
+    const app = await connectPiApp();
+    Object.assign(app, appConfigMethods);
+    app.appConfigState = { config: { version: 1, brand: "saved" }, path: "/config" };
+
+    app.fillAppConfigForm();
+
+    expect(app.querySelector("[data-app-setting='max-upload-mib']").value).toBe("100");
+  });
+
+  it("fills a saved upload limit after converting bytes to MiB", async () => {
+    const app = await connectPiApp();
+    Object.assign(app, appConfigMethods);
+    app.appConfigState = {
+      config: { version: 1, brand: "saved", workspace: { maxUploadBytes: 268435456 } },
+      path: "/config",
+    };
+
+    app.fillAppConfigForm();
+
+    expect(app.querySelector("[data-app-setting='max-upload-mib']").value).toBe("256");
+  });
+
+  it("converts a changed upload limit to bytes without dropping existing workspace patches", async () => {
+    const app = await connectPiApp();
+    Object.assign(app, appConfigMethods);
+    app.appConfigState = {
+      config: { version: 1, brand: "saved", workspace: { allowedRoots: ["/a"], maxUploadBytes: 104857600 } },
+      path: "/config",
+    };
+
+    app.fillAppConfigForm();
+    app.querySelector("[data-app-setting='brand']").value = "next";
+    app.renderAllowedRootRows(["/a", "/b"]);
+    app.querySelector("[data-app-setting='max-upload-mib']").value = "256";
+
+    expect(app.appConfigPatchFromForm()).toEqual({
+      brand: "next",
+      workspace: { allowedRoots: ["/a", "/b"], maxUploadBytes: 268435456 },
+    });
+  });
+
+  it.each(["", "0", "2049", "not-a-number"])(
+    "rejects an upload limit value of %j",
+    async (value) => {
+      const app = await connectPiApp();
+      Object.assign(app, appConfigMethods);
+      app.appConfigState = {
+        config: { version: 1, brand: "saved", workspace: { maxUploadBytes: 104857600 } },
+        path: "/config",
+      };
+      app.fillAppConfigForm();
+      app.querySelector("[data-app-setting='max-upload-mib']").value = value;
+
+      expect(() => app.appConfigPatchFromForm()).toThrow("上传上限必须是 1–2048 MiB 的整数");
+    },
+  );
+
+  it("shows a clear upload-limit error without sending an invalid patch", async () => {
+    const app = await connectPiApp();
+    Object.assign(app, appConfigMethods);
+    app.apiConnected = true;
+    app.appConfigState = {
+      config: { version: 1, brand: "saved", workspace: { maxUploadBytes: 104857600 } },
+      path: "/config",
+    };
+    app.fillAppConfigForm();
+    app.querySelector("[data-app-setting='max-upload-mib']").value = "0";
+    globalThis.fetch = vi.fn(async () => ok({ config: {}, path: "/config" }));
+
+    await app.saveSettingsForm({ preventDefault: vi.fn() });
+
+    expect(app.querySelector("[data-settings-status]").textContent).toBe("上传上限必须是 1–2048 MiB 的整数");
+    expect(globalThis.fetch).not.toHaveBeenCalled();
+  });
+
   it("fills and reads only the app brand control", async () => {
     const app = await connectPiApp();
     Object.assign(app, appConfigMethods);

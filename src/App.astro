@@ -272,6 +272,11 @@ function toolStatus(msg) {
             </div>
             <small class="app-settings-path">path: <code data-app-config-path>—</code></small>
           </div>
+          <label class="settings-field app-settings-upload-limit">
+            <span>单文件上传上限（MiB）</span>
+            <input data-app-setting="max-upload-mib" type="number" min="1" max="2048" step="1" inputmode="numeric" autocomplete="off" />
+            <small>MiB；1–2048，保存后立即生效</small>
+          </label>
           <label class="settings-field">
             <span>品牌</span>
             <input data-app-setting="brand" autocomplete="off" placeholder="pi.dev / web" />
