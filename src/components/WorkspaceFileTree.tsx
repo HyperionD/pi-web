@@ -3,16 +3,24 @@ import { Tree } from "react-arborist";
 import {
   createWorkspaceFile,
   deleteWorkspaceFile,
+  downloadWorkspaceFile,
   renameWorkspaceFile,
   searchWorkspaceFiles,
   uploadWorkspaceFile,
 } from "../lib/api";
+import { formatTransferBytes, transferPercent } from "../lib/file-transfer";
 import { decorateFileTree, type FileTreeNode, type GitStatusMap, type RawFileNode } from "../lib/file-tree-model";
 import { resolveMaterialFileIcon } from "../lib/material-file-icons";
 
 type WorkspaceTreeUpdate = { files?: RawFileNode[]; statusMap?: GitStatusMap; selectedPath?: string };
 type Props = { initialFiles?: RawFileNode[]; initialStatusMap?: GitStatusMap };
 type MenuTarget = { x: number; y: number; path: string; kind: "file" | "dir" | "root" };
+type TransferOperation = "upload" | "download";
+type TransferState =
+  | { kind: "idle" }
+  | { kind: "progress"; operation: TransferOperation; filename: string; loaded: number; total?: number }
+  | { kind: "success"; operation: TransferOperation; filename: string }
+  | { kind: "error"; operation: TransferOperation; filename: string; message: string };
 
 const ROW_HEIGHT = 38;
 const DEFAULT_HEIGHT = 480;
@@ -26,6 +34,7 @@ export default function WorkspaceFileTree({ initialFiles = [], initialStatusMap 
   const [menu, setMenu] = useState<MenuTarget | null>(null);
   const [searchTerm, setSearchTerm] = useState("");
   const [contentMatches, setContentMatches] = useState<Set<string>>(() => new Set());
+  const [transferState, setTransferState] = useState<TransferState>({ kind: "idle" });
   const treeArea = useRef<HTMLDivElement>(null);
   const uploadInput = useRef<HTMLInputElement>(null);
   const uploadTarget = useRef<MenuTarget | null>(null);
@@ -161,7 +170,14 @@ export default function WorkspaceFileTree({ initialFiles = [], initialStatusMap 
           hidden
           onChange={(event) => void uploadFiles(event.currentTarget.files)}
         />
-        {menu && <TreeActionMenu target={menu} onAction={(action) => void runAction(action, menu)} />}
+        {menu && (
+          <TreeActionMenu
+            target={menu}
+            transferBusy={transferState.kind === "progress"}
+            onAction={(action) => void runAction(action, menu)}
+          />
+        )}
+        <TransferStatus state={transferState} />
         <div className="tree-tip">提示：右键点击或轻触 ⋯ 进行文件操作。</div>
       </div>
     </TreeContext.Provider>
@@ -169,6 +185,7 @@ export default function WorkspaceFileTree({ initialFiles = [], initialStatusMap 
 
   async function runAction(action: string, target: MenuTarget) {
     setMenu(null);
+    if (transferState.kind === "progress" && (action === "upload" || action === "download")) return;
     const workspaceId = activeWorkspaceId();
     if (!workspaceId) return;
     try {
@@ -195,8 +212,33 @@ export default function WorkspaceFileTree({ initialFiles = [], initialStatusMap 
         uploadTarget.current = target;
         uploadInput.current?.click();
       }
+      if (action === "download" && target.kind === "file") await downloadFile(workspaceId, target.path);
     } catch (error) {
       showTemporaryError(error);
+    }
+  }
+
+  async function downloadFile(workspaceId: string, path: string) {
+    const fallbackName = path.split("/").pop() || path;
+    setTransferState({ kind: "progress", operation: "download", filename: fallbackName, loaded: 0 });
+    let objectUrl = "";
+    try {
+      const result = await downloadWorkspaceFile(workspaceId, path, (loaded, total) => {
+        setTransferState({ kind: "progress", operation: "download", filename: fallbackName, loaded, total });
+      });
+      objectUrl = URL.createObjectURL(result.blob);
+      const anchor = document.createElement("a");
+      anchor.href = objectUrl;
+      anchor.download = result.filename;
+      anchor.hidden = true;
+      document.body.append(anchor);
+      anchor.click();
+      anchor.remove();
+      setTransferState({ kind: "success", operation: "download", filename: result.filename });
+    } catch (error) {
+      setTransferError("download", fallbackName, error);
+    } finally {
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
     }
   }
 
@@ -209,23 +251,34 @@ export default function WorkspaceFileTree({ initialFiles = [], initialStatusMap 
     if (!workspaceId || !target || !selectedFiles.length) return;
     const folder = uploadFolder(target);
     let firstPath = "";
+    let currentFilename = selectedFiles[0]?.name || "";
     try {
       for (const file of selectedFiles) {
+        currentFilename = file.name;
         const path = joinPath(folder, file.name);
-        const content = await fileToBase64(file);
+        const onProgress = (loaded: number, total?: number) => {
+          setTransferState({ kind: "progress", operation: "upload", filename: file.name, loaded, total });
+        };
+        setTransferState({ kind: "progress", operation: "upload", filename: file.name, loaded: 0 });
         try {
-          await uploadWorkspaceFile(workspaceId, path, content, false);
+          await uploadWorkspaceFile(workspaceId, path, file, false, onProgress);
         } catch (error) {
           if (!isAlreadyExistsError(error) || !window.confirm(`${path} 已存在。要覆盖吗？`)) throw error;
-          await uploadWorkspaceFile(workspaceId, path, content, true);
+          await uploadWorkspaceFile(workspaceId, path, file, true, onProgress);
         }
         if (!firstPath) firstPath = path;
       }
+      setTransferState({ kind: "success", operation: "upload", filename: currentFilename });
       refreshTree(firstPath);
     } catch (error) {
+      setTransferError("upload", currentFilename, error);
       showTemporaryError(error);
       refreshTree(firstPath);
     }
+  }
+
+  function setTransferError(operation: TransferOperation, filename: string, error: unknown) {
+    setTransferState({ kind: "error", operation, filename, message: transferErrorMessage(error) });
   }
 }
 
@@ -293,18 +346,45 @@ function FileTreeRow({ node, style, dragHandle }: any) {
   );
 }
 
-function TreeActionMenu({ target, onAction }: { target: MenuTarget; onAction: (action: string) => void }) {
+function TreeActionMenu({
+  target,
+  transferBusy,
+  onAction,
+}: {
+  target: MenuTarget;
+  transferBusy: boolean;
+  onAction: (action: string) => void;
+}) {
   const canTarget = target.kind !== "root";
   const style = menuPosition(target);
   return (
     <div className="tree-action-menu" role="menu" style={style} onClick={(event) => event.stopPropagation()}>
       <button type="button" role="menuitem" onClick={() => onAction("new-file")}>新建文件</button>
       <button type="button" role="menuitem" onClick={() => onAction("new-folder")}>新建文件夹</button>
-      <button type="button" role="menuitem" onClick={() => onAction("upload")}>上传到此处</button>
+      <button type="button" role="menuitem" disabled={transferBusy} onClick={() => onAction("upload")}>上传到此处</button>
+      {target.kind === "file" && <button type="button" role="menuitem" disabled={transferBusy} onClick={() => onAction("download")}>下载</button>}
       <button type="button" role="menuitem" disabled={!canTarget} onClick={() => onAction("rename")}>重命名</button>
       <button type="button" role="menuitem" disabled={!canTarget} className="danger" onClick={() => onAction("delete")}>删除</button>
     </div>
   );
+}
+
+function TransferStatus({ state }: { state: TransferState }) {
+  if (state.kind === "idle") return null;
+  const operationLabel = state.operation === "upload" ? "上传" : "下载";
+  let text = "";
+  if (state.kind === "progress") {
+    const percent = transferPercent(state.loaded, state.total);
+    const bytes = state.total
+      ? `${formatTransferBytes(state.loaded)} / ${formatTransferBytes(state.total)}`
+      : formatTransferBytes(state.loaded);
+    text = `${operationLabel}中：${state.filename} · ${percent === undefined ? bytes : `${percent}% · ${bytes}`}`;
+  } else if (state.kind === "success") {
+    text = `${operationLabel}完成：${state.filename}`;
+  } else {
+    text = `${operationLabel}失败：${state.filename} · ${state.message}`;
+  }
+  return <div className={`tree-transfer-status ${state.kind}`} data-status={state.kind} role="status" aria-live="polite" aria-atomic="true">{text}</div>;
 }
 
 function menuPosition(target: MenuTarget) {
@@ -333,8 +413,11 @@ function fileTreeSearchMatch(node: FileTreeNode, term: string, contentMatches: R
 }
 
 function showTemporaryError(error: unknown) {
-  const message = error instanceof Error ? error.message : String(error);
-  window.alert(message);
+  window.alert(transferErrorMessage(error));
+}
+
+function transferErrorMessage(error: unknown) {
+  return error instanceof Error ? error.message : String(error);
 }
 
 function activeWorkspaceId() {
@@ -363,15 +446,6 @@ function joinPath(parent: string, name: string) {
 
 function isAlreadyExistsError(error: unknown) {
   return String(error instanceof Error ? error.message : error).toLowerCase().includes("already exists");
-}
-
-function fileToBase64(file: File) {
-  return new Promise<string>((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onerror = () => reject(reader.error || new Error("file read failed"));
-    reader.onload = () => resolve(String(reader.result || "").split(",").pop() || "");
-    reader.readAsDataURL(file);
-  });
 }
 
 const statusLabels: Record<string, string> = {
