@@ -2,10 +2,12 @@ package piweb
 
 import (
 	"bytes"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 )
 
@@ -205,6 +207,69 @@ func TestUploadWorkspaceFile(t *testing.T) {
 	if file.Path != "docs/image.png" {
 		t.Fatalf("unexpected path: %#v", file)
 	}
+}
+
+func TestUploadWorkspaceFileStreamRejectsParentSymlinkOutsideWorkspace(t *testing.T) {
+	root := t.TempDir()
+	outside := t.TempDir()
+	if err := os.Symlink(outside, filepath.Join(root, "escape")); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+
+	if _, err := UploadWorkspaceFileStream(root, "escape/payload.txt", strings.NewReader("secret"), 0, false); err == nil {
+		t.Fatal("expected parent symlink to be rejected")
+	}
+	if _, err := os.Stat(filepath.Join(outside, "payload.txt")); !os.IsNotExist(err) {
+		t.Fatalf("upload escaped workspace: %v", err)
+	}
+}
+
+func TestUploadWorkspaceFileStreamNoOverwriteIsAtomicNoClobber(t *testing.T) {
+	root := t.TempDir()
+	arrived := make(chan struct{})
+	release := make(chan struct{})
+	results := make(chan error, 2)
+	for _, content := range []string{"first", "second"} {
+		go func(content string) {
+			_, err := UploadWorkspaceFileStream(root, "same.txt", &barrierReader{
+				data: content, arrived: arrived, release: release,
+			}, 0, false)
+			results <- err
+		}(content)
+	}
+	<-arrived
+	<-arrived
+	close(release)
+
+	var success int
+	for range 2 {
+		if err := <-results; err == nil {
+			success++
+		}
+	}
+	if success != 1 {
+		t.Fatalf("expected exactly one no-clobber winner, got %d", success)
+	}
+}
+
+type barrierReader struct {
+	data    string
+	arrived chan<- struct{}
+	release <-chan struct{}
+	once    sync.Once
+}
+
+func (r *barrierReader) Read(p []byte) (int, error) {
+	r.once.Do(func() {
+		r.arrived <- struct{}{}
+		<-r.release
+	})
+	if r.data == "" {
+		return 0, io.EOF
+	}
+	n := copy(p, r.data)
+	r.data = r.data[n:]
+	return n, nil
 }
 
 func TestUploadWorkspaceFileStreamRejectsOversizeAndCleansTemp(t *testing.T) {

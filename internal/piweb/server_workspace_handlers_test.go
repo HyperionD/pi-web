@@ -31,6 +31,15 @@ func TestUploadWorkspaceFileEndpointAcceptsMultipartAndReportsTooLarge(t *testin
 	if _, err := os.Stat(filepath.Join(root, "docs", "a.bin")); !os.IsNotExist(err) {
 		t.Fatalf("oversized upload created target: %v", err)
 	}
+	entries, err := os.ReadDir(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, entry := range entries {
+		if strings.HasPrefix(entry.Name(), ".pi-upload-") {
+			t.Fatalf("oversized upload left staging temp: %s", entry.Name())
+		}
+	}
 }
 
 func TestUploadWorkspaceFileEndpointWritesMultipartFileAndSupportsOverwrite(t *testing.T) {
@@ -52,8 +61,12 @@ func TestUploadWorkspaceFileEndpointWritesMultipartFileAndSupportsOverwrite(t *t
 	if data, err := os.ReadFile(path); err != nil || string(data) != "first" {
 		t.Fatalf("first contents=%q err=%v", data, err)
 	}
-	if info, err := os.Stat(path); err != nil || info.Mode().Perm() != 0o600 {
-		t.Fatalf("uploaded mode=%v err=%v", info.Mode().Perm(), err)
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatalf("stat uploaded file: %v", err)
+	}
+	if info.Mode().Perm() != 0o600 {
+		t.Fatalf("uploaded mode=%v", info.Mode().Perm())
 	}
 	if response := upload("conflict", false); response.Code == http.StatusOK || !strings.Contains(response.Body.String(), "path already exists") {
 		t.Fatalf("overwrite=false response=%d body=%s", response.Code, response.Body.String())
@@ -100,6 +113,23 @@ func TestUploadWorkspaceFileEndpointAcceptsLegacyJSONAtConfiguredLimit(t *testin
 	}
 }
 
+func TestUploadWorkspaceFileEndpointAcceptsMultipartFieldsInAnyOrder(t *testing.T) {
+	root, server, workspace := newUploadTestServer(t, MinMaxUploadBytes)
+	body, contentType := multipartUploadBodyFileFirst(t, "docs/order.txt", true, []byte("ordered"))
+	request := httptest.NewRequest(http.MethodPost, "/api/workspaces/"+workspace.ID+"/files/upload", body)
+	request.Header.Set("Content-Type", contentType)
+	response := httptest.NewRecorder()
+	server.Handler().ServeHTTP(response, request)
+
+	if response.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
+	}
+	stored, err := os.ReadFile(filepath.Join(root, "docs", "order.txt"))
+	if err != nil || string(stored) != "ordered" {
+		t.Fatalf("stored=%q err=%v", stored, err)
+	}
+}
+
 func TestUploadWorkspaceFileStreamRemovesTempAfterOversize(t *testing.T) {
 	root := t.TempDir()
 	limit := int64(MinMaxUploadBytes)
@@ -134,6 +164,29 @@ func newUploadTestServer(t *testing.T, maxBytes int) (string, *Server, Workspace
 		t.Fatal(err)
 	}
 	return root, NewServer(Config{}, store, NewBroker()), workspace
+}
+
+func multipartUploadBodyFileFirst(t *testing.T, path string, overwrite bool, content []byte) (io.Reader, string) {
+	t.Helper()
+	var body bytes.Buffer
+	writer := multipart.NewWriter(&body)
+	part, err := writer.CreateFormFile("file", filepath.Base(path))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := part.Write(content); err != nil {
+		t.Fatal(err)
+	}
+	if err := writer.WriteField("overwrite", map[bool]string{true: "true", false: "false"}[overwrite]); err != nil {
+		t.Fatal(err)
+	}
+	if err := writer.WriteField("path", path); err != nil {
+		t.Fatal(err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatal(err)
+	}
+	return &body, writer.FormDataContentType()
 }
 
 func multipartUploadBody(t *testing.T, path string, overwrite bool, content []byte) (io.Reader, string) {

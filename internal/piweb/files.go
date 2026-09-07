@@ -265,14 +265,10 @@ func UploadWorkspaceFileStream(root, rel string, source io.Reader, maxBytes int6
 	if err != nil {
 		return FileContent{}, err
 	}
-	if info, err := os.Stat(full); err == nil {
-		if info.IsDir() {
-			return FileContent{}, errors.New("path is a directory")
-		}
-		if !overwrite {
-			return FileContent{}, errors.New("path already exists")
-		}
-	} else if !errors.Is(err, os.ErrNotExist) {
+	if err := validateUploadDestination(root, full); err != nil {
+		return FileContent{}, err
+	}
+	if err := checkUploadTarget(full, overwrite); err != nil {
 		return FileContent{}, err
 	}
 	if err := os.MkdirAll(filepath.Dir(full), 0o700); err != nil {
@@ -304,11 +300,74 @@ func UploadWorkspaceFileStream(root, rel string, source io.Reader, maxBytes int6
 	if err := temp.Close(); err != nil {
 		return FileContent{}, err
 	}
-	if err := os.Rename(temp.Name(), full); err != nil {
+	if err := commitUploadTemp(temp.Name(), full, overwrite); err != nil {
 		return FileContent{}, err
 	}
 	removeTemp = false
 	return ReadWorkspaceFile(root, rel, 256*1024)
+}
+
+func validateUploadDestination(root, full string) error {
+	realRoot, err := filepath.EvalSymlinks(root)
+	if err != nil {
+		return err
+	}
+	parent := filepath.Dir(full)
+	existing := parent
+	for {
+		if _, err := os.Lstat(existing); err == nil {
+			break
+		} else if !errors.Is(err, os.ErrNotExist) {
+			return err
+		}
+		next := filepath.Dir(existing)
+		if next == existing {
+			return ErrWorkspaceForbidden
+		}
+		existing = next
+	}
+	realExisting, err := filepath.EvalSymlinks(existing)
+	if err != nil || !pathWithinRoot(realRoot, realExisting) {
+		return ErrWorkspaceForbidden
+	}
+	if err := os.MkdirAll(parent, 0o700); err != nil {
+		return err
+	}
+	realParent, err := filepath.EvalSymlinks(parent)
+	if err != nil || !pathWithinRoot(realRoot, realParent) {
+		return ErrWorkspaceForbidden
+	}
+	return nil
+}
+
+func checkUploadTarget(full string, overwrite bool) error {
+	info, err := os.Stat(full)
+	if err == nil {
+		if info.IsDir() {
+			return errors.New("path is a directory")
+		}
+		if !overwrite {
+			return errors.New("path already exists")
+		}
+		return nil
+	}
+	if !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	return nil
+}
+
+func commitUploadTemp(temp, full string, overwrite bool) error {
+	if overwrite {
+		return os.Rename(temp, full)
+	}
+	if err := os.Link(temp, full); err != nil {
+		if errors.Is(err, os.ErrExist) {
+			return errors.New("path already exists")
+		}
+		return err
+	}
+	return os.Remove(temp)
 }
 
 func SafeJoin(root, rel string) (string, error) {
