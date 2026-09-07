@@ -491,12 +491,7 @@ func (s *Server) uploadWorkspaceFile(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, file)
 }
 
-type stagedMultipartUpload struct {
-	path      string
-	overwrite bool
-	tempPath  string
-	hasFile   bool
-}
+const maxMultipartFieldBytes = 16 * 1024
 
 func (s *Server) uploadMultipartWorkspaceFile(w http.ResponseWriter, r *http.Request, maxBytes int64) {
 	root, err := s.store.WorkspacePath(r.PathValue("workspaceID"))
@@ -504,17 +499,17 @@ func (s *Server) uploadMultipartWorkspaceFile(w http.ResponseWriter, r *http.Req
 		writeStoreError(w, err)
 		return
 	}
-	staged, err := stageMultipartUpload(r, root, maxBytes)
+	tx, path, overwrite, err := parseMultipartUpload(r, root, maxBytes)
 	if err != nil {
 		writeMultipartRequestError(w, err, maxBytes)
 		return
 	}
-	defer os.Remove(staged.tempPath)
-	if _, err := SafeJoin(root, staged.path); err != nil {
-		writeError(w, http.StatusBadRequest, err)
+	defer tx.cleanup()
+	if err := tx.commit(overwrite); err != nil {
+		writeMultipartFileError(w, err, maxBytes)
 		return
 	}
-	file, err := uploadStagedMultipartFile(root, staged, maxBytes)
+	file, err := ReadWorkspaceFile(root, path, 256*1024)
 	if err != nil {
 		writeMultipartFileError(w, err, maxBytes)
 		return
@@ -522,95 +517,125 @@ func (s *Server) uploadMultipartWorkspaceFile(w http.ResponseWriter, r *http.Req
 	writeJSON(w, http.StatusOK, file)
 }
 
-func stageMultipartUpload(r *http.Request, root string, maxBytes int64) (stagedMultipartUpload, error) {
-	temp, err := os.CreateTemp(root, ".pi-upload-*.tmp")
-	if err != nil {
-		return stagedMultipartUpload{}, err
-	}
-	staged := stagedMultipartUpload{tempPath: temp.Name()}
-	keepTemp := false
-	defer func() {
-		_ = temp.Close()
-		if !keepTemp {
-			_ = os.Remove(temp.Name())
-		}
-	}()
+func parseMultipartUpload(r *http.Request, root string, maxBytes int64) (*uploadTransaction, string, bool, error) {
 	reader, err := r.MultipartReader()
 	if err != nil {
-		return stagedMultipartUpload{}, err
+		return nil, "", false, err
 	}
+	metadata := multipartMetadata{}
+	var tx *uploadTransaction
 	for {
 		part, err := reader.NextPart()
 		if errors.Is(err, io.EOF) {
 			break
 		}
 		if err != nil {
-			return stagedMultipartUpload{}, err
+			if tx != nil {
+				tx.cleanup()
+			}
+			return nil, "", false, err
 		}
-		err = processMultipartPart(part, &staged, temp, maxBytes)
-		closeErr := part.Close()
+		tx, err = processMultipartPart(part, &metadata, tx, root, maxBytes)
 		if err != nil {
-			return stagedMultipartUpload{}, err
+			if tx != nil {
+				tx.cleanup()
+			}
+			return nil, "", false, err
 		}
-		if closeErr != nil {
-			return stagedMultipartUpload{}, closeErr
-		}
 	}
-	if !staged.hasFile {
-		return stagedMultipartUpload{}, errors.New("file is required")
+	if tx == nil {
+		return nil, "", false, errors.New("file is required")
 	}
-	if err := temp.Close(); err != nil {
-		return stagedMultipartUpload{}, err
-	}
-	keepTemp = true
-	return staged, nil
+	return tx, metadata.path, metadata.overwrite, nil
 }
 
-func processMultipartPart(part *multipart.Part, staged *stagedMultipartUpload, temp *os.File, maxBytes int64) error {
+type multipartMetadata struct {
+	path          string
+	overwrite     bool
+	pathSeen      bool
+	overwriteSeen bool
+	fileSeen      bool
+}
+
+func processMultipartPart(part *multipart.Part, metadata *multipartMetadata, tx *uploadTransaction, root string, maxBytes int64) (*uploadTransaction, error) {
 	switch part.FormName() {
 	case "path":
-		value, err := readMultipartField(part)
-		staged.path = value
-		return err
+		return tx, processMultipartPath(part, metadata, root)
 	case "overwrite":
-		value, err := readMultipartField(part)
-		if err != nil {
-			return err
-		}
-		if value != "" {
-			staged.overwrite, err = strconv.ParseBool(value)
-			if err != nil {
-				return errors.New("overwrite must be a boolean")
-			}
-		}
-		return nil
+		return tx, processMultipartOverwrite(part, metadata)
 	case "file":
-		if staged.hasFile {
-			return errors.New("file must be provided once")
-		}
-		reader := io.Reader(part)
-		if maxBytes > 0 {
-			reader = io.LimitReader(part, maxBytes+1)
-		}
-		written, err := io.Copy(temp, reader)
-		if err != nil {
-			return err
-		}
-		if maxBytes > 0 && written > maxBytes {
-			return &uploadTooLargeError{limit: maxBytes}
-		}
-		staged.hasFile = true
+		return processMultipartFile(part, metadata, tx, root, maxBytes)
+	default:
+		return tx, drainMultipartPart(part)
 	}
+}
+
+func processMultipartPath(part *multipart.Part, metadata *multipartMetadata, root string) error {
+	if metadata.fileSeen {
+		return errors.New("path and overwrite must precede file")
+	}
+	value, err := readMultipartField(part)
+	if err != nil {
+		return err
+	}
+	if metadata.pathSeen {
+		return errors.New("path must be provided once")
+	}
+	if _, err := SafeJoin(root, value); err != nil {
+		return err
+	}
+	metadata.path, metadata.pathSeen = value, true
 	return nil
 }
 
-func uploadStagedMultipartFile(root string, staged stagedMultipartUpload, maxBytes int64) (FileContent, error) {
-	file, err := os.Open(staged.tempPath)
-	if err != nil {
-		return FileContent{}, err
+func processMultipartOverwrite(part *multipart.Part, metadata *multipartMetadata) error {
+	if metadata.fileSeen {
+		return errors.New("path and overwrite must precede file")
 	}
-	defer file.Close()
-	return UploadWorkspaceFileStream(root, staged.path, file, maxBytes, staged.overwrite)
+	value, err := readMultipartField(part)
+	if err != nil {
+		return err
+	}
+	if metadata.overwriteSeen {
+		return errors.New("overwrite must be provided once")
+	}
+	metadata.overwrite, err = strconv.ParseBool(value)
+	if err != nil {
+		return errors.New("overwrite must be a boolean")
+	}
+	metadata.overwriteSeen = true
+	return nil
+}
+
+func processMultipartFile(part *multipart.Part, metadata *multipartMetadata, tx *uploadTransaction, root string, maxBytes int64) (*uploadTransaction, error) {
+	if metadata.fileSeen {
+		return tx, errors.New("file must be provided once")
+	}
+	if !metadata.pathSeen || !metadata.overwriteSeen {
+		return nil, errors.New("path and overwrite must precede file")
+	}
+	tx, err := newUploadTransaction(root, metadata.path, metadata.overwrite)
+	if err != nil {
+		return nil, err
+	}
+	if err := tx.copyFrom(part, maxBytes); err != nil {
+		tx.cleanup()
+		return nil, err
+	}
+	metadata.fileSeen = true
+	return tx, nil
+}
+
+func drainMultipartPart(part *multipart.Part) error {
+	read := io.LimitReader(part, maxMultipartFieldBytes+1)
+	consumed, err := io.Copy(io.Discard, read)
+	if err != nil {
+		return err
+	}
+	if consumed > maxMultipartFieldBytes {
+		return errors.New("multipart part is too large")
+	}
+	return nil
 }
 
 func writeMultipartRequestError(w http.ResponseWriter, err error, maxBytes int64) {
@@ -632,12 +657,11 @@ func writeMultipartFileError(w http.ResponseWriter, err error, maxBytes int64) {
 }
 
 func readMultipartField(part *multipart.Part) (string, error) {
-	const maxFieldBytes = 16 * 1024
-	data, err := io.ReadAll(io.LimitReader(part, maxFieldBytes+1))
+	data, err := io.ReadAll(io.LimitReader(part, maxMultipartFieldBytes+1))
 	if err != nil {
 		return "", err
 	}
-	if len(data) > maxFieldBytes {
+	if len(data) > maxMultipartFieldBytes {
 		return "", errors.New("multipart field is too large")
 	}
 	return string(data), nil

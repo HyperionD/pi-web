@@ -79,6 +79,45 @@ func TestUploadWorkspaceFileEndpointWritesMultipartFileAndSupportsOverwrite(t *t
 	}
 }
 
+func TestUploadWorkspaceFileEndpointValidatesPathBeforeFileBytes(t *testing.T) {
+	_, server, workspace := newUploadTestServer(t, MinMaxUploadBytes)
+	payload := bytes.Repeat([]byte("x"), 512*1024)
+	body, contentType := multipartUploadBody(t, "../outside.txt", false, payload)
+	counted := &countingReader{Reader: body}
+	request := httptest.NewRequest(http.MethodPost, "/api/workspaces/"+workspace.ID+"/files/upload", counted)
+	request.Header.Set("Content-Type", contentType)
+	response := httptest.NewRecorder()
+	server.Handler().ServeHTTP(response, request)
+
+	if response.Code != http.StatusBadRequest {
+		t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
+	}
+	if counted.read >= int64(len(payload)/2) {
+		t.Fatalf("invalid path consumed file payload: %d bytes", counted.read)
+	}
+}
+
+func TestUploadWorkspaceFileEndpointBoundsUnknownMultipartPart(t *testing.T) {
+	_, server, workspace := newUploadTestServer(t, MinMaxUploadBytes)
+	payload := bytes.Repeat([]byte("x"), 4*1024*1024)
+	body, contentType := multipartUploadBodyWithUnknownPart(t, payload)
+	counted := &countingReader{Reader: body}
+	request := httptest.NewRequest(http.MethodPost, "/api/workspaces/"+workspace.ID+"/files/upload", counted)
+	request.Header.Set("Content-Type", contentType)
+	response := httptest.NewRecorder()
+	server.Handler().ServeHTTP(response, request)
+
+	if response.Code != http.StatusBadRequest {
+		t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
+	}
+	if !strings.Contains(response.Body.String(), "multipart part is too large") {
+		t.Fatalf("unexpected unknown-part error: %s", response.Body.String())
+	}
+	if counted.read >= int64(len(payload)/2) {
+		t.Fatalf("unknown part consumed too much payload: %d bytes", counted.read)
+	}
+}
+
 func TestUploadWorkspaceFileEndpointAppliesLimitToLegacyJSON(t *testing.T) {
 	_, server, workspace := newUploadTestServer(t, MinMaxUploadBytes)
 	content := base64.StdEncoding.EncodeToString(bytes.Repeat([]byte("x"), MinMaxUploadBytes+1))
@@ -113,21 +152,36 @@ func TestUploadWorkspaceFileEndpointAcceptsLegacyJSONAtConfiguredLimit(t *testin
 	}
 }
 
-func TestUploadWorkspaceFileEndpointAcceptsMultipartFieldsInAnyOrder(t *testing.T) {
-	root, server, workspace := newUploadTestServer(t, MinMaxUploadBytes)
-	body, contentType := multipartUploadBodyFileFirst(t, "docs/order.txt", true, []byte("ordered"))
-	request := httptest.NewRequest(http.MethodPost, "/api/workspaces/"+workspace.ID+"/files/upload", body)
+func TestUploadWorkspaceFileEndpointRejectsFileFirstWithoutConsumingPayload(t *testing.T) {
+	_, server, workspace := newUploadTestServer(t, MinMaxUploadBytes)
+	payload := bytes.Repeat([]byte("x"), 4*1024*1024)
+	body, contentType := multipartUploadBodyFileFirst(t, "../outside.txt", true, payload)
+	counted := &countingReader{Reader: body}
+	request := httptest.NewRequest(http.MethodPost, "/api/workspaces/"+workspace.ID+"/files/upload", counted)
 	request.Header.Set("Content-Type", contentType)
 	response := httptest.NewRecorder()
 	server.Handler().ServeHTTP(response, request)
 
-	if response.Code != http.StatusOK {
+	if response.Code != http.StatusBadRequest {
 		t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
 	}
-	stored, err := os.ReadFile(filepath.Join(root, "docs", "order.txt"))
-	if err != nil || string(stored) != "ordered" {
-		t.Fatalf("stored=%q err=%v", stored, err)
+	if !strings.Contains(response.Body.String(), "path and overwrite must precede file") {
+		t.Fatalf("unexpected file-first error: %s", response.Body.String())
 	}
+	if counted.read >= int64(len(payload)/2) {
+		t.Fatalf("file-first request consumed too much payload: %d bytes", counted.read)
+	}
+}
+
+type countingReader struct {
+	io.Reader
+	read int64
+}
+
+func (r *countingReader) Read(p []byte) (int, error) {
+	n, err := r.Reader.Read(p)
+	r.read += int64(n)
+	return n, err
 }
 
 func TestUploadWorkspaceFileStreamRemovesTempAfterOversize(t *testing.T) {
@@ -181,6 +235,23 @@ func multipartUploadBodyFileFirst(t *testing.T, path string, overwrite bool, con
 		t.Fatal(err)
 	}
 	if err := writer.WriteField("path", path); err != nil {
+		t.Fatal(err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatal(err)
+	}
+	return &body, writer.FormDataContentType()
+}
+
+func multipartUploadBodyWithUnknownPart(t *testing.T, content []byte) (io.Reader, string) {
+	t.Helper()
+	var body bytes.Buffer
+	writer := multipart.NewWriter(&body)
+	part, err := writer.CreateFormField("unknown")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := part.Write(content); err != nil {
 		t.Fatal(err)
 	}
 	if err := writer.Close(); err != nil {

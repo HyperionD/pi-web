@@ -260,114 +260,71 @@ func UploadWorkspaceFile(root, rel string, data []byte, overwrite bool) (FileCon
 	return UploadWorkspaceFileStream(root, rel, bytes.NewReader(data), 0, overwrite)
 }
 
-func UploadWorkspaceFileStream(root, rel string, source io.Reader, maxBytes int64, overwrite bool) (FileContent, error) {
-	full, err := SafeJoin(root, rel)
-	if err != nil {
-		return FileContent{}, err
-	}
-	if err := validateUploadDestination(root, full); err != nil {
-		return FileContent{}, err
-	}
-	if err := checkUploadTarget(full, overwrite); err != nil {
-		return FileContent{}, err
-	}
-	if err := os.MkdirAll(filepath.Dir(full), 0o700); err != nil {
-		return FileContent{}, err
-	}
-	temp, err := os.CreateTemp(filepath.Dir(full), ".pi-upload-*.tmp")
-	if err != nil {
-		return FileContent{}, err
-	}
-	removeTemp := true
-	defer func() {
-		_ = temp.Close()
-		if removeTemp {
-			_ = os.Remove(temp.Name())
-		}
-	}()
+type uploadTransaction struct {
+	parent     *os.File
+	temp       *os.File
+	tempName   string
+	targetName string
+}
 
+func UploadWorkspaceFileStream(root, rel string, source io.Reader, maxBytes int64, overwrite bool) (FileContent, error) {
+	tx, err := newUploadTransaction(root, rel, overwrite)
+	if err != nil {
+		return FileContent{}, err
+	}
+	defer tx.cleanup()
+	if err := tx.copyFrom(source, maxBytes); err != nil {
+		return FileContent{}, err
+	}
+	if err := tx.commit(overwrite); err != nil {
+		return FileContent{}, err
+	}
+	return ReadWorkspaceFile(root, rel, 256*1024)
+}
+
+func (tx *uploadTransaction) copyFrom(source io.Reader, maxBytes int64) error {
 	reader := source
 	if maxBytes > 0 {
 		reader = io.LimitReader(source, maxBytes+1)
 	}
-	written, err := io.Copy(temp, reader)
+	written, err := io.Copy(tx.temp, reader)
 	if err != nil {
-		return FileContent{}, err
+		return err
 	}
 	if maxBytes > 0 && written > maxBytes {
-		return FileContent{}, &uploadTooLargeError{limit: maxBytes}
-	}
-	if err := temp.Close(); err != nil {
-		return FileContent{}, err
-	}
-	if err := commitUploadTemp(temp.Name(), full, overwrite); err != nil {
-		return FileContent{}, err
-	}
-	removeTemp = false
-	return ReadWorkspaceFile(root, rel, 256*1024)
-}
-
-func validateUploadDestination(root, full string) error {
-	realRoot, err := filepath.EvalSymlinks(root)
-	if err != nil {
-		return err
-	}
-	parent := filepath.Dir(full)
-	existing := parent
-	for {
-		if _, err := os.Lstat(existing); err == nil {
-			break
-		} else if !errors.Is(err, os.ErrNotExist) {
-			return err
-		}
-		next := filepath.Dir(existing)
-		if next == existing {
-			return ErrWorkspaceForbidden
-		}
-		existing = next
-	}
-	realExisting, err := filepath.EvalSymlinks(existing)
-	if err != nil || !pathWithinRoot(realRoot, realExisting) {
-		return ErrWorkspaceForbidden
-	}
-	if err := os.MkdirAll(parent, 0o700); err != nil {
-		return err
-	}
-	realParent, err := filepath.EvalSymlinks(parent)
-	if err != nil || !pathWithinRoot(realRoot, realParent) {
-		return ErrWorkspaceForbidden
+		return &uploadTooLargeError{limit: maxBytes}
 	}
 	return nil
 }
 
-func checkUploadTarget(full string, overwrite bool) error {
-	info, err := os.Stat(full)
-	if err == nil {
-		if info.IsDir() {
-			return errors.New("path is a directory")
-		}
-		if !overwrite {
-			return errors.New("path already exists")
-		}
-		return nil
-	}
-	if !errors.Is(err, os.ErrNotExist) {
+func (tx *uploadTransaction) commit(overwrite bool) error {
+	if err := tx.temp.Sync(); err != nil {
 		return err
 	}
+	if err := tx.temp.Close(); err != nil {
+		return err
+	}
+	tx.temp = nil
+	if err := commitUploadTransaction(tx, overwrite); err != nil {
+		return err
+	}
+	tx.tempName = ""
 	return nil
 }
 
-func commitUploadTemp(temp, full string, overwrite bool) error {
-	if overwrite {
-		return os.Rename(temp, full)
+func (tx *uploadTransaction) cleanup() {
+	if tx.temp != nil {
+		_ = tx.temp.Close()
+		tx.temp = nil
 	}
-	if err := os.Link(temp, full); err != nil {
-		if errors.Is(err, os.ErrExist) {
-			return errors.New("path already exists")
-		}
-		return err
+	if tx.tempName != "" && tx.parent != nil {
+		_ = removeUploadTemp(tx.parent, tx.tempName)
+		tx.tempName = ""
 	}
-	return os.Remove(temp)
+	if tx.parent != nil {
+		_ = tx.parent.Close()
+		tx.parent = nil
+	}
 }
 
 func SafeJoin(root, rel string) (string, error) {

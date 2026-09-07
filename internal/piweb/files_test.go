@@ -2,6 +2,7 @@ package piweb
 
 import (
 	"bytes"
+	"errors"
 	"io"
 	"os"
 	"os/exec"
@@ -228,13 +229,19 @@ func TestUploadWorkspaceFileStreamNoOverwriteIsAtomicNoClobber(t *testing.T) {
 	root := t.TempDir()
 	arrived := make(chan struct{})
 	release := make(chan struct{})
-	results := make(chan error, 2)
+	results := make(chan struct {
+		content string
+		err     error
+	}, 2)
 	for _, content := range []string{"first", "second"} {
 		go func(content string) {
 			_, err := UploadWorkspaceFileStream(root, "same.txt", &barrierReader{
 				data: content, arrived: arrived, release: release,
 			}, 0, false)
-			results <- err
+			results <- struct {
+				content string
+				err     error
+			}{content: content, err: err}
 		}(content)
 	}
 	<-arrived
@@ -242,13 +249,62 @@ func TestUploadWorkspaceFileStreamNoOverwriteIsAtomicNoClobber(t *testing.T) {
 	close(release)
 
 	var success int
+	var winner string
 	for range 2 {
-		if err := <-results; err == nil {
+		result := <-results
+		if result.err == nil {
 			success++
+			winner = result.content
 		}
 	}
 	if success != 1 {
 		t.Fatalf("expected exactly one no-clobber winner, got %d", success)
+	}
+	stored, err := os.ReadFile(filepath.Join(root, "same.txt"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(stored) != winner {
+		t.Fatalf("stored content=%q, winner=%q", stored, winner)
+	}
+	assertNoUploadTemps(t, root)
+}
+
+func TestUploadWorkspaceFileStreamPinsParentDuringSymlinkReplacement(t *testing.T) {
+	root := t.TempDir()
+	outside := t.TempDir()
+	safe := filepath.Join(root, "safe")
+	if err := os.Mkdir(safe, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, filepath.Join(root, "replacement")); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+	arrived := make(chan struct{})
+	release := make(chan struct{})
+	result := make(chan error, 1)
+	go func() {
+		_, err := UploadWorkspaceFileStream(root, "safe/payload.txt", &barrierReader{
+			data: "secret", arrived: arrived, release: release,
+		}, 0, false)
+		result <- err
+	}()
+	<-arrived
+	if err := os.Rename(safe, filepath.Join(root, "safe-real")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, safe); err != nil {
+		t.Fatal(err)
+	}
+	close(release)
+	<-result
+
+	if _, err := os.Stat(filepath.Join(outside, "payload.txt")); !os.IsNotExist(err) {
+		t.Fatalf("upload escaped workspace: %v", err)
+	}
+	stored, err := os.ReadFile(filepath.Join(root, "safe-real", "payload.txt"))
+	if err != nil || string(stored) != "secret" {
+		t.Fatalf("pinned parent content=%q err=%v", stored, err)
 	}
 }
 
@@ -272,6 +328,21 @@ func (r *barrierReader) Read(p []byte) (int, error) {
 	return n, nil
 }
 
+func TestUploadWorkspaceFileStreamCleansTempWhenSourceFails(t *testing.T) {
+	root := t.TempDir()
+	_, err := UploadWorkspaceFileStream(root, "docs/fail.bin", failingUploadReader{}, 0, false)
+	if err == nil || !strings.Contains(err.Error(), "source failed") {
+		t.Fatalf("source error=%v", err)
+	}
+	assertNoUploadTemps(t, filepath.Join(root, "docs"))
+}
+
+type failingUploadReader struct{}
+
+func (failingUploadReader) Read([]byte) (int, error) {
+	return 0, errors.New("source failed")
+}
+
 func TestUploadWorkspaceFileStreamRejectsOversizeAndCleansTemp(t *testing.T) {
 	root := t.TempDir()
 	limit := int64(MinMaxUploadBytes)
@@ -279,11 +350,18 @@ func TestUploadWorkspaceFileStreamRejectsOversizeAndCleansTemp(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "maximum") {
 		t.Fatalf("oversize error=%v", err)
 	}
-	entries, err := os.ReadDir(filepath.Join(root, "docs"))
+	assertNoUploadTemps(t, filepath.Join(root, "docs"))
+}
+
+func assertNoUploadTemps(t *testing.T, directory string) {
+	t.Helper()
+	entries, err := os.ReadDir(directory)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(entries) != 0 {
-		t.Fatalf("temporary files remain: %#v", entries)
+	for _, entry := range entries {
+		if strings.HasPrefix(entry.Name(), ".pi-upload-") {
+			t.Fatalf("temporary file remains: %s", entry.Name())
+		}
 	}
 }
