@@ -111,7 +111,11 @@ export function installPiAppFixture() {
           </select>
           <span data-settings-path></span>
           <section class="app-settings-section">
-            <label class="settings-field app-settings-upload-limit"><span>单文件上传上限（MiB）</span><input data-app-setting="max-upload-mib" type="number" /></label>
+            <label class="settings-field app-settings-upload-limit">
+              <span>单文件上传上限（MiB）</span>
+              <input data-app-setting="max-upload-mib" type="number" min="1" max="2048" step="1" inputmode="numeric" autocomplete="off" aria-describedby="max-upload-mib-hint" />
+              <small id="max-upload-mib-hint">MiB；1–2048，保存后立即生效</small>
+            </label>
             <label>pi-web 应用设置 <input data-app-setting="brand" /></label>
             <small data-app-config-path>—</small>
             <textarea data-app-setting="allowed-roots"></textarea>

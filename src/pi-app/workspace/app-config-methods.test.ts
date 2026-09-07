@@ -504,6 +504,60 @@ describe("app config methods", () => {
     expect(app.querySelector("[data-app-setting='max-upload-mib']").value).toBe("256");
   });
 
+  it("keeps the upload input constraints and describes its hint", async () => {
+    const app = await connectPiApp();
+    const input = app.querySelector("[data-app-setting='max-upload-mib']");
+    const hint = app.querySelector("#max-upload-mib-hint");
+
+    expect(input.getAttribute("min")).toBe("1");
+    expect(input.getAttribute("max")).toBe("2048");
+    expect(input.getAttribute("step")).toBe("1");
+    expect(input.getAttribute("aria-describedby")).toBe("max-upload-mib-hint");
+    expect(hint?.textContent).toBe("MiB；1–2048，保存后立即生效");
+  });
+
+  it("keeps existing allowed roots when only the upload limit changes", async () => {
+    const app = await connectPiApp();
+    Object.assign(app, appConfigMethods);
+    app.appConfigState = {
+      config: { version: 1, brand: "saved", workspace: { allowedRoots: ["/a", "/b"], maxUploadBytes: 104857600 } },
+      path: "/config",
+    };
+
+    app.fillAppConfigForm();
+    app.querySelector("[data-app-setting='max-upload-mib']").value = "256";
+
+    expect(app.appConfigPatchFromForm()).toEqual({ workspace: { maxUploadBytes: 268435456 } });
+  });
+
+  it.each(["1", "2048"])("accepts upload limit boundary %s MiB", async (value) => {
+    const app = await connectPiApp();
+    Object.assign(app, appConfigMethods);
+    app.appConfigState = {
+      config: { version: 1, brand: "saved", workspace: { maxUploadBytes: 104857600 } },
+      path: "/config",
+    };
+    app.fillAppConfigForm();
+    app.querySelector("[data-app-setting='max-upload-mib']").value = value;
+
+    expect(app.appConfigPatchFromForm()).toEqual({
+      workspace: { maxUploadBytes: Number(value) * 1024 * 1024 },
+    });
+  });
+
+  it("rejects decimal upload limits", async () => {
+    const app = await connectPiApp();
+    Object.assign(app, appConfigMethods);
+    app.appConfigState = {
+      config: { version: 1, brand: "saved", workspace: { maxUploadBytes: 104857600 } },
+      path: "/config",
+    };
+    app.fillAppConfigForm();
+    app.querySelector("[data-app-setting='max-upload-mib']").value = "1.5";
+
+    expect(() => app.appConfigPatchFromForm()).toThrow("上传上限必须是 1–2048 MiB 的整数");
+  });
+
   it("converts a changed upload limit to bytes without dropping existing workspace patches", async () => {
     const app = await connectPiApp();
     Object.assign(app, appConfigMethods);
