@@ -187,6 +187,211 @@ describe("WorkspaceFileTree", () => {
     await cleanup(root, host);
   });
 
+  it("shows download progress with the filename and disables download actions during transfer", async () => {
+    let resolveDownload!: (value: unknown) => void;
+    vi.mocked(downloadWorkspaceFile).mockImplementationOnce((_workspace, _path, onProgress) => {
+      onProgress?.(50, 100);
+      return new Promise((resolve) => { resolveDownload = resolve; });
+    });
+    const { host, root } = await renderTree();
+    await updateTree();
+    const app = document.createElement("pi-app");
+    app.dataset.activeWorkspaceId = "workspace-1";
+    document.body.append(app);
+    const folder = host.querySelector<HTMLButtonElement>(".tree-node.dir");
+    await act(async () => folder?.click());
+    const file = [...host.querySelectorAll<HTMLButtonElement>(".tree-node.file")]
+      .find((button) => button.dataset.filePath === "src/main.ts");
+    await act(async () => file?.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true })));
+    await act(async () => {
+      [...host.querySelectorAll<HTMLButtonElement>(".tree-action-menu button")]
+        .find((button) => button.textContent === "下载")?.click();
+    });
+
+    const status = host.querySelector<HTMLElement>("[role=status]");
+    expect(status?.textContent).toContain("main.ts");
+    expect(status?.textContent).toContain("50%");
+    expect(status?.getAttribute("aria-live")).toBe("polite");
+
+    await act(async () => file?.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true })));
+    const downloadAction = [...host.querySelectorAll<HTMLButtonElement>(".tree-action-menu button")]
+      .find((button) => button.textContent === "下载");
+    expect(downloadAction?.disabled).toBe(true);
+
+    resolveDownload({ blob: new Blob(["content"]), filename: "main.ts" });
+    await cleanup(root, host);
+  });
+
+  it("uploads multiple files sequentially", async () => {
+    let resolveFirst!: (value: unknown) => void;
+    const uploadedFiles: File[] = [];
+    vi.mocked(uploadWorkspaceFile).mockImplementation((_workspace, _path, file) => {
+      uploadedFiles.push(file);
+      if (uploadedFiles.length === 1) return new Promise((resolve) => { resolveFirst = resolve; });
+      return Promise.resolve({ uploaded: true });
+    });
+    const { host, root } = await renderTree();
+    await updateTree();
+    const app = document.createElement("pi-app");
+    app.dataset.activeWorkspaceId = "workspace-1";
+    document.body.append(app);
+    const folder = host.querySelector<HTMLButtonElement>(".tree-node.dir");
+    await act(async () => folder?.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true })));
+    await act(async () => {
+      [...host.querySelectorAll<HTMLButtonElement>(".tree-action-menu button")]
+        .find((button) => button.textContent === "上传到此处")?.click();
+    });
+    const input = host.querySelector<HTMLInputElement>("input[type=file]")!;
+    const first = new File(["one"], "one.txt");
+    const second = new File(["two"], "two.txt");
+    Object.defineProperty(input, "files", { configurable: true, value: [first, second] });
+    await act(async () => input.dispatchEvent(new Event("change", { bubbles: true })));
+    expect(uploadedFiles).toEqual([first]);
+
+    resolveFirst({ uploaded: true });
+    await act(async () => { await Promise.resolve(); });
+    expect(uploadedFiles).toEqual([first, second]);
+    await cleanup(root, host);
+  });
+
+  it("retries an existing upload with overwrite after confirmation", async () => {
+    vi.mocked(uploadWorkspaceFile)
+      .mockRejectedValueOnce(new Error("already exists"))
+      .mockResolvedValueOnce({ uploaded: true });
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    const { host, root } = await renderTree();
+    await updateTree();
+    const app = document.createElement("pi-app");
+    app.dataset.activeWorkspaceId = "workspace-1";
+    document.body.append(app);
+    const folder = host.querySelector<HTMLButtonElement>(".tree-node.dir");
+    await act(async () => folder?.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true })));
+    await act(async () => {
+      [...host.querySelectorAll<HTMLButtonElement>(".tree-action-menu button")]
+        .find((button) => button.textContent === "上传到此处")?.click();
+    });
+    const input = host.querySelector<HTMLInputElement>("input[type=file]")!;
+    const file = new File(["replace"], "existing.txt");
+    Object.defineProperty(input, "files", { configurable: true, value: [file] });
+    await act(async () => input.dispatchEvent(new Event("change", { bubbles: true })));
+
+    expect(uploadWorkspaceFile).toHaveBeenNthCalledWith(
+      1, "workspace-1", "src/existing.txt", file, false, expect.any(Function),
+    );
+    expect(uploadWorkspaceFile).toHaveBeenNthCalledWith(
+      2, "workspace-1", "src/existing.txt", file, true, expect.any(Function),
+    );
+    await cleanup(root, host);
+  });
+
+  it("returns a success status to idle after a short display", async () => {
+    vi.useFakeTimers();
+    const { host, root } = await renderTree();
+    await updateTree();
+    const app = document.createElement("pi-app");
+    app.dataset.activeWorkspaceId = "workspace-1";
+    document.body.append(app);
+    const folder = host.querySelector<HTMLButtonElement>(".tree-node.dir");
+    await act(async () => folder?.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true })));
+    await act(async () => {
+      [...host.querySelectorAll<HTMLButtonElement>(".tree-action-menu button")]
+        .find((button) => button.textContent === "上传到此处")?.click();
+    });
+    const input = host.querySelector<HTMLInputElement>("input[type=file]")!;
+    Object.defineProperty(input, "files", { configurable: true, value: [new File(["x"], "done.txt")] });
+    await act(async () => input.dispatchEvent(new Event("change", { bubbles: true })));
+    expect(host.querySelector("[data-status='success']")).toBeTruthy();
+
+    await act(async () => { vi.advanceTimersByTime(999); });
+    expect(host.querySelector("[data-status='success']")).toBeTruthy();
+    await act(async () => { vi.advanceTimersByTime(1); });
+    expect(host.querySelector("[data-status='success']")).toBeFalsy();
+
+    await cleanup(root, host);
+  });
+
+  it("clears a pending success timer when the component unmounts", async () => {
+    vi.useFakeTimers();
+    const clearTimeout = vi.spyOn(window, "clearTimeout");
+    const { host, root } = await renderTree();
+    await updateTree();
+    const app = document.createElement("pi-app");
+    app.dataset.activeWorkspaceId = "workspace-1";
+    document.body.append(app);
+    const folder = host.querySelector<HTMLButtonElement>(".tree-node.dir");
+    await act(async () => folder?.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true })));
+    await act(async () => {
+      [...host.querySelectorAll<HTMLButtonElement>(".tree-action-menu button")]
+        .find((button) => button.textContent === "上传到此处")?.click();
+    });
+    const input = host.querySelector<HTMLInputElement>("input[type=file]")!;
+    Object.defineProperty(input, "files", { configurable: true, value: [new File(["x"], "pending.txt")] });
+    await act(async () => input.dispatchEvent(new Event("change", { bubbles: true })));
+
+    await cleanup(root, host);
+    expect(clearTimeout).toHaveBeenCalled();
+  });
+
+  it("clears a previous success timer before a new transfer", async () => {
+    vi.useFakeTimers();
+    let resolveSecond!: (value: unknown) => void;
+    const { host, root } = await renderTree();
+    await updateTree();
+    const app = document.createElement("pi-app");
+    app.dataset.activeWorkspaceId = "workspace-1";
+    document.body.append(app);
+    const folder = host.querySelector<HTMLButtonElement>(".tree-node.dir");
+    const openUpload = async (file: File) => {
+      await act(async () => folder?.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true })));
+      await act(async () => {
+        [...host.querySelectorAll<HTMLButtonElement>(".tree-action-menu button")]
+          .find((button) => button.textContent === "上传到此处")?.click();
+      });
+      const input = host.querySelector<HTMLInputElement>("input[type=file]")!;
+      Object.defineProperty(input, "files", { configurable: true, value: [file] });
+      await act(async () => input.dispatchEvent(new Event("change", { bubbles: true })));
+    };
+    await openUpload(new File(["first"], "first.txt"));
+    expect(host.querySelector("[data-status='success']")).toBeTruthy();
+    vi.mocked(uploadWorkspaceFile).mockImplementationOnce(() => (
+      new Promise((resolve) => { resolveSecond = resolve; })
+    ));
+    await openUpload(new File(["second"], "second.txt"));
+
+    await act(async () => { vi.advanceTimersByTime(1000); });
+    expect(host.querySelector("[data-status='progress']")?.textContent).toContain("second.txt");
+    resolveSecond({ uploaded: true });
+    await cleanup(root, host);
+  });
+
+  it("revokes a download object URL when anchor click throws", async () => {
+    const createObjectURL = vi.fn().mockReturnValue("blob:throw");
+    const revokeObjectURL = vi.fn();
+    vi.stubGlobal("URL", { ...URL, createObjectURL, revokeObjectURL });
+    vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {
+      throw new Error("click failed");
+    });
+    vi.spyOn(window, "alert").mockImplementation(() => {});
+    const { host, root } = await renderTree();
+    await updateTree();
+    const app = document.createElement("pi-app");
+    app.dataset.activeWorkspaceId = "workspace-1";
+    document.body.append(app);
+    const folder = host.querySelector<HTMLButtonElement>(".tree-node.dir");
+    await act(async () => folder?.click());
+    const file = [...host.querySelectorAll<HTMLButtonElement>(".tree-node.file")]
+      .find((button) => button.dataset.filePath === "src/main.ts");
+    await act(async () => file?.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true })));
+    await act(async () => {
+      [...host.querySelectorAll<HTMLButtonElement>(".tree-action-menu button")]
+        .find((button) => button.textContent === "下载")?.click();
+    });
+
+    expect(host.querySelector("[data-status='error']")?.textContent).toContain("click failed");
+    expect(revokeObjectURL).toHaveBeenCalledWith("blob:throw");
+    await cleanup(root, host);
+  });
+
   it("downloads a blob, clicks its filename, and revokes the object URL", async () => {
     const createObjectURL = vi.fn().mockReturnValue("blob:test");
     const revokeObjectURL = vi.fn();

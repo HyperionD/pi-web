@@ -24,6 +24,7 @@ type TransferState =
 
 const ROW_HEIGHT = 38;
 const DEFAULT_HEIGHT = 480;
+const SUCCESS_STATUS_DURATION = 1000;
 
 export default function WorkspaceFileTree({ initialFiles = [], initialStatusMap = {} }: Props) {
   const [files, setFiles] = useState<RawFileNode[]>(initialFiles);
@@ -38,6 +39,7 @@ export default function WorkspaceFileTree({ initialFiles = [], initialStatusMap 
   const treeArea = useRef<HTMLDivElement>(null);
   const uploadInput = useRef<HTMLInputElement>(null);
   const uploadTarget = useRef<MenuTarget | null>(null);
+  const transferTimer = useRef<number | null>(null);
 
   useEffect(() => {
     const onUpdate = (event: Event) => {
@@ -78,6 +80,8 @@ export default function WorkspaceFileTree({ initialFiles = [], initialStatusMap 
       window.removeEventListener("keydown", close);
     };
   }, [menu]);
+
+  useEffect(() => () => clearTransferTimer(), []);
 
   useEffect(() => {
     const query = searchTerm.trim();
@@ -219,6 +223,7 @@ export default function WorkspaceFileTree({ initialFiles = [], initialStatusMap 
   }
 
   async function downloadFile(workspaceId: string, path: string) {
+    clearTransferTimer();
     const fallbackName = path.split("/").pop() || path;
     setTransferState({ kind: "progress", operation: "download", filename: fallbackName, loaded: 0 });
     let objectUrl = "";
@@ -234,7 +239,7 @@ export default function WorkspaceFileTree({ initialFiles = [], initialStatusMap 
       document.body.append(anchor);
       anchor.click();
       anchor.remove();
-      setTransferState({ kind: "success", operation: "download", filename: result.filename });
+      showTransferSuccess("download", result.filename);
     } catch (error) {
       setTransferError("download", fallbackName, error);
     } finally {
@@ -249,6 +254,7 @@ export default function WorkspaceFileTree({ initialFiles = [], initialStatusMap 
     uploadTarget.current = null;
     if (uploadInput.current) uploadInput.current.value = "";
     if (!workspaceId || !target || !selectedFiles.length) return;
+    clearTransferTimer();
     const folder = uploadFolder(target);
     let firstPath = "";
     let currentFilename = selectedFiles[0]?.name || "";
@@ -268,13 +274,28 @@ export default function WorkspaceFileTree({ initialFiles = [], initialStatusMap 
         }
         if (!firstPath) firstPath = path;
       }
-      setTransferState({ kind: "success", operation: "upload", filename: currentFilename });
+      showTransferSuccess("upload", currentFilename);
       refreshTree(firstPath);
     } catch (error) {
       setTransferError("upload", currentFilename, error);
       showTemporaryError(error);
       refreshTree(firstPath);
     }
+  }
+
+  function showTransferSuccess(operation: TransferOperation, filename: string) {
+    clearTransferTimer();
+    setTransferState({ kind: "success", operation, filename });
+    transferTimer.current = window.setTimeout(() => {
+      transferTimer.current = null;
+      setTransferState({ kind: "idle" });
+    }, SUCCESS_STATUS_DURATION);
+  }
+
+  function clearTransferTimer() {
+    if (transferTimer.current === null) return;
+    window.clearTimeout(transferTimer.current);
+    transferTimer.current = null;
   }
 
   function setTransferError(operation: TransferOperation, filename: string, error: unknown) {
