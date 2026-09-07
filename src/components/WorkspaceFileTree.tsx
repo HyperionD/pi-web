@@ -40,6 +40,8 @@ export default function WorkspaceFileTree({ initialFiles = [], initialStatusMap 
   const uploadInput = useRef<HTMLInputElement>(null);
   const uploadTarget = useRef<MenuTarget | null>(null);
   const transferTimer = useRef<number | null>(null);
+  const mounted = useRef(true);
+  const transferGeneration = useRef(0);
 
   useEffect(() => {
     const onUpdate = (event: Event) => {
@@ -81,7 +83,11 @@ export default function WorkspaceFileTree({ initialFiles = [], initialStatusMap 
     };
   }, [menu]);
 
-  useEffect(() => () => clearTransferTimer(), []);
+  useEffect(() => () => {
+    mounted.current = false;
+    transferGeneration.current += 1;
+    clearTransferTimer();
+  }, []);
 
   useEffect(() => {
     const query = searchTerm.trim();
@@ -223,25 +229,30 @@ export default function WorkspaceFileTree({ initialFiles = [], initialStatusMap 
   }
 
   async function downloadFile(workspaceId: string, path: string) {
-    clearTransferTimer();
+    const generation = beginTransfer();
     const fallbackName = path.split("/").pop() || path;
     setTransferState({ kind: "progress", operation: "download", filename: fallbackName, loaded: 0 });
     let objectUrl = "";
     try {
       const result = await downloadWorkspaceFile(workspaceId, path, (loaded, total) => {
+        if (!isTransferActive(generation)) return;
         setTransferState({ kind: "progress", operation: "download", filename: fallbackName, loaded, total });
       });
+      if (!isTransferActive(generation)) return;
       objectUrl = URL.createObjectURL(result.blob);
       const anchor = document.createElement("a");
       anchor.href = objectUrl;
       anchor.download = result.filename;
       anchor.hidden = true;
       document.body.append(anchor);
-      anchor.click();
-      anchor.remove();
-      showTransferSuccess("download", result.filename);
+      try {
+        anchor.click();
+      } finally {
+        anchor.remove();
+      }
+      if (isTransferActive(generation)) showTransferSuccess("download", result.filename, generation);
     } catch (error) {
-      setTransferError("download", fallbackName, error);
+      if (isTransferActive(generation)) setTransferError("download", fallbackName, error, generation);
     } finally {
       if (objectUrl) URL.revokeObjectURL(objectUrl);
     }
@@ -254,7 +265,7 @@ export default function WorkspaceFileTree({ initialFiles = [], initialStatusMap 
     uploadTarget.current = null;
     if (uploadInput.current) uploadInput.current.value = "";
     if (!workspaceId || !target || !selectedFiles.length) return;
-    clearTransferTimer();
+    const generation = beginTransfer();
     const folder = uploadFolder(target);
     let firstPath = "";
     let currentFilename = selectedFiles[0]?.name || "";
@@ -263,32 +274,49 @@ export default function WorkspaceFileTree({ initialFiles = [], initialStatusMap 
         currentFilename = file.name;
         const path = joinPath(folder, file.name);
         const onProgress = (loaded: number, total?: number) => {
+          if (!isTransferActive(generation)) return;
           setTransferState({ kind: "progress", operation: "upload", filename: file.name, loaded, total });
         };
+        if (!isTransferActive(generation)) return;
         setTransferState({ kind: "progress", operation: "upload", filename: file.name, loaded: 0 });
         try {
           await uploadWorkspaceFile(workspaceId, path, file, false, onProgress);
         } catch (error) {
+          if (!isTransferActive(generation)) return;
           if (!isAlreadyExistsError(error) || !window.confirm(`${path} 已存在。要覆盖吗？`)) throw error;
           await uploadWorkspaceFile(workspaceId, path, file, true, onProgress);
         }
+        if (!isTransferActive(generation)) return;
         if (!firstPath) firstPath = path;
       }
-      showTransferSuccess("upload", currentFilename);
+      if (!isTransferActive(generation)) return;
+      showTransferSuccess("upload", currentFilename, generation);
       refreshTree(firstPath);
     } catch (error) {
-      setTransferError("upload", currentFilename, error);
+      if (!isTransferActive(generation)) return;
+      setTransferError("upload", currentFilename, error, generation);
       showTemporaryError(error);
       refreshTree(firstPath);
     }
   }
 
-  function showTransferSuccess(operation: TransferOperation, filename: string) {
+  function beginTransfer() {
+    transferGeneration.current += 1;
+    clearTransferTimer();
+    return transferGeneration.current;
+  }
+
+  function isTransferActive(generation: number) {
+    return mounted.current && transferGeneration.current === generation;
+  }
+
+  function showTransferSuccess(operation: TransferOperation, filename: string, generation: number) {
+    if (!isTransferActive(generation)) return;
     clearTransferTimer();
     setTransferState({ kind: "success", operation, filename });
     transferTimer.current = window.setTimeout(() => {
       transferTimer.current = null;
-      setTransferState({ kind: "idle" });
+      if (isTransferActive(generation)) setTransferState({ kind: "idle" });
     }, SUCCESS_STATUS_DURATION);
   }
 
@@ -298,7 +326,8 @@ export default function WorkspaceFileTree({ initialFiles = [], initialStatusMap 
     transferTimer.current = null;
   }
 
-  function setTransferError(operation: TransferOperation, filename: string, error: unknown) {
+  function setTransferError(operation: TransferOperation, filename: string, error: unknown, generation: number) {
+    if (!isTransferActive(generation)) return;
     setTransferState({ kind: "error", operation, filename, message: transferErrorMessage(error) });
   }
 }

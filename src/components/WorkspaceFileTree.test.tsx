@@ -187,6 +187,119 @@ describe("WorkspaceFileTree", () => {
     await cleanup(root, host);
   });
 
+  it("does not continue an upload after unmount", async () => {
+    vi.useFakeTimers();
+    let resolveUpload!: (value: unknown) => void;
+    vi.mocked(uploadWorkspaceFile).mockImplementationOnce(() => new Promise((resolve) => {
+      resolveUpload = resolve;
+    }));
+    const refresh = vi.fn();
+    window.addEventListener("pi-workspace-tree:refresh", refresh);
+    const { host, root } = await renderTree();
+    await updateTree();
+    const app = document.createElement("pi-app");
+    app.dataset.activeWorkspaceId = "workspace-1";
+    document.body.append(app);
+    const folder = host.querySelector<HTMLButtonElement>(".tree-node.dir");
+    await act(async () => folder?.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true })));
+    await act(async () => {
+      [...host.querySelectorAll<HTMLButtonElement>(".tree-action-menu button")]
+        .find((button) => button.textContent === "上传到此处")?.click();
+    });
+    const input = host.querySelector<HTMLInputElement>("input[type=file]")!;
+    Object.defineProperty(input, "files", { configurable: true, value: [new File(["x"], "pending.txt")] });
+    await act(async () => input.dispatchEvent(new Event("change", { bubbles: true })));
+    const setTimeoutSpy = vi.spyOn(window, "setTimeout");
+    setTimeoutSpy.mockClear();
+
+    await cleanup(root, host);
+    setTimeoutSpy.mockClear();
+    await act(async () => {
+      resolveUpload({ uploaded: true });
+      await Promise.resolve();
+    });
+    window.removeEventListener("pi-workspace-tree:refresh", refresh);
+
+    expect(setTimeoutSpy).not.toHaveBeenCalled();
+    expect(refresh).not.toHaveBeenCalled();
+  });
+
+  it("does not report an upload rejection after unmount", async () => {
+    vi.useFakeTimers();
+    let rejectUpload!: (reason: unknown) => void;
+    vi.mocked(uploadWorkspaceFile).mockImplementationOnce(() => new Promise((_resolve, reject) => {
+      rejectUpload = reject;
+    }));
+    const refresh = vi.fn();
+    const alert = vi.spyOn(window, "alert").mockImplementation(() => {});
+    window.addEventListener("pi-workspace-tree:refresh", refresh);
+    const { host, root } = await renderTree();
+    await updateTree();
+    const app = document.createElement("pi-app");
+    app.dataset.activeWorkspaceId = "workspace-1";
+    document.body.append(app);
+    const folder = host.querySelector<HTMLButtonElement>(".tree-node.dir");
+    await act(async () => folder?.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true })));
+    await act(async () => {
+      [...host.querySelectorAll<HTMLButtonElement>(".tree-action-menu button")]
+        .find((button) => button.textContent === "上传到此处")?.click();
+    });
+    const input = host.querySelector<HTMLInputElement>("input[type=file]")!;
+    Object.defineProperty(input, "files", { configurable: true, value: [new File(["x"], "pending.txt")] });
+    await act(async () => input.dispatchEvent(new Event("change", { bubbles: true })));
+    const setTimeoutSpy = vi.spyOn(window, "setTimeout");
+    setTimeoutSpy.mockClear();
+
+    await cleanup(root, host);
+    setTimeoutSpy.mockClear();
+    await act(async () => {
+      rejectUpload(new Error("upload failed"));
+      await Promise.resolve();
+    });
+    window.removeEventListener("pi-workspace-tree:refresh", refresh);
+
+    expect(setTimeoutSpy).not.toHaveBeenCalled();
+    expect(refresh).not.toHaveBeenCalled();
+    expect(alert).not.toHaveBeenCalled();
+  });
+
+  it("does not continue a download after unmount", async () => {
+    vi.useFakeTimers();
+    let resolveDownload!: (value: unknown) => void;
+    vi.mocked(downloadWorkspaceFile).mockImplementationOnce(() => new Promise((resolve) => {
+      resolveDownload = resolve;
+    }));
+    const refresh = vi.fn();
+    window.addEventListener("pi-workspace-tree:refresh", refresh);
+    const { host, root } = await renderTree();
+    await updateTree();
+    const app = document.createElement("pi-app");
+    app.dataset.activeWorkspaceId = "workspace-1";
+    document.body.append(app);
+    const folder = host.querySelector<HTMLButtonElement>(".tree-node.dir");
+    await act(async () => folder?.click());
+    const file = [...host.querySelectorAll<HTMLButtonElement>(".tree-node.file")]
+      .find((button) => button.dataset.filePath === "src/main.ts");
+    await act(async () => file?.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true })));
+    await act(async () => {
+      [...host.querySelectorAll<HTMLButtonElement>(".tree-action-menu button")]
+        .find((button) => button.textContent === "下载")?.click();
+    });
+    const setTimeoutSpy = vi.spyOn(window, "setTimeout");
+    setTimeoutSpy.mockClear();
+
+    await cleanup(root, host);
+    setTimeoutSpy.mockClear();
+    await act(async () => {
+      resolveDownload({ blob: new Blob(["content"]), filename: "download.txt" });
+      await Promise.resolve();
+    });
+    window.removeEventListener("pi-workspace-tree:refresh", refresh);
+
+    expect(setTimeoutSpy).not.toHaveBeenCalled();
+    expect(refresh).not.toHaveBeenCalled();
+  });
+
   it("shows download progress with the filename and disables download actions during transfer", async () => {
     let resolveDownload!: (value: unknown) => void;
     vi.mocked(downloadWorkspaceFile).mockImplementationOnce((_workspace, _path, onProgress) => {
@@ -389,6 +502,7 @@ describe("WorkspaceFileTree", () => {
 
     expect(host.querySelector("[data-status='error']")?.textContent).toContain("click failed");
     expect(revokeObjectURL).toHaveBeenCalledWith("blob:throw");
+    expect(document.body.querySelector("a[hidden]")).toBeNull();
     await cleanup(root, host);
   });
 
