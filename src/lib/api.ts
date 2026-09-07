@@ -1,4 +1,5 @@
 import { HttpAgent } from "@ag-ui/client";
+import { downloadWorkspaceFile, uploadWorkspaceFile as uploadWorkspaceFileWithProgress } from "./file-transfer";
 
 const DEV_API_BASE = "http://127.0.0.1:8732";
 const DEV_PORTS = new Set(["4321", "6006"]);
@@ -21,7 +22,7 @@ export type FolderListing = {
   folders?: Array<{ name: string; path: string; displayPath?: string }>;
 };
 
-function apiBase() {
+export function apiBase() {
   if (globalThis.PI_WEB_API_BASE !== undefined) return globalThis.PI_WEB_API_BASE;
   if (DEV_PORTS.has(globalThis.location?.port)) return DEV_API_BASE;
   return "";
@@ -227,11 +228,31 @@ export function deleteWorkspaceFile(workspaceId, path) {
   });
 }
 
-export function uploadWorkspaceFile(workspaceId, path, content, overwrite = false) {
-  return request(`/api/workspaces/${encodeURIComponent(workspaceId)}/files/upload`, {
-    method: "POST",
-    body: JSON.stringify({ path, content, overwrite }),
-  });
+export { downloadWorkspaceFile };
+
+export function uploadWorkspaceFile(
+  workspaceId: string,
+  path: string,
+  file: File,
+  overwrite: boolean,
+  onProgress?: (loaded: number, total?: number) => void,
+): Promise<unknown>;
+/** @deprecated Use a File to send a multipart upload. */
+export function uploadWorkspaceFile(workspaceId: string, path: string, content: string, overwrite?: boolean): Promise<unknown>;
+export function uploadWorkspaceFile(
+  workspaceId: string,
+  path: string,
+  fileOrContent: File | string,
+  overwrite = false,
+  onProgress?: (loaded: number, total?: number) => void,
+) {
+  if (typeof fileOrContent === "string") {
+    return request(`/api/workspaces/${encodeURIComponent(workspaceId)}/files/upload`, {
+      method: "POST",
+      body: JSON.stringify({ path, content: fileOrContent, overwrite }),
+    });
+  }
+  return uploadWorkspaceFileWithProgress(workspaceId, path, fileOrContent, overwrite, onProgress);
 }
 
 export function getGitStatus(workspaceId) {

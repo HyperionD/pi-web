@@ -33,6 +33,7 @@ import {
   saveWorkspaceSettings,
   searchWorkspaceFiles,
   sessionEvents,
+  uploadWorkspaceFile,
 } from "./api";
 
 describe("api adapter", () => {
@@ -154,6 +155,45 @@ describe("api adapter", () => {
     expect(saved.url).toBe("http://backend.test/api/workspaces/w1/files/write?path=src%2Fmain.go");
     expect(saved.options.method).toBe("PUT");
     expect(JSON.parse(saved.options.body)).toEqual({ content: "package main" });
+  });
+
+  it("uploads workspace files as multipart without overriding Content-Type", async () => {
+    const OriginalXMLHttpRequest = globalThis.XMLHttpRequest;
+    let requestBody;
+    globalThis.XMLHttpRequest = class {
+      upload = {};
+      requestHeaders = {};
+      status = 201;
+      statusText = "Created";
+      responseText = '{"uploaded":true}';
+      open(method, url) {
+        this.method = method;
+        this.url = url;
+      }
+      setRequestHeader(name, value) {
+        this.requestHeaders[name] = value;
+      }
+      send(body) {
+        requestBody = body;
+        this.onload?.();
+      }
+      getResponseHeader() {
+        return null;
+      }
+    };
+
+    try {
+      const file = new File(["hello"], "hello.txt", { type: "text/plain" });
+      await expect(uploadWorkspaceFile("w1", "hello.txt", file, false)).resolves.toEqual({ uploaded: true });
+      expect(Array.from(requestBody.entries())).toEqual([
+        ["path", "hello.txt"],
+        ["overwrite", "false"],
+        ["file", file],
+      ]);
+      expect(globalThis.fetch).not.toHaveBeenCalled();
+    } finally {
+      globalThis.XMLHttpRequest = OriginalXMLHttpRequest;
+    }
   });
 
   it("posts prompts as json", async () => {
