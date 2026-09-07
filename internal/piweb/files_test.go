@@ -1,9 +1,11 @@
 package piweb
 
 import (
+	"bytes"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -202,5 +204,21 @@ func TestUploadWorkspaceFile(t *testing.T) {
 	}
 	if file.Path != "docs/image.png" {
 		t.Fatalf("unexpected path: %#v", file)
+	}
+}
+
+func TestUploadWorkspaceFileStreamRejectsOversizeAndCleansTemp(t *testing.T) {
+	root := t.TempDir()
+	limit := int64(MinMaxUploadBytes)
+	_, err := UploadWorkspaceFileStream(root, "docs/large.bin", bytes.NewReader(bytes.Repeat([]byte("x"), int(limit)+1)), limit, false)
+	if err == nil || !strings.Contains(err.Error(), "maximum") {
+		t.Fatalf("oversize error=%v", err)
+	}
+	entries, err := os.ReadDir(filepath.Join(root, "docs"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 0 {
+		t.Fatalf("temporary files remain: %#v", entries)
 	}
 }

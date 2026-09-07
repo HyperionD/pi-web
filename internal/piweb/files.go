@@ -1,8 +1,11 @@
 package piweb
 
 import (
+	"bytes"
 	"encoding/base64"
 	"errors"
+	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -245,7 +248,19 @@ func DeleteWorkspacePath(root, rel string) error {
 	return os.RemoveAll(full)
 }
 
+type uploadTooLargeError struct {
+	limit int64
+}
+
+func (e *uploadTooLargeError) Error() string {
+	return fmt.Sprintf("file exceeds configured maximum of %d bytes", e.limit)
+}
+
 func UploadWorkspaceFile(root, rel string, data []byte, overwrite bool) (FileContent, error) {
+	return UploadWorkspaceFileStream(root, rel, bytes.NewReader(data), 0, overwrite)
+}
+
+func UploadWorkspaceFileStream(root, rel string, source io.Reader, maxBytes int64, overwrite bool) (FileContent, error) {
 	full, err := SafeJoin(root, rel)
 	if err != nil {
 		return FileContent{}, err
@@ -263,9 +278,36 @@ func UploadWorkspaceFile(root, rel string, data []byte, overwrite bool) (FileCon
 	if err := os.MkdirAll(filepath.Dir(full), 0o700); err != nil {
 		return FileContent{}, err
 	}
-	if err := os.WriteFile(full, data, 0o600); err != nil {
+	temp, err := os.CreateTemp(filepath.Dir(full), ".pi-upload-*.tmp")
+	if err != nil {
 		return FileContent{}, err
 	}
+	removeTemp := true
+	defer func() {
+		_ = temp.Close()
+		if removeTemp {
+			_ = os.Remove(temp.Name())
+		}
+	}()
+
+	reader := source
+	if maxBytes > 0 {
+		reader = io.LimitReader(source, maxBytes+1)
+	}
+	written, err := io.Copy(temp, reader)
+	if err != nil {
+		return FileContent{}, err
+	}
+	if maxBytes > 0 && written > maxBytes {
+		return FileContent{}, &uploadTooLargeError{limit: maxBytes}
+	}
+	if err := temp.Close(); err != nil {
+		return FileContent{}, err
+	}
+	if err := os.Rename(temp.Name(), full); err != nil {
+		return FileContent{}, err
+	}
+	removeTemp = false
 	return ReadWorkspaceFile(root, rel, 256*1024)
 }
 

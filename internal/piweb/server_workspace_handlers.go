@@ -4,6 +4,8 @@ import (
 	"encoding/base64"
 	"errors"
 	"io"
+	"mime"
+	"mime/multipart"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -448,8 +450,23 @@ func (s *Server) deleteWorkspaceFile(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"deleted": true})
 }
 func (s *Server) uploadWorkspaceFile(w http.ResponseWriter, r *http.Request) {
+	maxBytes, err := LoadMaxUploadBytes()
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
+	mediaType, _, err := mime.ParseMediaType(r.Header.Get("Content-Type"))
+	if err == nil && mediaType == "multipart/form-data" {
+		s.uploadMultipartWorkspaceFile(w, r, maxBytes)
+		return
+	}
+
 	var req UploadFileRequest
-	if err := readJSON(r, &req); err != nil {
+	if err := readJSONWithLimit(r, &req, maxUploadJSONBodyBytes(maxBytes)); err != nil {
+		if errors.Is(err, errRequestBodyTooLarge) {
+			writeUploadTooLarge(w, maxBytes)
+			return
+		}
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
@@ -462,12 +479,108 @@ func (s *Server) uploadWorkspaceFile(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
+	if int64(len(data)) > maxBytes {
+		writeUploadTooLarge(w, maxBytes)
+		return
+	}
 	file, err := s.store.UploadFile(r.PathValue("workspaceID"), req.Path, data, req.Overwrite)
 	if err != nil {
 		writeStoreError(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, file)
+}
+
+func (s *Server) uploadMultipartWorkspaceFile(w http.ResponseWriter, r *http.Request, maxBytes int64) {
+	root, err := s.store.WorkspacePath(r.PathValue("workspaceID"))
+	if err != nil {
+		writeStoreError(w, err)
+		return
+	}
+	reader, err := r.MultipartReader()
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	path := ""
+	overwrite := false
+	for {
+		part, err := reader.NextPart()
+		if errors.Is(err, io.EOF) {
+			break
+		}
+		if err != nil {
+			writeError(w, http.StatusBadRequest, err)
+			return
+		}
+		name := part.FormName()
+		if name == "path" {
+			value, err := readMultipartField(part)
+			_ = part.Close()
+			if err != nil {
+				writeError(w, http.StatusBadRequest, err)
+				return
+			}
+			path = value
+			continue
+		}
+		if name == "overwrite" {
+			value, err := readMultipartField(part)
+			_ = part.Close()
+			if err != nil {
+				writeError(w, http.StatusBadRequest, err)
+				return
+			}
+			if value != "" {
+				overwrite, err = strconv.ParseBool(value)
+				if err != nil {
+					writeError(w, http.StatusBadRequest, errors.New("overwrite must be a boolean"))
+					return
+				}
+			}
+			continue
+		}
+		if name != "file" {
+			_ = part.Close()
+			continue
+		}
+		if path == "" {
+			_ = part.Close()
+			writeError(w, http.StatusBadRequest, errors.New("path is required before file"))
+			return
+		}
+		if _, err := SafeJoin(root, path); err != nil {
+			_ = part.Close()
+			writeError(w, http.StatusBadRequest, err)
+			return
+		}
+		file, err := UploadWorkspaceFileStream(root, path, part, maxBytes, overwrite)
+		_ = part.Close()
+		if err != nil {
+			var tooLarge *uploadTooLargeError
+			if errors.As(err, &tooLarge) {
+				writeUploadTooLarge(w, maxBytes)
+				return
+			}
+			writeStoreError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, file)
+		return
+	}
+	writeError(w, http.StatusBadRequest, errors.New("file is required"))
+}
+
+func readMultipartField(part *multipart.Part) (string, error) {
+	const maxFieldBytes = 16 * 1024
+	data, err := io.ReadAll(io.LimitReader(part, maxFieldBytes+1))
+	if err != nil {
+		return "", err
+	}
+	if len(data) > maxFieldBytes {
+		return "", errors.New("multipart field is too large")
+	}
+	return string(data), nil
 }
 func (s *Server) gitStatus(w http.ResponseWriter, r *http.Request) {
 	status, err := s.store.GitStatus(r.PathValue("workspaceID"))

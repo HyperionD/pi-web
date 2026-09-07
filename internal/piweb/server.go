@@ -228,12 +228,13 @@ const maxJSONBodyBytes int64 = 1 << 20
 var errRequestBodyTooLarge = errors.New("request body is too large")
 
 type limitedJSONReader struct {
-	reader io.Reader
-	read   int64
+	reader   io.Reader
+	read     int64
+	maxBytes int64
 }
 
 func (r *limitedJSONReader) Read(p []byte) (int, error) {
-	remaining := maxJSONBodyBytes + 1 - r.read
+	remaining := r.maxBytes + 1 - r.read
 	if remaining <= 0 {
 		return 0, errRequestBodyTooLarge
 	}
@@ -246,17 +247,24 @@ func (r *limitedJSONReader) Read(p []byte) (int, error) {
 }
 
 func readJSON(r *http.Request, v any) error {
+	return readJSONWithLimit(r, v, maxJSONBodyBytes)
+}
+
+func readJSONWithLimit(r *http.Request, v any, maxBytes int64) error {
 	defer r.Body.Close()
-	limited := &limitedJSONReader{reader: r.Body}
+	if maxBytes <= 0 {
+		maxBytes = maxJSONBodyBytes
+	}
+	limited := &limitedJSONReader{reader: r.Body, maxBytes: maxBytes}
 	decoder := json.NewDecoder(limited)
 	if err := decoder.Decode(v); err != nil {
-		if limited.read > maxJSONBodyBytes {
+		if limited.read > maxBytes {
 			return errRequestBodyTooLarge
 		}
 		return err
 	}
 	if err := decoder.Decode(&struct{}{}); err != io.EOF {
-		if limited.read > maxJSONBodyBytes {
+		if limited.read > maxBytes {
 			return errRequestBodyTooLarge
 		}
 		if err == nil {
@@ -264,11 +272,19 @@ func readJSON(r *http.Request, v any) error {
 		}
 		return err
 	}
-	if limited.read > maxJSONBodyBytes {
+	if limited.read > maxBytes {
 		return errRequestBodyTooLarge
 	}
 	return nil
 }
+func writeUploadTooLarge(w http.ResponseWriter, maxBytes int64) {
+	writeError(w, http.StatusRequestEntityTooLarge, &uploadTooLargeError{limit: maxBytes})
+}
+
+func maxUploadJSONBodyBytes(maxBytes int64) int64 {
+	return maxBytes + ((maxBytes+2)/3)*4 + 4096
+}
+
 func writeJSON(w http.ResponseWriter, status int, v any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
