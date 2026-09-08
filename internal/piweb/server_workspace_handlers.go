@@ -92,6 +92,15 @@ func (s *Server) workspaces(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"workspaces": s.withLiveSessions(workspaces)})
 }
+func (s *Server) adminWorkspaces(w http.ResponseWriter, r *http.Request) {
+	workspaces, err := s.workspaceAccess.Catalog(requestActor(r))
+	if err != nil {
+		writeStoreError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"workspaces": workspaces})
+}
+
 func (s *Server) openWorkspace(w http.ResponseWriter, r *http.Request) {
 	var req OpenWorkspaceRequest
 	if err := readJSON(r, &req); err != nil {

@@ -1,4 +1,4 @@
-import { batchAssignWorkspaces, createUser, deleteUser, listFolders, listUsers, listWorkspaces, updateUser, type Account, type ManagedWorkspace } from "./api";
+import { batchAssignWorkspaces, createUser, deleteUser, listFolders, listManagedWorkspaces, listUsers, updateUser, type Account, type ManagedWorkspace } from "./api";
 import { requireAccount, showAccountError } from "./browser";
 
 const form = document.querySelector<HTMLFormElement>("[data-user-form]")!;
@@ -63,7 +63,7 @@ function renderWorkspaceOptions() {
 }
 
 async function refreshWorkspaceOptions() {
-  ({ workspaces } = await listWorkspaces());
+  ({ workspaces } = await listManagedWorkspaces());
   renderWorkspaceOptions();
 }
 

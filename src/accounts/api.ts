@@ -25,7 +25,7 @@ export const logout = () => accountRequest("/api/account/logout", "POST", {});
 export const setup = (password: string, confirmation: string) =>
   accountRequest("/api/admin/password", "POST", { password, confirmation });
 export const listUsers = (query = "", page = 1, pageSize = 50) => accountRequest<{ users: Account[]; total: number; page: number; pageSize: number }>(`/api/admin/users?q=${encodeURIComponent(query)}&page=${page}&pageSize=${pageSize}`);
-export const listWorkspaces = () => accountRequest<{ workspaces: ManagedWorkspace[] }>("/api/workspaces");
+export const listManagedWorkspaces = () => accountRequest<{ workspaces: ManagedWorkspace[] }>("/api/admin/workspaces");
 export const listFolders = (path: string) => accountRequest<{ path: string; parent?: string; folders?: Array<{ name: string; path: string; displayPath?: string }> }>(`/api/system/folders?purpose=allowed-root&path=${encodeURIComponent(path)}`);
 export const createUser = (value: AccountInput) => accountRequest("/api/admin/users", "POST", value);
 export const updateUser = (name: string, value: AccountInput) =>

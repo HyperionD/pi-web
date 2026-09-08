@@ -116,7 +116,7 @@ func TestAccountAuthenticationAndManagement(t *testing.T) {
 	if !cookie.HttpOnly || cookie.SameSite != http.SameSiteStrictMode {
 		t.Fatal("unsafe cookie")
 	}
-	for _, path := range []string{"/api/admin/users", "/api/auth/providers", "/api/system/folders"} {
+	for _, path := range []string{"/api/admin/users", "/api/admin/workspaces", "/api/auth/providers", "/api/system/folders"} {
 		if w := accountRequest(s, "GET", path, "", cookie); w.Code != 403 {
 			t.Fatalf("%s: %d", path, w.Code)
 		}

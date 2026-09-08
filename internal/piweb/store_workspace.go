@@ -13,6 +13,13 @@ func (s *Store) Workspaces() []Workspace {
 	return cloneWorkspaces(workspaces)
 }
 
+func (s *Store) AllWorkspaces() []Workspace {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.refreshAllWorkspaceSessionsLocked()
+	return cloneWorkspaces(s.workspaces)
+}
+
 func (s *Store) Workspace(workspaceID string) (Workspace, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()

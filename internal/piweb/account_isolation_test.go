@@ -134,6 +134,22 @@ func containsJSONID(value any, id string) bool {
 	return false
 }
 
+func TestAdminWorkspaceCatalogIncludesClosedWorkspace(t *testing.T) {
+	s, admin := accountServer(t)
+	workspace, err := s.store.OpenWorkspace(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	closed := accountRequest(s, "DELETE", "/api/workspaces/"+workspace.ID, "", admin)
+	if closed.Code != http.StatusOK {
+		t.Fatalf("close workspace: %d %s", closed.Code, closed.Body.String())
+	}
+	catalog := accountRequest(s, "GET", "/api/admin/workspaces", "", admin)
+	if catalog.Code != http.StatusOK || !containsJSONIDFromBody(catalog.Body.Bytes(), workspace.ID) {
+		t.Fatalf("closed workspace missing from admin catalog: %d %s", catalog.Code, catalog.Body.String())
+	}
+}
+
 func TestGrantedWorkspaceAndSessionVisibilitySurviveCloseAndRestart(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	agentRoot := t.TempDir()

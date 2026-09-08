@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   AccountError, accountRequest, accountStatus, createUser, currentAccount, deleteUser, listUsers,
-  listWorkspaces, login, logout, setup, updateUser,
+  listManagedWorkspaces, login, logout, setup, updateUser,
 } from "./api";
 
 const fetchMock = vi.fn();
@@ -12,11 +12,11 @@ describe("account API", () => {
     vi.stubGlobal("fetch", fetchMock.mockResolvedValue({ ok: true, json: async () => ({ ok: true }) }));
     const input = { account: "alice", username: "Alice", password: "password-123", workspaces: ["one"] };
     await currentAccount(); await accountStatus(); await login("alice", "password-123"); await logout();
-    await setup("password-123", "password-123"); await listUsers(); await listWorkspaces();
+    await setup("password-123", "password-123"); await listUsers(); await listManagedWorkspaces();
     await createUser(input); await updateUser("a b", input); await deleteUser("a b");
     expect(fetchMock.mock.calls.map(([path]) => path)).toEqual([
       "/api/account/me", "/api/account/status", "/api/account/login", "/api/account/logout", "/api/admin/password",
-      "/api/admin/users?q=&page=1&pageSize=50", "/api/workspaces", "/api/admin/users", "/api/admin/users/a%20b", "/api/admin/users/a%20b",
+      "/api/admin/users?q=&page=1&pageSize=50", "/api/admin/workspaces", "/api/admin/users", "/api/admin/users/a%20b", "/api/admin/users/a%20b",
     ]);
     expect(fetchMock.mock.calls[2][1]).toMatchObject({ credentials: "same-origin", cache: "no-store", method: "POST",
       body: JSON.stringify({ account: "alice", password: "password-123" }) });

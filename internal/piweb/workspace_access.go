@@ -47,6 +47,13 @@ func (m *WorkspaceAccess) List(actor *Account) ([]Workspace, error) {
 	return workspaces, nil
 }
 
+func (m *WorkspaceAccess) Catalog(actor *Account) ([]Workspace, error) {
+	if actor != nil && actor.Role != "admin" {
+		return nil, errAccountDenied
+	}
+	return m.store.AllWorkspaces(), nil
+}
+
 func (m *WorkspaceAccess) Open(actor *Account, path string) (Workspace, error) {
 	if actor != nil && actor.Role != "admin" {
 		return Workspace{}, errAccountDenied
