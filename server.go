@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io/fs"
 	"log/slog"
 	"net/http"
@@ -47,6 +48,9 @@ func runServer(options serverOptions) error {
 }
 
 func runServerWithDependencies(options serverOptions, deps serverDependencies) error {
+	if err := piweb.PrepareUserManagementDB(); err != nil {
+		return fmt.Errorf("prepare user database: %w", err)
+	}
 	store := deps.newAutoStore()
 	if options.Mock {
 		store = deps.newMockStore()

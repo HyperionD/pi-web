@@ -35,6 +35,10 @@ CREATE TABLE IF NOT EXISTS workspaces (
   hidden INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS idx_workspaces_visible_last_opened ON workspaces(hidden, last_opened_at DESC);
+CREATE TABLE IF NOT EXISTS users (id TEXT PRIMARY KEY, username TEXT NOT NULL UNIQUE, role TEXT NOT NULL, password_hash TEXT NOT NULL, created_at TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS user_workspaces (user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, workspace_id TEXT NOT NULL, workspace_path TEXT NOT NULL, PRIMARY KEY(user_id, workspace_id));
+CREATE TABLE IF NOT EXISTS app_settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS session_owners (session_id TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE);
 CREATE TABLE IF NOT EXISTS users (
   id TEXT PRIMARY KEY,
   username TEXT NOT NULL UNIQUE,
@@ -118,6 +122,36 @@ ON CONFLICT(path) DO UPDATE SET name = excluded.name, last_opened_at = excluded.
 			_ = tx.Rollback()
 			return err
 		}
+	}
+	return tx.Commit()
+}
+
+// PrepareUserManagementDB performs the one-time reset required by the new authorization model.
+// It intentionally keeps Pi session files on disk; only the application index and permissions reset.
+func PrepareUserManagementDB() error {
+	db, err := openWebDB(DefaultWebDBPath())
+	if err != nil {
+		return err
+	}
+	defer db.Close()
+	var version string
+	if err := db.QueryRow(`SELECT value FROM app_settings WHERE key='authorizationModel'`).Scan(&version); err == nil && version == "v1" {
+		return nil
+	}
+	tx, err := db.Begin()
+	if err != nil {
+		return err
+	}
+	for _, table := range []string{"user_workspaces", "session_owners", "users", "workspaces", "app_settings"} {
+		if _, err = tx.Exec(`DELETE FROM ` + table); err != nil {
+			_ = tx.Rollback()
+			return err
+		}
+	}
+	_, err = tx.Exec(`INSERT INTO app_settings(key,value) VALUES('authorizationModel','v1')`)
+	if err != nil {
+		_ = tx.Rollback()
+		return err
 	}
 	return tx.Commit()
 }
