@@ -134,6 +134,84 @@ func containsJSONID(value any, id string) bool {
 	return false
 }
 
+func TestGrantedWorkspaceAndSessionVisibilitySurviveCloseAndRestart(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	agentRoot := t.TempDir()
+	t.Setenv("PI_CODING_AGENT_SESSION_DIR", filepath.Join(agentRoot, "sessions"))
+	t.Setenv("PI_CODING_AGENT_DIR", filepath.Join(agentRoot, "agent"))
+	if err := setupDatabaseAdminPassword("admin-password"); err != nil {
+		t.Fatal(err)
+	}
+	s := NewServer(Config{UserManagement: true}, NewWebStore(DefaultWebDBPath()), NewBroker())
+	admin := loginAccount(t, s, "admin", "admin-password")
+	workspace, err := s.store.OpenWorkspace(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	alice := addAccount(t, s, admin, "alice", workspace.ID)
+	aliceSession := createAccountSession(t, s, alice, workspace.ID)
+	bob := addAccount(t, s, admin, "bob", workspace.ID)
+	bobSession := createAccountSession(t, s, bob, workspace.ID)
+	if closed := accountRequest(s, "DELETE", "/api/workspaces/"+workspace.ID, "", admin); closed.Code != http.StatusOK {
+		t.Fatalf("close workspace: %d %s", closed.Code, closed.Body.String())
+	}
+
+	restarted := NewServer(Config{UserManagement: true}, NewWebStore(DefaultWebDBPath()), NewBroker())
+	alice = loginAccount(t, restarted, "alice", "test-password")
+	list := accountRequest(restarted, "GET", "/api/workspaces", "", alice)
+	if list.Code != http.StatusOK || !containsSession(list.Body.String(), aliceSession.ID) || containsSession(list.Body.String(), bobSession.ID) {
+		t.Fatalf("restarted visibility is incorrect: %s", list.Body.String())
+	}
+	if path, err := restarted.store.WorkspacePath(workspace.ID); err != nil || !sameWorkspacePath(path, workspace.Path) {
+		t.Fatalf("granted workspace was not materialized: %q %v", path, err)
+	}
+}
+
+func loginAccount(t *testing.T, s *Server, username, password string) *http.Cookie {
+	t.Helper()
+	body := fmt.Sprintf(`{"username":%q,"password":%q}`, username, password)
+	response := accountRequest(s, "POST", "/api/account/login", body, nil)
+	if response.Code != http.StatusOK {
+		t.Fatalf("login %s: %d %s", username, response.Code, response.Body.String())
+	}
+	return response.Result().Cookies()[0]
+}
+
+func TestClosingAdminRecentKeepsGrantedWorkspaceAvailable(t *testing.T) {
+	s, admin := accountServer(t)
+	root := t.TempDir()
+	workspace, err := s.store.OpenWorkspace(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	alice := addAccount(t, s, admin, "alice", workspace.ID)
+	aliceSession := createAccountSession(t, s, alice, workspace.ID)
+	bob := addAccount(t, s, admin, "bob", workspace.ID)
+	bobSession := createAccountSession(t, s, bob, workspace.ID)
+
+	closed := accountRequest(s, "DELETE", "/api/workspaces/"+workspace.ID, "", admin)
+	if closed.Code != http.StatusOK {
+		t.Fatalf("close workspace: %d %s", closed.Code, closed.Body.String())
+	}
+	adminList := accountRequest(s, "GET", "/api/workspaces", "", admin)
+	if adminList.Code != http.StatusOK || containsJSONIDFromBody(adminList.Body.Bytes(), workspace.ID) {
+		t.Fatalf("closed workspace remained in admin recents: %s", adminList.Body.String())
+	}
+	aliceList := accountRequest(s, "GET", "/api/workspaces", "", alice)
+	if aliceList.Code != http.StatusOK || !containsSession(aliceList.Body.String(), aliceSession.ID) || containsSession(aliceList.Body.String(), bobSession.ID) {
+		t.Fatalf("granted workspace/session visibility changed after close: %s", aliceList.Body.String())
+	}
+	files := accountRequest(s, "GET", "/api/workspaces/"+workspace.ID+"/files", "", alice)
+	if files.Code != http.StatusOK {
+		t.Fatalf("closed but granted workspace is unusable: %d %s", files.Code, files.Body.String())
+	}
+}
+
+func containsJSONIDFromBody(body []byte, id string) bool {
+	var value any
+	return json.Unmarshal(body, &value) == nil && containsJSONID(value, id)
+}
+
 func TestAdminWorkspaceAuthorizationIsNotPersisted(t *testing.T) {
 	s, admin := accountServer(t)
 	root := t.TempDir()
@@ -211,7 +289,8 @@ func TestAccountUnassignedAndSymlinkWorkspaceDenied(t *testing.T) {
 	if err := os.Symlink(other, link); err != nil {
 		t.Fatal(err)
 	}
-	if s.accounts.allows(user, workspace.ID, link) {
-		t.Fatal("symlink retarget bypass")
+	resolvedPath, err := s.workspaceAccess.ResolveWorkspace(&user, workspace.ID)
+	if err != nil || !sameWorkspacePath(resolvedPath, target) {
+		t.Fatalf("symlink retarget changed the granted workspace: %q %v", resolvedPath, err)
 	}
 }

@@ -28,6 +28,14 @@ func ValidateWorkspacePath(path string) (string, error) {
 	}
 	return filepath.Clean(path), nil
 }
+func canonicalWorkspacePath(path string) string {
+	resolved, err := filepath.EvalSymlinks(path)
+	if err != nil {
+		return path
+	}
+	return filepath.Clean(resolved)
+}
+
 func slug(value string) string {
 	value = strings.ToLower(value)
 	value = strings.TrimSpace(value)

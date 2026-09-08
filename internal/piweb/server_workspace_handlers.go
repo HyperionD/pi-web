@@ -71,7 +71,11 @@ func (s *Server) workspaces(w http.ResponseWriter, r *http.Request) {
 		writeWorkspaceSelectionError(w, err)
 		return
 	}
-	workspaces := s.accountWorkspaces(r, s.store.Workspaces())
+	workspaces, err := s.workspaceAccess.List(requestActor(r))
+	if err != nil {
+		writeStoreError(w, err)
+		return
+	}
 	if policy.restricted {
 		filtered := make([]Workspace, 0, len(workspaces))
 		for _, workspace := range workspaces {
@@ -103,7 +107,7 @@ func (s *Server) openWorkspace(w http.ResponseWriter, r *http.Request) {
 		writeWorkspaceSelectionError(w, err)
 		return
 	}
-	workspace, err := s.store.OpenWorkspace(req.Path)
+	workspace, err := s.workspaceAccess.Open(requestActor(r), req.Path)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err)
 		return
@@ -129,37 +133,28 @@ func (s *Server) cloneWorkspace(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, http.StatusCreated, map[string]any{"workspace": workspace, "output": output})
 }
-func (s *Server) deleteWorkspace(w http.ResponseWriter, r *http.Request) {
-	if err := s.store.DeleteWorkspace(r.PathValue("workspaceID")); err != nil {
+func (s *Server) closeWorkspace(w http.ResponseWriter, r *http.Request) {
+	if err := s.workspaceAccess.Close(requestActor(r), r.PathValue("workspaceID")); err != nil {
 		writeStoreError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"deleted": true})
+	writeJSON(w, http.StatusOK, map[string]any{"closed": true})
 }
 func (s *Server) createSession(w http.ResponseWriter, r *http.Request) {
-	session, err := s.store.CreateSession(r.PathValue("workspaceID"))
+	session, err := s.workspaceAccess.CreateSession(requestActor(r), r.PathValue("workspaceID"))
 	if err != nil {
 		writeStoreError(w, err)
 		return
-	}
-	if user, ok := requestAccount(r); ok {
-		if err := s.accounts.own(session.ID, user.ID); err != nil {
-			if cleanupErr := s.store.DeleteSession(session.ID); cleanupErr != nil {
-				err = errors.Join(err, cleanupErr)
-			}
-			writeError(w, http.StatusInternalServerError, err)
-			return
-		}
 	}
 	writeJSON(w, http.StatusCreated, map[string]any{"session": session})
 }
 func (s *Server) workspaceSessions(w http.ResponseWriter, r *http.Request) {
-	sessions, err := s.store.Sessions(r.PathValue("workspaceID"))
+	sessions, err := s.workspaceAccess.Sessions(requestActor(r), r.PathValue("workspaceID"))
 	if err != nil {
 		writeStoreError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"sessions": s.withLiveSessionFlags(s.accountSessions(r, sessions))})
+	writeJSON(w, http.StatusOK, map[string]any{"sessions": s.withLiveSessionFlags(sessions)})
 }
 func (s *Server) withLiveSessions(workspaces []Workspace) []Workspace {
 	for workspaceIndex := range workspaces {

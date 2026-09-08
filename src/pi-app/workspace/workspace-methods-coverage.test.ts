@@ -65,6 +65,26 @@ describe("workspace folder/render/bootstrap coverage", () => {
     expect(list.querySelector(".folder-empty").textContent).toBe("暂无文件夹");
   });
 
+  it("does not render workspace lifecycle controls for ordinary users", async () => {
+    const app = await connectPiApp();
+    document.body.dataset.accountRole = "user";
+    app.renderWorkspaces([{ id: "w1", name: "one", path: "/one", sessions: [] }]);
+    expect(app.querySelector("[data-action='close-workspace']")).toBeNull();
+    delete document.body.dataset.accountRole;
+  });
+
+  it("lets account-managed administrators keep all backend workspaces despite legacy roots", async () => {
+    const app = await connectPiApp();
+    document.body.dataset.accountRole = "admin";
+    app.appConfigState = { config: { workspace: { allowedRoots: ["/allowed"] } } };
+    const workspaces = [
+      { id: "inside", name: "inside", path: "/allowed/project", sessions: [] },
+      { id: "outside", name: "outside", path: "/other/project", sessions: [] },
+    ];
+    expect(app.filterAllowedWorkspaces(workspaces)).toEqual(workspaces);
+    delete document.body.dataset.accountRole;
+  });
+
   it("separates folder expansion from folder selection", async () => {
     const app = await connectPiApp();
     const list = app.querySelector("[data-folder-list]");
@@ -522,16 +542,16 @@ describe("workspace folder/render/bootstrap coverage", () => {
     app.renderFolderListing({ path: "/none", folders: [{ name: "x", path: "/x" }] });
 
     vi.spyOn(window, "confirm").mockReturnValueOnce(false).mockReturnValueOnce(true);
-    await app.deleteWorkspace("w1");
+    await app.closeWorkspace("w1");
     globalThis.fetch = vi.fn(async () => okJson({ workspaces: [] }));
     app.renderWorkspaces = vi.fn();
-    await app.deleteWorkspace("w1");
+    await app.closeWorkspace("w1");
     expect(app.renderWorkspaces).toHaveBeenCalledWith([]);
-    globalThis.fetch = vi.fn(async () => failJson("delete failed"));
+    globalThis.fetch = vi.fn(async () => failJson("close failed"));
     window.confirm.mockReturnValue(true);
-    await app.deleteWorkspace("w1");
+    await app.closeWorkspace("w1");
     expect(app.setConnection).toHaveBeenCalledWith("err");
-    await app.deleteWorkspace("");
+    await app.closeWorkspace("");
     delete app.openWorkspace;
     app.activateWorkspaceForSession = vi.fn();
     app.route = vi.fn();
@@ -581,7 +601,7 @@ describe("workspace folder/render/bootstrap coverage", () => {
     expect(app.querySelector("[data-workspace-group='outside']")).toBeNull();
   });
 
-  it("filters workspace lists after refresh and delete", async () => {
+  it("filters workspace lists after refresh and close", async () => {
     const app = await connectPiApp();
     app.apiConnected = true;
     app.appConfigState = { config: { workspace: { allowedRoots: ["/allowed"] } } };
@@ -596,7 +616,7 @@ describe("workspace folder/render/bootstrap coverage", () => {
     await app.refreshWorkspaces();
     expect(app.renderWorkspaces).toHaveBeenLastCalledWith([workspaces[0]]);
 
-    await app.deleteWorkspace("outside");
+    await app.closeWorkspace("outside");
     expect(app.renderWorkspaces).toHaveBeenLastCalledWith([workspaces[0]]);
   });
 

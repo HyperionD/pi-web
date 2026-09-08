@@ -7,12 +7,9 @@ import (
 
 func (s *Server) requireWorkspaceAccess(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		path, err := s.store.WorkspacePath(r.PathValue("workspaceID"))
+		path, err := s.workspaceAccess.ResolveWorkspace(requestActor(r), r.PathValue("workspaceID"))
 		if err != nil {
 			writeStoreError(w, err)
-			return
-		}
-		if !s.accountWorkspaceAccess(w, r, r.PathValue("workspaceID"), path) {
 			return
 		}
 		policy, err := s.workspacePolicy()
@@ -30,10 +27,7 @@ func (s *Server) requireWorkspaceAccess(next http.HandlerFunc) http.HandlerFunc 
 
 func (s *Server) requireSessionAccess(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		if !s.accountSessionAccess(w, r) {
-			return
-		}
-		path, err := s.store.SessionWorkspacePath(r.PathValue("sessionID"))
+		path, err := s.workspaceAccess.ResolveSession(requestActor(r), r.PathValue("sessionID"))
 		if err != nil {
 			writeStoreError(w, err)
 			return

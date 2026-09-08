@@ -1,5 +1,5 @@
 import {
-  deleteWorkspace as deleteWorkspaceRequest,
+  closeWorkspace as closeWorkspaceRequest,
   getWorkspaces,
   listFolders,
   openWorkspace as openWorkspaceRequest,
@@ -329,11 +329,11 @@ export const workspaceFolderMethods = {
     if (workspace) await this.openWorkspace(workspace.id);
   },
 
-  async deleteWorkspace(workspaceId) {
+  async closeWorkspace(workspaceId) {
     if (!workspaceId || !this.apiConnected) return;
     if (!confirm(`要从当前视图移除工作区 ${workspaceId} 吗？`)) return;
     try {
-      await deleteWorkspaceRequest(workspaceId);
+      await closeWorkspaceRequest(workspaceId);
       const { workspaces } = await getWorkspaces();
       this.renderFilteredWorkspaces(workspaces || []);
     } catch (error) {

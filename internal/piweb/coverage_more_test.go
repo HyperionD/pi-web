@@ -109,11 +109,11 @@ func TestCoverageStoreWorkspaceFilesAndCommands(t *testing.T) {
 		t.Fatalf("shell timeout=%+v err=%v", res, err)
 	}
 
-	if err := store.DeleteWorkspace(workspace.ID); err != nil {
-		t.Fatalf("delete workspace: %v", err)
+	if err := store.CloseWorkspace(workspace.ID); err != nil {
+		t.Fatalf("close workspace: %v", err)
 	}
-	if err := store.DeleteWorkspace(workspace.ID); !errors.Is(err, ErrNotFound) {
-		t.Fatalf("expected delete not found, got %v", err)
+	if err := store.CloseWorkspace(workspace.ID); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("expected close not found, got %v", err)
 	}
 }
 

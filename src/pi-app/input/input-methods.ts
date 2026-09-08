@@ -289,7 +289,7 @@ export const inputMethods = {
     if (action === "show-full-tool-output") this.showFullToolOutput(actionTarget);
     if (action !== "session-menu-toggle") this.closeSessionMenus(actionTarget?.closest(".session-row"));
     if (action === "toggle-workspace") this.toggleWorkspace(button.dataset.workspace);
-    if (action === "delete-workspace") this.deleteWorkspace(actionTarget.dataset.workspace);
+    if (action === "close-workspace") this.closeWorkspace(actionTarget.dataset.workspace);
     if (action === "delete-workspace-sessions") this.deleteWorkspaceSessions(button.dataset.workspace);
     if (action === "new-session") this.newSession(button.dataset.workspace);
     if (action === "session-menu-toggle") this.toggleSessionMenu(actionTarget.closest(".session-row"));

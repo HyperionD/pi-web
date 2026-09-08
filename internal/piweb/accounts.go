@@ -189,7 +189,7 @@ func (a *accountStore) ensureAdmin() error {
 	return a.save(users, a.Owners)
 }
 
-func (a *accountStore) save(users map[string]accountRecord, _ map[string]string) error {
+func (a *accountStore) save(users map[string]accountRecord, owners map[string]string) error {
 	for name, record := range users {
 		if record.Role != "admin" {
 			continue
@@ -227,12 +227,33 @@ func (a *accountStore) save(users map[string]accountRecord, _ map[string]string)
 			}
 		}
 	}
+	if err = saveSessionOwners(tx, users, owners); err != nil {
+		_ = tx.Rollback()
+		return err
+	}
 	if err = tx.Commit(); err != nil {
 		return err
 	}
 	a.Users = users
 	return nil
 }
+
+func saveSessionOwners(tx *sql.Tx, users map[string]accountRecord, owners map[string]string) error {
+	activeUsers := make(map[string]bool, len(users))
+	for _, user := range users {
+		activeUsers[user.ID] = true
+	}
+	for sessionID, userID := range owners {
+		if !activeUsers[userID] {
+			continue
+		}
+		if _, err := tx.Exec(`INSERT INTO session_owners(session_id, user_id) VALUES(?,?)`, sessionID, userID); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func (a *accountStore) owns(user Account, sessionID string) bool {
 	a.mu.Lock()
 	defer a.mu.Unlock()
@@ -241,15 +262,35 @@ func (a *accountStore) owns(user Account, sessionID string) bool {
 	}
 	return a.Owners[sessionID] == user.ID
 }
-func (a *accountStore) allows(user Account, workspaceID, path string) bool {
-	if user.Role == "admin" {
-		return true
-	}
+func (a *accountStore) workspaceGrants(user Account) ([]workspaceGrant, bool) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	r, ok := a.Users[user.Account]
-	return ok && r.ID == user.ID && r.Paths[workspaceID] == path
+	record, ok := a.Users[user.Account]
+	if !ok || record.ID != user.ID {
+		return nil, false
+	}
+	grants := make([]workspaceGrant, 0, len(record.Workspaces))
+	for _, id := range record.Workspaces {
+		if path := record.Paths[id]; path != "" {
+			grants = append(grants, workspaceGrant{ID: id, Path: path})
+		}
+	}
+	return grants, true
 }
+
+func (a *accountStore) workspaceGrant(user Account, workspaceID string) (workspaceGrant, bool) {
+	grants, ok := a.workspaceGrants(user)
+	if !ok {
+		return workspaceGrant{}, false
+	}
+	for _, grant := range grants {
+		if grant.ID == workspaceID {
+			return grant, true
+		}
+	}
+	return workspaceGrant{}, false
+}
+
 func (a *accountStore) permitLogin(address string) bool {
 	a.mu.Lock()
 	defer a.mu.Unlock()

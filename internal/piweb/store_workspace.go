@@ -4,33 +4,105 @@ func (s *Store) Workspaces() []Workspace {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.refreshAllWorkspaceSessionsLocked()
-	return cloneWorkspaces(s.workspaces)
+	workspaces := make([]Workspace, 0, len(s.recentWorkspaceIDs))
+	for _, id := range s.recentWorkspaceIDs {
+		if workspace, ok := s.workspaceLocked(id); ok {
+			workspaces = append(workspaces, workspace)
+		}
+	}
+	return cloneWorkspaces(workspaces)
 }
+
+func (s *Store) Workspace(workspaceID string) (Workspace, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if index := s.workspaceIndexLocked(workspaceID); index >= 0 {
+		s.refreshWorkspaceSessionsLocked(index, false)
+		return cloneWorkspaces([]Workspace{s.workspaces[index]})[0], nil
+	}
+	return Workspace{}, ErrNotFound
+}
+
 func (s *Store) OpenWorkspace(path string) (Workspace, error) {
 	clean, err := ValidateWorkspacePath(path)
 	if err != nil {
 		return Workspace{}, err
 	}
+	clean = canonicalWorkspacePath(clean)
+	storedID, err := loadWebWorkspaceID(s.dbPath, clean)
+	if err != nil {
+		return Workspace{}, err
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	workspace := s.addWorkspaceLocked(clean)
-	s.saveWorkspaceRecentsLocked()
+	workspace := s.addWorkspaceLocked(clean, storedID)
+	previousRecents := append([]string(nil), s.recentWorkspaceIDs...)
+	s.markWorkspaceRecentLocked(workspace.ID)
+	if err := saveWebWorkspaceOpened(s.dbPath, webWorkspaceRecord{ID: workspace.ID, Path: workspace.Path}); err != nil {
+		s.recentWorkspaceIDs = previousRecents
+		return Workspace{}, err
+	}
 	return workspace, nil
 }
-func (s *Store) DeleteWorkspace(workspaceID string) error {
+
+func (s *Store) EnsureWorkspace(workspaceID, path string) (Workspace, error) {
+	clean, err := ValidateWorkspacePath(path)
+	if err != nil {
+		return Workspace{}, err
+	}
+	clean = canonicalWorkspacePath(clean)
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	for i, workspace := range s.workspaces {
-		if workspace.ID == workspaceID {
-			s.workspaces = append(s.workspaces[:i], s.workspaces[i+1:]...)
-			delete(s.workspacePath, workspaceID)
-			delete(s.workspaceSessionDir, workspaceID)
-			delete(s.files, workspaceID)
-			s.saveWorkspaceRecentsLocked()
-			return nil
+	workspace := s.addWorkspaceLocked(clean, workspaceID)
+	if workspace.ID != workspaceID || !sameWorkspacePath(workspace.Path, clean) {
+		return Workspace{}, ErrNotFound
+	}
+	return workspace, nil
+}
+
+func (s *Store) CloseWorkspace(workspaceID string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for index, recentID := range s.recentWorkspaceIDs {
+		if recentID != workspaceID {
+			continue
 		}
+		previousRecents := append([]string(nil), s.recentWorkspaceIDs...)
+		s.recentWorkspaceIDs = append(s.recentWorkspaceIDs[:index], s.recentWorkspaceIDs[index+1:]...)
+		if err := saveWebWorkspaceClosed(s.dbPath, s.workspacePath[workspaceID]); err != nil {
+			s.recentWorkspaceIDs = previousRecents
+			return err
+		}
+		return nil
 	}
 	return ErrNotFound
+}
+
+func (s *Store) markWorkspaceRecentLocked(workspaceID string) {
+	recent := []string{workspaceID}
+	for _, id := range s.recentWorkspaceIDs {
+		if id != workspaceID {
+			recent = append(recent, id)
+		}
+	}
+	s.recentWorkspaceIDs = recent
+}
+
+func (s *Store) workspaceLocked(workspaceID string) (Workspace, bool) {
+	index := s.workspaceIndexLocked(workspaceID)
+	if index < 0 {
+		return Workspace{}, false
+	}
+	return s.workspaces[index], true
+}
+
+func (s *Store) workspaceIndexLocked(workspaceID string) int {
+	for index := range s.workspaces {
+		if s.workspaces[index].ID == workspaceID {
+			return index
+		}
+	}
+	return -1
 }
 func (s *Store) WorkspacePath(workspaceID string) (string, error) {
 	s.mu.RLock()

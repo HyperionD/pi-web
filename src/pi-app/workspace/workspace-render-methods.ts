@@ -91,8 +91,10 @@ export const workspaceRenderMethods = {
       "<span class=\"ws-stack\"><span class=\"ws-name\"><span class=\"dot\"></span>",
       "<span class=\"label\"></span></span><span class=\"ws-path\"></span></span>",
       `<span class="ws-meta"><span class="ws-count">${workspace.sessionCount}</span></span></button>`,
-      `<button type="button" class="row-action danger" data-action="delete-workspace"`,
-      ` data-workspace="${escapeHtml(workspace.id)}" title="删除工作区" aria-label="删除工作区">${LUCIDE_X_ICON}</button>`,
+      document.body.dataset.accountRole === "user" ? "" : [
+        `<button type="button" class="row-action danger" data-action="close-workspace"`,
+        ` data-workspace="${escapeHtml(workspace.id)}" title="关闭工作区" aria-label="关闭工作区">${LUCIDE_X_ICON}</button>`,
+      ].join(""),
       `</div><div class="sessions"${open ? "" : " hidden"}></div>`,
     ].join("");
   },

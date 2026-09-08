@@ -30,7 +30,7 @@ describe("workspace bootstrap coverage", () => {
 
     vi.spyOn(window, "confirm").mockReturnValue(true);
     globalThis.fetch = vi.fn(async () => okJson({ workspaces: null }));
-    await app.deleteWorkspace("w1");
+    await app.closeWorkspace("w1");
     expect(app.renderWorkspaces).toHaveBeenCalledWith([]);
   });
 

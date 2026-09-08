@@ -121,9 +121,16 @@ func TestAccountAuthenticationAndManagement(t *testing.T) {
 			t.Fatalf("%s: %d", path, w.Code)
 		}
 	}
-	for _, path := range []string{"/api/workspaces/open", "/api/workspaces/clone"} {
-		if w := accountRequest(s, "POST", path, `{}`, cookie); w.Code != 403 {
-			t.Fatalf("%s: %d", path, w.Code)
+	for _, request := range []struct {
+		method string
+		path   string
+	}{
+		{method: "POST", path: "/api/workspaces/open"},
+		{method: "POST", path: "/api/workspaces/clone"},
+		{method: "DELETE", path: "/api/workspaces/pi-mono"},
+	} {
+		if w := accountRequest(s, request.method, request.path, `{}`, cookie); w.Code != 403 {
+			t.Fatalf("%s: %d", request.path, w.Code)
 		}
 	}
 	w := accountRequest(s, "GET", "/api/workspaces", "", cookie)

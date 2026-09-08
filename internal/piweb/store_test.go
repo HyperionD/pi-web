@@ -141,6 +141,63 @@ func TestDeleteWorkspaceSessionsRemovesCachedAndDiskSessions(t *testing.T) {
 	}
 }
 
+func TestCloseWorkspaceKeepsRuntimeLoaded(t *testing.T) {
+	store := NewMockStore()
+	workspaceID := store.Workspaces()[0].ID
+	path, err := store.WorkspacePath(workspaceID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.CloseWorkspace(workspaceID); err != nil {
+		t.Fatal(err)
+	}
+	for _, workspace := range store.Workspaces() {
+		if workspace.ID == workspaceID {
+			t.Fatalf("closed workspace %q remains recent", workspaceID)
+		}
+	}
+	if loadedPath, err := store.WorkspacePath(workspaceID); err != nil || loadedPath != path {
+		t.Fatalf("closed workspace runtime = %q, %v; want %q", loadedPath, err, path)
+	}
+}
+
+func TestWorkspaceIDSurvivesCloseAndRestartWithDuplicateBasenames(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "pi-web.db")
+	first := filepath.Join(t.TempDir(), "project")
+	second := filepath.Join(t.TempDir(), "project")
+	for _, path := range []string{first, second} {
+		if err := os.Mkdir(path, 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	store := NewWebStore(dbPath)
+	firstWorkspace, err := store.OpenWorkspace(first)
+	if err != nil {
+		t.Fatal(err)
+	}
+	secondWorkspace, err := store.OpenWorkspace(second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if firstWorkspace.ID == secondWorkspace.ID {
+		t.Fatalf("duplicate workspace id %q", firstWorkspace.ID)
+	}
+	if err := store.CloseWorkspace(firstWorkspace.ID); err != nil {
+		t.Fatal(err)
+	}
+	restarted := NewWebStore(dbPath)
+	if hiddenPath, err := restarted.WorkspacePath(firstWorkspace.ID); err != nil || hiddenPath != first {
+		t.Fatalf("closed workspace registration = %q, %v; want %q", hiddenPath, err, first)
+	}
+	reopened, err := restarted.OpenWorkspace(first)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if reopened.ID != firstWorkspace.ID {
+		t.Fatalf("reopened id = %q, want %q", reopened.ID, firstWorkspace.ID)
+	}
+}
+
 func TestOpenWorkspace(t *testing.T) {
 	store := NewMockStore()
 	workspace, err := store.OpenWorkspace("/tmp/My Project")

@@ -17,6 +17,14 @@ func requestAccount(r *http.Request) (Account, bool) {
 	return user, ok
 }
 
+func requestActor(r *http.Request) *Account {
+	user, ok := requestAccount(r)
+	if !ok {
+		return nil
+	}
+	return &user
+}
+
 func (s *Server) originAllowed(r *http.Request) bool {
 	origin := r.Header.Get("Origin")
 	if origin == "" {
@@ -119,72 +127,4 @@ func memberAccountRoute(r *http.Request) bool {
 		return true
 	}
 	return false
-}
-
-func (s *Server) accountWorkspaceAccess(w http.ResponseWriter, r *http.Request, workspaceID, path string) bool {
-	user, ok := requestAccount(r)
-	if !ok {
-		return true
-	}
-	if !s.accounts.allows(user, workspaceID, path) {
-		writeError(w, 404, errAccountDenied)
-		return false
-	}
-	return true
-}
-
-func (s *Server) accountSessionAccess(w http.ResponseWriter, r *http.Request) bool {
-	user, ok := requestAccount(r)
-	if !ok {
-		return true
-	}
-	id := r.PathValue("sessionID")
-	if !s.accounts.owns(user, id) {
-		writeError(w, 404, errAccountDenied)
-		return false
-	}
-	session, _, err := s.store.sessionMeta(id)
-	if err != nil {
-		writeStoreError(w, err)
-		return false
-	}
-	path, err := s.store.WorkspacePath(session.Workspace)
-	if err != nil {
-		writeStoreError(w, err)
-		return false
-	}
-	return s.accountWorkspaceAccess(w, r, session.Workspace, path)
-}
-
-func (s *Server) accountSessions(r *http.Request, sessions []Session) []Session {
-	user, ok := requestAccount(r)
-	if !ok {
-		return sessions
-	}
-	filtered := make([]Session, 0, len(sessions))
-	for _, session := range sessions {
-		if s.accounts.owns(user, session.ID) {
-			filtered = append(filtered, session)
-		}
-	}
-	return filtered
-}
-
-func (s *Server) accountWorkspaces(r *http.Request, workspaces []Workspace) []Workspace {
-	user, ok := requestAccount(r)
-	if !ok {
-		return workspaces
-	}
-	filtered := make([]Workspace, 0, len(workspaces))
-	for _, workspace := range workspaces {
-		if !s.accounts.allows(user, workspace.ID, workspace.Path) {
-			continue
-		}
-		workspace.Sessions = s.accountSessions(r, workspace.Sessions)
-		workspace.SessionCount = len(workspace.Sessions)
-		workspace.Live = false
-		workspace.LastUsed = ""
-		filtered = append(filtered, workspace)
-	}
-	return filtered
 }

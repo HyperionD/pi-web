@@ -8,7 +8,8 @@ Use filename prefixes as the navigation boundary:
 | --- | --- |
 | HTTP server | `server*.go`, `server_*_test.go`, `server_static.go` |
 | Session APIs | `pi_session*.go`, `session_*.go`, `team_sessions.go` |
-| Workspace APIs | `workspace_ops.go`, `files.go`, `folders.go`, `file_preview.go`, `server_workspace_handlers.go` |
+| Workspace access Module | `workspace_access.go`, `workspace_ops.go`, `store_workspace.go`, `server_workspace_policy.go` |
+| Workspace HTTP/files | `files.go`, `folders.go`, `file_preview.go`, `server_workspace_handlers.go` |
 | Runner/process events | `runner*.go`, `commands.go`, `broker.go` |
 | Store/database | `store*.go`, `web_db.go`, `store_*_test.go` |
 | Settings/runtime/quota | `settings.go`, `runtime_status.go`, `quota_*.go`, `pi_rpc_status.go` |

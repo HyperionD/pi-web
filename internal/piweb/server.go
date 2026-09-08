@@ -26,6 +26,7 @@ type Server struct {
 	mux                     *http.ServeMux
 	config                  Config
 	accounts                *accountStore
+	workspaceAccess         *WorkspaceAccess
 	adminPasswordConfigured bool
 	adminPasswordCheckError error
 	adminPasswordStateMu    sync.RWMutex
@@ -60,6 +61,7 @@ func NewServer(config Config, store *Store, broker *Broker) *Server {
 		s.accounts = newAccountStore()
 		s.accountRoutes()
 	}
+	s.workspaceAccess = NewWorkspaceAccess(store, s.accounts)
 	s.routes()
 	return s
 }
@@ -87,7 +89,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /api/workspaces", s.workspaces)
 	s.mux.HandleFunc("POST /api/workspaces/open", s.openWorkspace)
 	s.mux.HandleFunc("POST /api/workspaces/clone", s.cloneWorkspace)
-	s.mux.HandleFunc("DELETE /api/workspaces/{workspaceID}", s.requireWorkspaceAccess(s.deleteWorkspace))
+	s.mux.HandleFunc("DELETE /api/workspaces/{workspaceID}", s.requireWorkspaceAccess(s.closeWorkspace))
 	s.mux.HandleFunc("GET /api/workspaces/{workspaceID}/sessions", s.requireWorkspaceAccess(s.workspaceSessions))
 	s.mux.HandleFunc("POST /api/workspaces/{workspaceID}/sessions", s.requireWorkspaceAccess(s.createSession))
 	s.mux.HandleFunc("DELETE /api/workspaces/{workspaceID}/sessions", s.requireWorkspaceAccess(s.deleteWorkspaceSessions))

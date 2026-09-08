@@ -12,6 +12,7 @@ import (
 type Store struct {
 	mu                       sync.RWMutex
 	workspaces               []Workspace
+	recentWorkspaceIDs       []string
 	files                    map[string][]FileNode
 	conversations            map[string][]Message
 	workspacePath            map[string]string
@@ -28,10 +29,14 @@ func NewAutoStore() *Store {
 }
 func NewWebStore(dbPath string) *Store {
 	store := emptyStore(dbPath)
-	for _, path := range LoadWebWorkspacePaths(dbPath) {
-		clean, err := ValidateWorkspacePath(path)
-		if err == nil {
-			store.addWorkspaceLocked(clean)
+	for _, record := range loadWebWorkspaceCatalog(dbPath) {
+		clean, err := ValidateWorkspacePath(record.Path)
+		if err != nil {
+			continue
+		}
+		workspace := store.addWorkspaceLocked(canonicalWorkspacePath(clean), record.ID)
+		if record.Recent {
+			store.recentWorkspaceIDs = append(store.recentWorkspaceIDs, workspace.ID)
 		}
 	}
 	return store
@@ -39,6 +44,7 @@ func NewWebStore(dbPath string) *Store {
 func emptyStore(dbPath string) *Store {
 	return &Store{
 		workspaces:               []Workspace{},
+		recentWorkspaceIDs:       []string{},
 		files:                    map[string][]FileNode{},
 		conversations:            map[string][]Message{},
 		workspacePath:            map[string]string{},
@@ -92,8 +98,13 @@ func NewPiStore(sessionDir string) (*Store, error) {
 		workspaces = append(workspaces, *workspace)
 	}
 	sort.Slice(workspaces, func(i, j int) bool { return workspaces[i].Path < workspaces[j].Path })
+	recentWorkspaceIDs := make([]string, 0, len(workspaces))
+	for _, workspace := range workspaces {
+		recentWorkspaceIDs = append(recentWorkspaceIDs, workspace.ID)
+	}
 	return &Store{
 		workspaces:               workspaces,
+		recentWorkspaceIDs:       recentWorkspaceIDs,
 		files:                    map[string][]FileNode{},
 		conversations:            conversations,
 		workspacePath:            workspacePath,
@@ -154,22 +165,16 @@ func shortPathHash(path string) string {
 	return hex.EncodeToString(sum[:])[:8]
 }
 
-func (s *Store) saveWorkspaceRecentsLocked() {
-	paths := make([]string, 0, len(s.workspaces))
+func (s *Store) addWorkspaceLocked(clean, requestedID string) Workspace {
 	for _, workspace := range s.workspaces {
-		if workspace.Path != "" {
-			paths = append(paths, workspace.Path)
-		}
-	}
-	_ = SaveWebWorkspacePaths(s.dbPath, paths)
-}
-func (s *Store) addWorkspaceLocked(clean string) Workspace {
-	for _, workspace := range s.workspaces {
-		if workspace.Path == clean {
+		if workspace.Path == clean || requestedID != "" && workspace.ID == requestedID {
 			return workspace
 		}
 	}
-	id := slug(filepath.Base(clean))
+	id := requestedID
+	if id == "" {
+		id = slug(filepath.Base(clean))
+	}
 	if id == "" {
 		id = "workspace"
 	}
@@ -199,7 +204,7 @@ func (s *Store) addWorkspaceLocked(clean string) Workspace {
 		}
 	}
 	workspace.SessionCount = len(workspace.Sessions)
-	s.workspaces = append([]Workspace{workspace}, s.workspaces...)
+	s.workspaces = append(s.workspaces, workspace)
 	s.files[id] = []FileNode{}
 	s.workspacePath[id] = clean
 	s.workspaceSessionDir[id] = piSessionDirForCWD(clean)

@@ -39,6 +39,7 @@ function findStoredSession(workspaces, stored) {
 
 export const workspaceBootstrapMethods = {
   filterAllowedWorkspaces(workspaces) {
+    if (document.body.dataset.accountRole) return workspaces;
     const roots = this.appConfigState?.config?.workspace?.allowedRoots;
     if (!Array.isArray(roots) || !roots.length) return workspaces;
     return workspaces.filter((workspace) => roots.some((root) => pathIsWithinRoot(workspace.path, root)));

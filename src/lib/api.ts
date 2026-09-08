@@ -149,7 +149,7 @@ export function createSession(workspaceId) {
   return request(`/api/workspaces/${encodeURIComponent(workspaceId)}/sessions`, { method: "POST" });
 }
 
-export function deleteWorkspace(workspaceId) {
+export function closeWorkspace(workspaceId) {
   return request(`/api/workspaces/${encodeURIComponent(workspaceId)}`, { method: "DELETE" });
 }
 

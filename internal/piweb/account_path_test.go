@@ -25,8 +25,9 @@ func TestAssignedWorkspaceAllowsItsStorePath(t *testing.T) {
 	if filepath.Clean(storePath) != filepath.Clean(record.Paths[workspace.ID]) {
 		t.Fatalf("path mismatch")
 	}
-	if !s.accounts.allows(user.User, workspace.ID, storePath) {
-		t.Fatal("assigned workspace denied")
+	resolvedPath, err := s.workspaceAccess.ResolveWorkspace(&user.User, workspace.ID)
+	if err != nil || !sameWorkspacePath(resolvedPath, storePath) {
+		t.Fatalf("assigned workspace denied: %q %v", resolvedPath, err)
 	}
 	if response := accountRequest(s, "GET", "/api/workspaces/"+workspace.ID+"/settings", "", cookie); response.Code != 200 {
 		t.Fatalf("assigned workspace settings should be readable: %d %s", response.Code, response.Body.String())
