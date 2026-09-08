@@ -43,6 +43,8 @@
 
 .account-main fieldset { display: grid; gap: 18px; border: 0; padding: 0; margin: 0; min-width: 0; }
 .account-main label { display: grid; gap: 8px; font-size: 13px; }
+.account-main .account-status-toggle { display: flex; align-items: center; gap: 8px; }
+.account-main .account-status-toggle input[type="checkbox"] { margin: 0; flex: 0 0 auto; }
 .account-main input:not([type="checkbox"]) { box-sizing: border-box; width: 100%; min-height: 42px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 6px; color: var(--fg-0); background: var(--bg-0); font: inherit; }
 .account-path-row { display: grid; grid-template-columns: 1fr auto; gap: 8px; }
 .account-directory-current { display: flex; gap: 8px; margin: 0 0 16px; overflow-wrap: anywhere; color: var(--fg-2); font-size: 12px; }
