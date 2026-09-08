@@ -17,10 +17,14 @@ func (s *Server) appConfig(w http.ResponseWriter, r *http.Request) {
 	}
 	if user, ok := requestAccount(r); ok && user.Role != "admin" {
 		workspace, _ := response.Config["workspace"].(map[string]any)
+		memberWorkspace := map[string]any{}
+		if value, exists := workspace["maxUploadBytes"]; exists && value != nil {
+			memberWorkspace["maxUploadBytes"] = value
+		}
 		response = AppConfigResponse{Config: map[string]any{
 			"version":   response.Config["version"],
 			"brand":     response.Config["brand"],
-			"workspace": map[string]any{"maxUploadBytes": workspace["maxUploadBytes"]},
+			"workspace": memberWorkspace,
 		}}
 	}
 	writeJSON(w, http.StatusOK, response)

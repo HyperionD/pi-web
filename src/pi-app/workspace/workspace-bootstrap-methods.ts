@@ -132,7 +132,9 @@ export const workspaceBootstrapMethods = {
         if (!matchesBootstrapState(activeWorkspace.id, activeSession?.id || "")) return;
         void this.loadWorkspaceCommands(activeWorkspace.id);
         void this.loadRuntimeStatus(activeWorkspace.id, { bootstrapGeneration });
-        void (this.loadWorkspaceSettingsState?.(activeWorkspace.id))?.catch?.(() => undefined);
+        if (document.body.dataset.accountRole !== "user") {
+          void (this.loadWorkspaceSettingsState?.(activeWorkspace.id))?.catch?.(() => undefined);
+        }
         if (!matchesBootstrapState(activeWorkspace.id, activeSession?.id || "")) return;
         await this.loadWorkspaceMeta(activeWorkspace.id, {
           bootstrapGeneration,

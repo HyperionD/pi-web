@@ -109,6 +109,15 @@ func TestAccountAuthenticationAndManagement(t *testing.T) {
 	if len(body.Workspaces) != 0 {
 		t.Fatal("unassigned workspace leaked")
 	}
+	config := accountRequest(s, "GET", "/api/app-config", "", cookie)
+	var configBody map[string]any
+	if err := json.Unmarshal(config.Body.Bytes(), &configBody); err != nil {
+		t.Fatal(err)
+	}
+	workspace := configBody["config"].(map[string]any)["workspace"].(map[string]any)
+	if _, exists := workspace["maxUploadBytes"]; exists {
+		t.Fatal("unset upload limit must be omitted, not null")
+	}
 	if w := accountRequest(s, "POST", "/api/account/logout", `{}`, cookie); w.Code != 200 {
 		t.Fatal(w.Body.String())
 	}
