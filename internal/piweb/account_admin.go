@@ -11,6 +11,7 @@ import (
 )
 
 type accountWriteRequest struct {
+	Account        string   `json:"account"`
 	Username       string   `json:"username"`
 	Password       string   `json:"password"`
 	Workspaces     []string `json:"workspaces"`
@@ -93,9 +94,15 @@ func (s *Server) readAccountWrite(w http.ResponseWriter, r *http.Request, create
 		return accountRecord{}, false
 	}
 	if !create {
-		req.Username = r.PathValue("username")
+		req.Account = r.PathValue("username")
 	}
-	if !accountName.MatchString(req.Username) || req.Username == "admin" || len(req.Workspaces)+len(req.WorkspacePaths) > 100 {
+	if req.Account == "" {
+		req.Account = req.Username
+	}
+	if req.Username == "" {
+		req.Username = req.Account
+	}
+	if !accountName.MatchString(req.Account) || req.Account == "admin" || len(req.Workspaces)+len(req.WorkspacePaths) > 100 {
 		writeError(w, 400, errors.New("invalid username or too many workspaces"))
 		return accountRecord{}, false
 	}
@@ -126,7 +133,7 @@ func (s *Server) readAccountWrite(w http.ResponseWriter, r *http.Request, create
 	if req.Disabled != nil {
 		disabled = *req.Disabled
 	}
-	return accountRecord{Account: Account{Username: req.Username, Role: "user", Disabled: disabled, Workspaces: ids},
+	return accountRecord{Account: Account{Account: req.Account, Username: req.Username, Role: "user", Disabled: disabled, Workspaces: ids},
 		PasswordHash: hash, Paths: paths, workspaceSet: req.Workspaces != nil || req.WorkspacePaths != nil, disabledSet: req.Disabled != nil}, true
 }
 
@@ -137,13 +144,13 @@ func (s *Server) createAccount(w http.ResponseWriter, r *http.Request) {
 	}
 	s.accounts.mu.Lock()
 	defer s.accounts.mu.Unlock()
-	if _, exists := s.accounts.Users[record.Username]; exists {
+	if _, exists := s.accounts.Users[record.Account.Account]; exists {
 		writeError(w, 409, errors.New("username already exists"))
 		return
 	}
 	record.ID = accountID()
 	users := maps.Clone(s.accounts.Users)
-	users[record.Username] = record
+	users[record.Account.Account] = record
 	if err := s.accounts.save(users, s.accounts.Owners); err != nil {
 		writeError(w, 500, err)
 		return
@@ -158,7 +165,7 @@ func (s *Server) updateAccount(w http.ResponseWriter, r *http.Request) {
 	}
 	s.accounts.mu.Lock()
 	defer s.accounts.mu.Unlock()
-	previous, exists := s.accounts.Users[record.Username]
+	previous, exists := s.accounts.Users[record.Account.Account]
 	if !exists {
 		writeError(w, 404, errAccountDenied)
 		return
@@ -174,7 +181,7 @@ func (s *Server) updateAccount(w http.ResponseWriter, r *http.Request) {
 		record.Disabled = previous.Disabled
 	}
 	users := maps.Clone(s.accounts.Users)
-	users[record.Username] = record
+	users[record.Account.Account] = record
 	if err := s.accounts.save(users, s.accounts.Owners); err != nil {
 		writeError(w, 500, err)
 		return
@@ -196,7 +203,7 @@ func (s *Server) deleteAccount(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	users := maps.Clone(s.accounts.Users)
-	delete(users, record.Username)
+	delete(users, record.Account.Account)
 	// Keep ownership tombstones: deleting/recreating a username must not expose its old sessions.
 	if err := s.accounts.save(users, s.accounts.Owners); err != nil {
 		writeError(w, 500, err)

@@ -17,7 +17,8 @@ import AccountLayout from "../components/AccountLayout.astro";
         <h2 data-user-form-title>创建用户</h2>
         <form data-user-form>
           <fieldset data-user-fields>
-            <label>用户名<input name="username" required maxlength="64" pattern="[a-zA-Z0-9][a-zA-Z0-9_.\-]{0,63}" autocomplete="off" /></label>
+            <label>账号<input name="account" required maxlength="64" pattern="[a-zA-Z0-9][a-zA-Z0-9_.\-]{0,63}" autocomplete="off" /></label>
+            <label>用户名<input name="username" required maxlength="80" autocomplete="off" /></label>
             <label><span data-password-label>初始密码</span><input name="password" type="password" required minlength="8" maxlength="128" autocomplete="new-password" /></label>
             <label class="account-status-toggle"><input name="disabled" type="checkbox" /> 禁用账号</label>
             <fieldset><legend>允许访问的工作区</legend><div data-user-workspaces class="account-workspaces"></div>

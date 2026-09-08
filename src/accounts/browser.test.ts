@@ -4,7 +4,7 @@ import { requireAccount, showAccountError, signOut, syncAccountCache } from "./b
 
 vi.mock("./api", async (load) => ({ ...await load<typeof import("./api")>(),
   currentAccount: vi.fn(), logout: vi.fn() }));
-const user = { id: "alice-id", username: "alice", role: "user" as const, disabled: false, workspaces: [] };
+const user = { id: "alice-id", account: "alice", username: "Alice", role: "user" as const, disabled: false, workspaces: [] };
 const replace = vi.fn();
 beforeEach(() => { localStorage.clear(); vi.stubGlobal("location", { replace }); });
 afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); vi.clearAllMocks(); });

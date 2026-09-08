@@ -47,6 +47,7 @@ func (s *Server) loginAccount(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var req struct {
+		Account  string `json:"account"`
 		Username string `json:"username"`
 		Password string `json:"password"`
 	}
@@ -54,13 +55,16 @@ func (s *Server) loginAccount(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 400, err)
 		return
 	}
-	if !accountName.MatchString(req.Username) || validateAdminPassword(req.Password) != nil {
+	if req.Account == "" {
+		req.Account = req.Username
+	}
+	if !accountName.MatchString(req.Account) || validateAdminPassword(req.Password) != nil {
 		writeError(w, 401, errors.New("invalid username or password"))
 		return
 	}
 	// Serialize credential verification and token issuance with account updates/revocation.
 	s.accounts.mu.Lock()
-	user, valid := s.verifyAccount(req.Username, req.Password)
+	user, valid := s.verifyAccount(req.Account, req.Password)
 	if !valid {
 		s.accounts.mu.Unlock()
 		writeError(w, 401, errors.New("invalid username or password"))
@@ -72,11 +76,11 @@ func (s *Server) loginAccount(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, map[string]any{"user": user})
 }
 
-func (s *Server) verifyAccount(username, password string) (Account, bool) {
-	if username == "admin" {
-		return Account{ID: "admin", Username: "admin", Role: "admin", Workspaces: []string{}}, verifyDatabaseAdminPassword(password) == nil
+func (s *Server) verifyAccount(account, password string) (Account, bool) {
+	if account == "admin" {
+		return Account{ID: "admin", Account: "admin", Username: "管理员", Role: "admin", Workspaces: []string{}}, verifyDatabaseAdminPassword(password) == nil
 	}
-	record, exists := s.accounts.Users[username]
+	record, exists := s.accounts.Users[account]
 	if !exists {
 		// Unknown users still perform the same expensive password derivation.
 		deriveAdminPasswordKey(password, make([]byte, adminPasswordSaltLen), adminPasswordRounds, adminPasswordKeyLen)

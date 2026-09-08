@@ -13,9 +13,9 @@ async function initialize() {
     document.querySelector("[data-login-hint]")!.textContent = "首次部署：设置 admin 密码后即可创建用户并分配工作区。";
     document.querySelector("[data-login-submit]")!.textContent = "设置并登录";
     document.querySelector<HTMLElement>("[data-confirmation]")!.hidden = false;
-    const username = form.elements.namedItem("username") as HTMLInputElement;
-    username.value = "admin";
-    username.readOnly = true;
+    const account = form.elements.namedItem("account") as HTMLInputElement;
+    account.value = "admin";
+    account.readOnly = true;
     (form.elements.namedItem("password") as HTMLInputElement).autocomplete = "new-password";
     (form.elements.namedItem("confirmation") as HTMLInputElement).required = true;
   }
@@ -25,13 +25,13 @@ async function initialize() {
 form.addEventListener("submit", async (event) => {
   event.preventDefault();
   const values = new FormData(form);
-  const username = String(values.get("username"));
+  const account = String(values.get("account"));
   const password = String(values.get("password"));
   fields.disabled = true;
   errorMessage.textContent = "";
   try {
     if (!configured) { await setup(password, String(values.get("confirmation"))); configured = true; }
-    const { user } = await login(username, password);
+    const { user } = await login(account, password);
     syncAccountCache(user.id);
     form.reset();
     location.replace("/");

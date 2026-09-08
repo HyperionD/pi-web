@@ -7,7 +7,7 @@ import AccountLayout from "../components/AccountLayout.astro";
     <p data-login-hint>使用管理员分配的账号登录。会话仅对本人可见。</p>
     <form data-login-form>
       <fieldset disabled data-login-fields>
-        <label>用户名<input name="username" autocomplete="username" required maxlength="64" pattern="[a-zA-Z0-9][a-zA-Z0-9_.\-]{0,63}" /></label>
+        <label>账号<input name="account" autocomplete="username" required maxlength="64" pattern="[a-zA-Z0-9][a-zA-Z0-9_.\-]{0,63}" /></label>
         <label>密码<input name="password" type="password" autocomplete="current-password" required minlength="8" maxlength="128" /></label>
         <label data-confirmation hidden>确认管理员密码<input name="confirmation" type="password" autocomplete="new-password" minlength="8" maxlength="128" /></label>
         <button type="submit" class="account-primary" data-login-submit>登录</button>

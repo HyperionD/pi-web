@@ -20,9 +20,11 @@ function selectUser(user: Account | null) {
   document.querySelector<HTMLElement>("[data-selected-directory]")!.textContent = "未选择新目录。点击“添加目录”后从服务器目录树中选择。";
   errorMessage.textContent = "";
   status.textContent = "";
+  const account = form.elements.namedItem("account") as HTMLInputElement;
+  account.value = user?.account || "";
+  account.readOnly = !!user;
   const username = form.elements.namedItem("username") as HTMLInputElement;
   username.value = user?.username || "";
-  username.readOnly = !!user;
   (form.elements.namedItem("password") as HTMLInputElement).required = !user;
   (form.elements.namedItem("disabled") as HTMLInputElement).checked = user?.disabled || false;
   document.querySelector("[data-user-form-title]")!.textContent = user ? `编辑 ${user.username}` : "创建用户";
@@ -69,7 +71,7 @@ async function refreshUsers() {
     const item = document.createElement("li");
     const checkbox = document.createElement("input"); checkbox.type = "checkbox"; checkbox.checked = selectedUsers.has(user.username); checkbox.setAttribute("aria-label", `选择 ${user.username}`);
     checkbox.addEventListener("change", () => { if (checkbox.checked) selectedUsers.add(user.username); else selectedUsers.delete(user.username); syncBatchControls(); });
-    const button = document.createElement("button"); button.type = "button"; button.textContent = `${user.username} · ${user.workspaces.length} 个工作区${user.disabled ? " · 已禁用" : ""}`; button.addEventListener("click", () => selectUser(user));
+    const button = document.createElement("button"); button.type = "button"; button.textContent = `${user.account} · ${user.username} · ${user.workspaces.length} 个工作区${user.disabled ? " · 已禁用" : ""}`; button.addEventListener("click", () => selectUser(user));
     item.append(checkbox, button);
     container.append(item);
   }
@@ -78,13 +80,13 @@ async function refreshUsers() {
 form.addEventListener("submit", async (event) => {
   event.preventDefault();
   const values = new FormData(form);
-  const value = { username: String(values.get("username")), password: String(values.get("password")),
+  const value = { account: String(values.get("account")), username: String(values.get("username")), password: String(values.get("password")),
     workspaces: values.getAll("workspaces").map(String), workspacePaths: [String(values.get("workspacePath") || "").trim()].filter(Boolean),
     disabled: values.get("disabled") === "on" };
   fields.disabled = true;
   errorMessage.textContent = "";
   try {
-    if (editing) await updateUser(editing.username, value);
+    if (editing) await updateUser(editing.account, value);
     else await createUser(value);
     await refreshUsers();
     selectUser(null);
@@ -144,7 +146,7 @@ dialog.addEventListener("close", async () => {
   if (dialog.returnValue !== "confirm" || !editing) return;
   fields.disabled = true;
   try {
-    await deleteUser(editing.username);
+    await deleteUser(editing.account);
     await refreshUsers();
     selectUser(null);
     status.textContent = "用户已删除。";

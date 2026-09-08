@@ -1,6 +1,6 @@
-export type Account = { id: string; username: string; role: "admin" | "user"; disabled: boolean; workspaces: string[] };
+export type Account = { id: string; account: string; username: string; role: "admin" | "user"; disabled: boolean; workspaces: string[] };
 export type ManagedWorkspace = { id: string; name: string; path: string };
-export type AccountInput = { username?: string; password: string; workspaces: string[]; workspacePaths?: string[] };
+export type AccountInput = { account?: string; username: string; password: string; workspaces: string[]; workspacePaths?: string[]; disabled?: boolean };
 
 export class AccountError extends Error {
   constructor(public status: number, message: string) { super(message); }
@@ -19,8 +19,8 @@ export async function accountRequest<T>(path: string, method = "GET", body?: unk
 
 export const currentAccount = () => accountRequest<{ user: Account }>("/api/account/me");
 export const accountStatus = () => accountRequest<{ configured: boolean }>("/api/account/status");
-export const login = (username: string, password: string) =>
-  accountRequest<{ user: Account }>("/api/account/login", "POST", { username, password });
+export const login = (account: string, password: string) =>
+  accountRequest<{ user: Account }>("/api/account/login", "POST", { account, password });
 export const logout = () => accountRequest("/api/account/logout", "POST", {});
 export const setup = (password: string, confirmation: string) =>
   accountRequest("/api/admin/password", "POST", { password, confirmation });
