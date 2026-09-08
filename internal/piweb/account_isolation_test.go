@@ -130,6 +130,47 @@ func containsJSONID(value any, id string) bool {
 	return false
 }
 
+func TestAdminWorkspaceAuthorizationIsNotPersisted(t *testing.T) {
+	s, admin := accountServer(t)
+	root := t.TempDir()
+	workspace, err := s.store.OpenWorkspace(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	addAccount(t, s, admin, "alice", workspace.ID)
+
+	s.accounts.mu.Lock()
+	users := make(map[string]accountRecord, len(s.accounts.Users))
+	for name, record := range s.accounts.Users {
+		users[name] = record
+	}
+	adminRecord := users["admin"]
+	adminRecord.Workspaces = []string{workspace.ID}
+	adminRecord.Paths = map[string]string{workspace.ID: root}
+	users["admin"] = adminRecord
+	err = s.accounts.save(users, s.accounts.Owners)
+	s.accounts.mu.Unlock()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	db, err := openWebDB(DefaultWebDBPath())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	var adminGrants int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM user_workspaces uw JOIN users u ON u.id = uw.user_id WHERE u.account = 'admin'`).Scan(&adminGrants); err != nil {
+		t.Fatal(err)
+	}
+	if adminGrants != 0 {
+		t.Fatalf("admin workspace grants = %d, want 0", adminGrants)
+	}
+	if len(s.accounts.Users["alice"].Paths) != 1 {
+		t.Fatal("saving admin permissions removed another user's workspace grant")
+	}
+}
+
 func TestAccountUnassignedAndSymlinkWorkspaceDenied(t *testing.T) {
 	s, admin := accountServer(t)
 	root := t.TempDir()

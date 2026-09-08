@@ -7,6 +7,7 @@ import (
 	"database/sql"
 	"encoding/hex"
 	"errors"
+	"maps"
 	"regexp"
 	"sync"
 	"time"
@@ -170,8 +171,15 @@ func (a *accountStore) ensureAdmin() error {
 	}
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	if _, exists := a.Users["admin"]; exists {
-		return nil
+	if existing, exists := a.Users["admin"]; exists {
+		if len(existing.Workspaces) == 0 && len(existing.Paths) == 0 {
+			return nil
+		}
+		users := maps.Clone(a.Users)
+		existing.Workspaces = []string{}
+		existing.Paths = map[string]string{}
+		users["admin"] = existing
+		return a.save(users, a.Owners)
 	}
 	record := accountRecord{Account: Account{ID: "admin", Account: "admin", Username: "管理员", Role: "admin", Workspaces: []string{}}, PasswordHash: encoded, Paths: map[string]string{}}
 	users := map[string]accountRecord{"admin": record}
@@ -182,6 +190,14 @@ func (a *accountStore) ensureAdmin() error {
 }
 
 func (a *accountStore) save(users map[string]accountRecord, _ map[string]string) error {
+	for name, record := range users {
+		if record.Role != "admin" {
+			continue
+		}
+		record.Workspaces = []string{}
+		record.Paths = map[string]string{}
+		users[name] = record
+	}
 	db, err := openWebDB(a.dbPath)
 	if err != nil {
 		return err
