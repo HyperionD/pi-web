@@ -50,6 +50,10 @@ function syncBatchControls() {
   document.querySelector("[data-batch-count]")!.textContent = `${selectedUsers.size} 个用户`;
 }
 
+async function refreshUsersSafely() {
+  try { await refreshUsers(); } catch (error) { showAccountError(error, errorMessage); }
+}
+
 async function refreshUsers() {
   const query = document.querySelector<HTMLInputElement>("[data-user-search]")?.value.trim() || "";
   const { users, total, page } = await listUsers(query, userPage, 50);
@@ -90,9 +94,9 @@ form.addEventListener("submit", async (event) => {
 });
 
 document.querySelector("[data-user-new]")!.addEventListener("click", () => selectUser(null));
-document.querySelector("[data-users-prev]")!.addEventListener("click", () => { if (userPage > 1) { userPage--; void refreshUsers(); } });
-document.querySelector("[data-users-next]")!.addEventListener("click", () => { if (userPage * 50 < userTotal) { userPage++; void refreshUsers(); } });
-document.querySelector<HTMLInputElement>("[data-user-search]")!.addEventListener("input", () => { window.clearTimeout(searchTimer); searchTimer = window.setTimeout(() => { userPage = 1; void refreshUsers(); }, 250); });
+document.querySelector("[data-users-prev]")!.addEventListener("click", () => { if (userPage > 1) { userPage--; void refreshUsersSafely(); } });
+document.querySelector("[data-users-next]")!.addEventListener("click", () => { if (userPage * 50 < userTotal) { userPage++; void refreshUsersSafely(); } });
+document.querySelector<HTMLInputElement>("[data-user-search]")!.addEventListener("input", () => { window.clearTimeout(searchTimer); searchTimer = window.setTimeout(() => { userPage = 1; void refreshUsersSafely(); }, 250); });
 document.querySelector("[data-batch-assign]")!.addEventListener("click", async () => {
   const select = document.querySelector<HTMLSelectElement>("[data-batch-workspaces]")!;
   const workspaces = [...select.selectedOptions].map((option) => option.value);

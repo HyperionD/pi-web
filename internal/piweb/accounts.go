@@ -23,6 +23,8 @@ type accountRecord struct {
 	Account
 	PasswordHash string            `json:"passwordHash"`
 	Paths        map[string]string `json:"paths"`
+	workspaceSet bool
+	disabledSet  bool
 }
 type accountLogin struct {
 	User    Account

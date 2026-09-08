@@ -24,10 +24,7 @@ func (s *Server) listAccounts(w http.ResponseWriter, r *http.Request) {
 	if page < 1 {
 		page = 1
 	}
-	pageSize, _ := strconv.Atoi(r.URL.Query().Get("pageSize"))
-	if pageSize < 1 || pageSize > 100 {
-		pageSize = 50
-	}
+	pageSize := 50
 	s.accounts.mu.Lock()
 	users := make([]Account, 0, len(s.accounts.Users))
 	for _, record := range s.accounts.Users {
@@ -41,10 +38,14 @@ func (s *Server) listAccounts(w http.ResponseWriter, r *http.Request) {
 	s.accounts.mu.Unlock()
 	sort.Slice(users, func(i, j int) bool { return users[i].Username < users[j].Username })
 	total := len(users)
-	start := (page - 1) * pageSize
-	if start > total {
-		start = total
+	maxPage := (total + pageSize - 1) / pageSize
+	if maxPage < 1 {
+		maxPage = 1
 	}
+	if page > maxPage {
+		page = maxPage
+	}
+	start := (page - 1) * pageSize
 	end := start + pageSize
 	if end > total {
 		end = total
@@ -126,7 +127,7 @@ func (s *Server) readAccountWrite(w http.ResponseWriter, r *http.Request, create
 		disabled = *req.Disabled
 	}
 	return accountRecord{Account: Account{Username: req.Username, Role: "user", Disabled: disabled, Workspaces: ids},
-		PasswordHash: hash, Paths: paths}, true
+		PasswordHash: hash, Paths: paths, workspaceSet: req.Workspaces != nil || req.WorkspacePaths != nil, disabledSet: req.Disabled != nil}, true
 }
 
 func (s *Server) createAccount(w http.ResponseWriter, r *http.Request) {
@@ -166,6 +167,12 @@ func (s *Server) updateAccount(w http.ResponseWriter, r *http.Request) {
 	if record.PasswordHash == "" {
 		record.PasswordHash = previous.PasswordHash
 	}
+	if !record.workspaceSet {
+		record.Workspaces, record.Paths = previous.Workspaces, previous.Paths
+	}
+	if !record.disabledSet {
+		record.Disabled = previous.Disabled
+	}
 	users := maps.Clone(s.accounts.Users)
 	users[record.Username] = record
 	if err := s.accounts.save(users, s.accounts.Owners); err != nil {
@@ -177,6 +184,10 @@ func (s *Server) updateAccount(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) deleteAccount(w http.ResponseWriter, r *http.Request) {
+	if r.PathValue("username") == "admin" {
+		writeError(w, http.StatusForbidden, errors.New("the admin account cannot be deleted"))
+		return
+	}
 	s.accounts.mu.Lock()
 	defer s.accounts.mu.Unlock()
 	record, ok := s.accounts.Users[r.PathValue("username")]
