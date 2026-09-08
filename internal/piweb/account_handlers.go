@@ -15,6 +15,7 @@ func (s *Server) accountRoutes() {
 	s.mux.HandleFunc("POST /api/account/logout", s.logoutAccount)
 	s.mux.HandleFunc("GET /api/admin/users", s.listAccounts)
 	s.mux.HandleFunc("POST /api/admin/users", s.createAccount)
+	s.mux.HandleFunc("POST /api/admin/users/batch-workspaces", s.batchAssignWorkspaces)
 	s.mux.HandleFunc("PATCH /api/admin/users/{username}", s.updateAccount)
 	s.mux.HandleFunc("DELETE /api/admin/users/{username}", s.deleteAccount)
 }
@@ -79,6 +80,9 @@ func (s *Server) verifyAccount(username, password string) (Account, bool) {
 	if !exists {
 		// Unknown users still perform the same expensive password derivation.
 		deriveAdminPasswordKey(password, make([]byte, adminPasswordSaltLen), adminPasswordRounds, adminPasswordKeyLen)
+		return Account{}, false
+	}
+	if record.Disabled {
 		return Account{}, false
 	}
 	return record.Account, verifyAdminPasswordHash(password, record.PasswordHash)

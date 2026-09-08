@@ -16,7 +16,7 @@ describe("account API", () => {
     await createUser(input); await updateUser("a b", input); await deleteUser("a b");
     expect(fetchMock.mock.calls.map(([path]) => path)).toEqual([
       "/api/account/me", "/api/account/status", "/api/account/login", "/api/account/logout", "/api/admin/password",
-      "/api/admin/users", "/api/workspaces", "/api/admin/users", "/api/admin/users/a%20b", "/api/admin/users/a%20b",
+      "/api/admin/users?q=&page=1&pageSize=50", "/api/workspaces", "/api/admin/users", "/api/admin/users/a%20b", "/api/admin/users/a%20b",
     ]);
     expect(fetchMock.mock.calls[2][1]).toMatchObject({ credentials: "same-origin", cache: "no-store", method: "POST",
       body: JSON.stringify({ username: "alice", password: "password-123" }) });

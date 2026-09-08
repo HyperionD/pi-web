@@ -91,6 +91,9 @@ func publicAccountRoute(r *http.Request) bool {
 
 func memberAccountRoute(r *http.Request) bool {
 	path := r.URL.Path
+	if r.Method == http.MethodPost && path == "/api/admin/users/batch-workspaces" {
+		return false
+	}
 	if path == "/api/account/me" || path == "/api/account/logout" {
 		return true
 	}

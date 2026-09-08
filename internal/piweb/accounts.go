@@ -16,6 +16,7 @@ type Account struct {
 	ID         string   `json:"id"`
 	Username   string   `json:"username"`
 	Role       string   `json:"role"`
+	Disabled   bool     `json:"disabled"`
 	Workspaces []string `json:"workspaces"`
 }
 type accountRecord struct {
@@ -51,7 +52,7 @@ func newAccountStore() *accountStore {
 		return a
 	}
 	defer db.Close()
-	rows, err := db.Query(`SELECT id, username, role, password_hash FROM users`)
+	rows, err := db.Query(`SELECT id, username, role, password_hash, disabled FROM users`)
 	if err != nil {
 		a.dbErr = err
 		return a
@@ -59,7 +60,7 @@ func newAccountStore() *accountStore {
 	defer rows.Close()
 	for rows.Next() {
 		var r accountRecord
-		if err := rows.Scan(&r.ID, &r.Username, &r.Role, &r.PasswordHash); err != nil {
+		if err := rows.Scan(&r.ID, &r.Username, &r.Role, &r.PasswordHash, &r.Disabled); err != nil {
 			a.dbErr = err
 			return a
 		}
@@ -180,7 +181,7 @@ func (a *accountStore) save(users map[string]accountRecord, _ map[string]string)
 		return err
 	}
 	for _, r := range users {
-		if _, err = tx.Exec(`INSERT INTO users(id, username, role, password_hash, created_at) VALUES(?,?,?,?,?) ON CONFLICT(username) DO UPDATE SET id=excluded.id, role=excluded.role, password_hash=excluded.password_hash`, r.ID, r.Username, r.Role, r.PasswordHash, time.Now().UTC().Format(time.RFC3339Nano)); err != nil {
+		if _, err = tx.Exec(`INSERT INTO users(id, username, role, password_hash, disabled, created_at) VALUES(?,?,?,?,?,?) ON CONFLICT(username) DO UPDATE SET id=excluded.id, role=excluded.role, password_hash=excluded.password_hash, disabled=excluded.disabled`, r.ID, r.Username, r.Role, r.PasswordHash, r.Disabled, time.Now().UTC().Format(time.RFC3339Nano)); err != nil {
 			_ = tx.Rollback()
 			return err
 		}

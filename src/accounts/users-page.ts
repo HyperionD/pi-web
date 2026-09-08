@@ -1,4 +1,4 @@
-import { createUser, deleteUser, listFolders, listUsers, listWorkspaces, updateUser, type Account, type ManagedWorkspace } from "./api";
+import { batchAssignWorkspaces, createUser, deleteUser, listFolders, listUsers, listWorkspaces, updateUser, type Account, type ManagedWorkspace } from "./api";
 import { requireAccount, showAccountError } from "./browser";
 
 const form = document.querySelector<HTMLFormElement>("[data-user-form]")!;
@@ -9,6 +9,10 @@ const removeButton = document.querySelector<HTMLButtonElement>("[data-user-delet
 const dialog = document.querySelector<HTMLDialogElement>("[data-delete-dialog]")!;
 let editing: Account | null = null;
 let workspaces: ManagedWorkspace[] = [];
+let userPage = 1;
+let userTotal = 0;
+let searchTimer: number | undefined;
+const selectedUsers = new Set<string>();
 
 function selectUser(user: Account | null) {
   editing = user;
@@ -20,6 +24,7 @@ function selectUser(user: Account | null) {
   username.value = user?.username || "";
   username.readOnly = !!user;
   (form.elements.namedItem("password") as HTMLInputElement).required = !user;
+  (form.elements.namedItem("disabled") as HTMLInputElement).checked = user?.disabled || false;
   document.querySelector("[data-user-form-title]")!.textContent = user ? `编辑 ${user.username}` : "创建用户";
   document.querySelector("[data-password-label]")!.textContent = user ? "重置密码（留空不修改）" : "初始密码";
   removeButton.hidden = !user;
@@ -40,18 +45,28 @@ function selectUser(user: Account | null) {
   if (!workspaces.length) container.textContent = "暂无可分配的工作区。";
 }
 
+function syncBatchControls() {
+  document.querySelector<HTMLElement>("[data-account-batch]")!.hidden = selectedUsers.size === 0;
+  document.querySelector("[data-batch-count]")!.textContent = `${selectedUsers.size} 个用户`;
+}
+
 async function refreshUsers() {
-  const { users } = await listUsers();
+  const query = document.querySelector<HTMLInputElement>("[data-user-search]")?.value.trim() || "";
+  const { users, total, page } = await listUsers(query, userPage, 50);
+  userTotal = total; userPage = page;
   const container = document.querySelector("[data-users-list]")!;
   container.replaceChildren();
   document.querySelector<HTMLElement>("[data-users-empty]")!.hidden = users.length > 0;
+  document.querySelector("[data-users-count]")!.textContent = String(total);
+  document.querySelector("[data-users-page]")!.textContent = `第 ${page} 页 / 共 ${Math.max(1, Math.ceil(total / 50))} 页`;
+  (document.querySelector("[data-users-prev]") as HTMLButtonElement).disabled = page <= 1;
+  (document.querySelector("[data-users-next]") as HTMLButtonElement).disabled = page * 50 >= total;
   for (const user of users) {
     const item = document.createElement("li");
-    const button = document.createElement("button");
-    button.type = "button";
-    button.textContent = `${user.username} · ${user.workspaces.length} 个工作区`;
-    button.addEventListener("click", () => selectUser(user));
-    item.append(button);
+    const checkbox = document.createElement("input"); checkbox.type = "checkbox"; checkbox.checked = selectedUsers.has(user.username); checkbox.setAttribute("aria-label", `选择 ${user.username}`);
+    checkbox.addEventListener("change", () => { if (checkbox.checked) selectedUsers.add(user.username); else selectedUsers.delete(user.username); syncBatchControls(); });
+    const button = document.createElement("button"); button.type = "button"; button.textContent = `${user.username} · ${user.workspaces.length} 个工作区${user.disabled ? " · 已禁用" : ""}`; button.addEventListener("click", () => selectUser(user));
+    item.append(checkbox, button);
     container.append(item);
   }
 }
@@ -60,7 +75,8 @@ form.addEventListener("submit", async (event) => {
   event.preventDefault();
   const values = new FormData(form);
   const value = { username: String(values.get("username")), password: String(values.get("password")),
-    workspaces: values.getAll("workspaces").map(String), workspacePaths: [String(values.get("workspacePath") || "").trim()].filter(Boolean) };
+    workspaces: values.getAll("workspaces").map(String), workspacePaths: [String(values.get("workspacePath") || "").trim()].filter(Boolean),
+    disabled: values.get("disabled") === "on" };
   fields.disabled = true;
   errorMessage.textContent = "";
   try {
@@ -74,6 +90,16 @@ form.addEventListener("submit", async (event) => {
 });
 
 document.querySelector("[data-user-new]")!.addEventListener("click", () => selectUser(null));
+document.querySelector("[data-users-prev]")!.addEventListener("click", () => { if (userPage > 1) { userPage--; void refreshUsers(); } });
+document.querySelector("[data-users-next]")!.addEventListener("click", () => { if (userPage * 50 < userTotal) { userPage++; void refreshUsers(); } });
+document.querySelector<HTMLInputElement>("[data-user-search]")!.addEventListener("input", () => { window.clearTimeout(searchTimer); searchTimer = window.setTimeout(() => { userPage = 1; void refreshUsers(); }, 250); });
+document.querySelector("[data-batch-assign]")!.addEventListener("click", async () => {
+  const select = document.querySelector<HTMLSelectElement>("[data-batch-workspaces]")!;
+  const workspaces = [...select.selectedOptions].map((option) => option.value);
+  if (!workspaces.length) { status.textContent = "请选择至少一个工作区。"; return; }
+  try { await batchAssignWorkspaces([...selectedUsers], workspaces); selectedUsers.clear(); await refreshUsers(); syncBatchControls(); status.textContent = "批量授权已保存。"; }
+  catch (error) { showAccountError(error, errorMessage); }
+});
 const directoryDialog = document.querySelector<HTMLDialogElement>("[data-directory-dialog]")!;
 const directoryCurrent = document.querySelector<HTMLElement>("[data-directory-current]")!;
 const directoryList = document.querySelector<HTMLElement>("[data-directory-list]")!;
@@ -125,8 +151,10 @@ dialog.addEventListener("close", async () => {
 async function initialize() {
   if (!await requireAccount(true)) return;
   ({ workspaces } = await listWorkspaces());
+  const batchSelect = document.querySelector<HTMLSelectElement>("[data-batch-workspaces]")!;
+  batchSelect.replaceChildren(...workspaces.map((workspace) => new Option(`${workspace.name} · ${workspace.path}`, workspace.id)));
   await refreshUsers();
-  selectUser(null);
+  selectUser(null); syncBatchControls();
   document.querySelector<HTMLElement>("[data-users-content]")!.hidden = false;
 }
 void initialize().catch((error) => showAccountError(error, errorMessage));

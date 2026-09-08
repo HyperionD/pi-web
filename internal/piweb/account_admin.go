@@ -6,6 +6,8 @@ import (
 	"net/http"
 	"path/filepath"
 	"sort"
+	"strconv"
+	"strings"
 )
 
 type accountWriteRequest struct {
@@ -13,17 +15,41 @@ type accountWriteRequest struct {
 	Password       string   `json:"password"`
 	Workspaces     []string `json:"workspaces"`
 	WorkspacePaths []string `json:"workspacePaths"`
+	Disabled       *bool    `json:"disabled"`
 }
 
-func (s *Server) listAccounts(w http.ResponseWriter, _ *http.Request) {
+func (s *Server) listAccounts(w http.ResponseWriter, r *http.Request) {
+	query := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("q")))
+	page, _ := strconv.Atoi(r.URL.Query().Get("page"))
+	if page < 1 {
+		page = 1
+	}
+	pageSize, _ := strconv.Atoi(r.URL.Query().Get("pageSize"))
+	if pageSize < 1 || pageSize > 100 {
+		pageSize = 50
+	}
 	s.accounts.mu.Lock()
 	users := make([]Account, 0, len(s.accounts.Users))
 	for _, record := range s.accounts.Users {
-		users = append(users, record.Account)
+		if record.Role == "admin" {
+			continue
+		}
+		if query == "" || strings.Contains(strings.ToLower(record.Username), query) {
+			users = append(users, record.Account)
+		}
 	}
 	s.accounts.mu.Unlock()
 	sort.Slice(users, func(i, j int) bool { return users[i].Username < users[j].Username })
-	writeJSON(w, 200, map[string]any{"users": users})
+	total := len(users)
+	start := (page - 1) * pageSize
+	if start > total {
+		start = total
+	}
+	end := start + pageSize
+	if end > total {
+		end = total
+	}
+	writeJSON(w, 200, map[string]any{"users": users[start:end], "total": total, "page": page, "pageSize": pageSize})
 }
 
 func (s *Server) accountPaths(ids, requestedPaths []string) (map[string]string, error) {
@@ -95,7 +121,11 @@ func (s *Server) readAccountWrite(w http.ResponseWriter, r *http.Request, create
 		ids = append(ids, id)
 	}
 	sort.Strings(ids)
-	return accountRecord{Account: Account{Username: req.Username, Role: "user", Workspaces: ids},
+	disabled := false
+	if req.Disabled != nil {
+		disabled = *req.Disabled
+	}
+	return accountRecord{Account: Account{Username: req.Username, Role: "user", Disabled: disabled, Workspaces: ids},
 		PasswordHash: hash, Paths: paths}, true
 }
 

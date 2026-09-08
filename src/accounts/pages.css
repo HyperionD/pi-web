@@ -27,9 +27,14 @@
 .account-main :focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
 .account-main small { display: block; font-size: 12px; color: var(--fg-3); line-height: 1.7; }
 .account-login small { margin-top: 24px; }
-.account-users { padding: 0; list-style: none; display: grid; gap: 10px; }
+.account-list-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.account-list-head h2 { margin-bottom: 0; }
+.account-list-head small { color: var(--fg-3); font-weight: 400; }
+.account-search { margin: 18px 0; }
+.account-users { padding: 0; list-style: none; display: grid; gap: 10px; min-height: 120px; align-content: start; }
 .account-users button { text-align: left; width: 100%; overflow-wrap: anywhere; }
 .account-form-actions { display: flex; gap: 12px; flex-wrap: wrap; }
+.account-pagination { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 20px; color: var(--fg-2); font-size: 12px; }
 .account-workspaces { display: grid; gap: 12px; max-height: 280px; overflow: auto; padding: 4px; }
 .account-workspaces label { grid-template-columns: auto 1fr; align-items: start; overflow-wrap: anywhere; }
 .account-main legend { margin-bottom: 12px; font-size: 13px; }

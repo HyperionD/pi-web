@@ -6,10 +6,12 @@ import AccountLayout from "../components/AccountLayout.astro";
     <div class="account-heading"><div><h1>用户管理</h1><p>分配工作区，隔离个人会话。共享工作区内的文件仍然共享。</p></div><a href="/">返回会话</a></div>
     <div class="account-columns">
       <section class="account-card">
-        <h2>用户列表</h2>
-        <p data-users-empty>尚未创建用户。</p>
+        <div class="account-list-head"><h2>用户列表 <small data-users-count>0</small></h2><button type="button" data-user-new>创建用户</button></div>
+        <div class="account-batch" data-account-batch hidden><span data-batch-count>0 个用户</span><select data-batch-workspaces multiple aria-label="批量分配工作区"></select><button type="button" data-batch-assign>批量分配</button></div>
+        <label class="account-search">搜索用户<input data-user-search type="search" placeholder="输入用户名" autocomplete="off" /></label>
+        <p data-users-empty>暂无匹配用户。</p>
         <ul class="account-users" data-users-list></ul>
-        <button type="button" data-user-new>创建用户</button>
+        <div class="account-pagination"><button type="button" data-users-prev>上一页</button><span data-users-page>第 1 页</span><button type="button" data-users-next>下一页</button></div>
       </section>
       <section class="account-card">
         <h2 data-user-form-title>创建用户</h2>
@@ -17,6 +19,7 @@ import AccountLayout from "../components/AccountLayout.astro";
           <fieldset data-user-fields>
             <label>用户名<input name="username" required maxlength="64" pattern="[a-zA-Z0-9][a-zA-Z0-9_.\-]{0,63}" autocomplete="off" /></label>
             <label><span data-password-label>初始密码</span><input name="password" type="password" required minlength="8" maxlength="128" autocomplete="new-password" /></label>
+            <label class="account-status-toggle"><input name="disabled" type="checkbox" /> 禁用账号</label>
             <fieldset><legend>允许访问的工作区</legend><div data-user-workspaces class="account-workspaces"></div>
               <input name="workspacePath" type="hidden" />
               <button type="button" data-open-directory>添加目录</button>

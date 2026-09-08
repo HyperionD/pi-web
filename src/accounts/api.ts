@@ -1,4 +1,4 @@
-export type Account = { id: string; username: string; role: "admin" | "user"; workspaces: string[] };
+export type Account = { id: string; username: string; role: "admin" | "user"; disabled: boolean; workspaces: string[] };
 export type ManagedWorkspace = { id: string; name: string; path: string };
 export type AccountInput = { username?: string; password: string; workspaces: string[]; workspacePaths?: string[] };
 
@@ -24,10 +24,11 @@ export const login = (username: string, password: string) =>
 export const logout = () => accountRequest("/api/account/logout", "POST", {});
 export const setup = (password: string, confirmation: string) =>
   accountRequest("/api/admin/password", "POST", { password, confirmation });
-export const listUsers = () => accountRequest<{ users: Account[] }>("/api/admin/users");
+export const listUsers = (query = "", page = 1, pageSize = 50) => accountRequest<{ users: Account[]; total: number; page: number; pageSize: number }>(`/api/admin/users?q=${encodeURIComponent(query)}&page=${page}&pageSize=${pageSize}`);
 export const listWorkspaces = () => accountRequest<{ workspaces: ManagedWorkspace[] }>("/api/workspaces");
 export const listFolders = (path: string) => accountRequest<{ path: string; parent?: string; folders?: Array<{ name: string; path: string; displayPath?: string }> }>(`/api/system/folders?purpose=allowed-root&path=${encodeURIComponent(path)}`);
 export const createUser = (value: AccountInput) => accountRequest("/api/admin/users", "POST", value);
 export const updateUser = (name: string, value: AccountInput) =>
   accountRequest(`/api/admin/users/${encodeURIComponent(name)}`, "PATCH", value);
 export const deleteUser = (name: string) => accountRequest(`/api/admin/users/${encodeURIComponent(name)}`, "DELETE");
+export const batchAssignWorkspaces = (usernames: string[], workspaces: string[]) => accountRequest("/api/admin/users/batch-workspaces", "POST", { usernames, workspaces });
