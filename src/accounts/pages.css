@@ -13,6 +13,8 @@
 .account-section-hint { margin: -12px 0 0; font-size: 12px; }
 .account-toolbar { display: flex; align-items: end; justify-content: space-between; gap: 16px; margin: 24px 0 18px; }
 .account-toolbar .account-search { flex: 1; max-width: 360px; margin: 0; }
+.account-page-size { min-width: 104px; }
+.account-page-size select { min-height: 42px; padding: 10px 30px 10px 12px; border: 1px solid var(--border); border-radius: 6px; color: var(--fg-0); background: var(--bg-0); font: inherit; }
 .account-batch { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; color: var(--fg-2); font-size: 12px; }
 .account-batch select { min-height: 40px; max-width: 220px; padding: 8px; border: 1px solid var(--border); border-radius: 6px; color: var(--fg-0); background: var(--bg-0); font: inherit; }
 .account-table-wrap { overflow-x: auto; border: 1px solid var(--border); border-radius: 8px; }

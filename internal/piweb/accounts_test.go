@@ -70,6 +70,33 @@ func TestConcurrentDatabaseAccessDoesNotReturnLocked(t *testing.T) {
 	}
 }
 
+func TestAccountListAcceptsPageSize(t *testing.T) {
+	s, admin := accountServer(t)
+	w := accountRequest(s, "GET", "/api/admin/users?page=1&pageSize=20", "", admin)
+	if w.Code != http.StatusOK {
+		t.Fatalf("list: %d %s", w.Code, w.Body.String())
+	}
+	var body struct {
+		PageSize int `json:"pageSize"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if body.PageSize != 20 {
+		t.Fatalf("page size = %d, want 20", body.PageSize)
+	}
+	w = accountRequest(s, "GET", "/api/admin/users?page=1&pageSize=37", "", admin)
+	if w.Code != http.StatusOK {
+		t.Fatalf("list invalid size: %d", w.Code)
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if body.PageSize != 50 {
+		t.Fatalf("invalid page size = %d, want 50", body.PageSize)
+	}
+}
+
 func TestAccountAuthenticationAndManagement(t *testing.T) {
 	s, admin := accountServer(t)
 	for _, path := range []string{"/api/workspaces", "/api/sessions/session-1", "/api/auth/providers", "/api/app-config"} {

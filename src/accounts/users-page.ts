@@ -11,6 +11,7 @@ let editing: Account | null = null;
 let workspaces: ManagedWorkspace[] = [];
 let userPage = 1;
 let userTotal = 0;
+let userPageSize = 50;
 let searchTimer: number | undefined;
 const selectedUsers = new Set<string>();
 
@@ -68,15 +69,15 @@ async function refreshWorkspaceOptions() {
 
 async function refreshUsers() {
   const query = document.querySelector<HTMLInputElement>("[data-user-search]")?.value.trim() || "";
-  const { users, total, page } = await listUsers(query, userPage, 50);
+  const { users, total, page } = await listUsers(query, userPage, userPageSize);
   userTotal = total; userPage = page;
   const container = document.querySelector<HTMLTableSectionElement>("[data-users-list]")!;
   container.replaceChildren();
   document.querySelector<HTMLElement>("[data-users-empty]")!.hidden = users.length > 0;
   document.querySelector("[data-users-count]")!.textContent = String(total);
-  document.querySelector("[data-users-page]")!.textContent = `第 ${page} 页 / 共 ${Math.max(1, Math.ceil(total / 50))} 页`;
+  document.querySelector("[data-users-page]")!.textContent = `第 ${page} 页 / 共 ${Math.max(1, Math.ceil(total / userPageSize))} 页`;
   (document.querySelector("[data-users-prev]") as HTMLButtonElement).disabled = page <= 1;
-  (document.querySelector("[data-users-next]") as HTMLButtonElement).disabled = page * 50 >= total;
+  (document.querySelector("[data-users-next]") as HTMLButtonElement).disabled = page * userPageSize >= total;
   for (const user of users) {
     const row = document.createElement("tr");
     const selectCell = document.createElement("td");
@@ -118,8 +119,9 @@ document.querySelector("[data-user-new]")!.addEventListener("click", () => openU
 document.querySelectorAll("[data-user-cancel]").forEach((button) => button.addEventListener("click", () => userDialog.close("cancel")));
 userDialog.addEventListener("close", () => selectUser(null));
 document.querySelector("[data-users-prev]")!.addEventListener("click", () => { if (userPage > 1) { userPage--; void refreshUsersSafely(); } });
-document.querySelector("[data-users-next]")!.addEventListener("click", () => { if (userPage * 50 < userTotal) { userPage++; void refreshUsersSafely(); } });
+document.querySelector("[data-users-next]")!.addEventListener("click", () => { if (userPage * userPageSize < userTotal) { userPage++; void refreshUsersSafely(); } });
 document.querySelector<HTMLInputElement>("[data-user-search]")!.addEventListener("input", () => { window.clearTimeout(searchTimer); searchTimer = window.setTimeout(() => { userPage = 1; void refreshUsersSafely(); }, 250); });
+document.querySelector<HTMLSelectElement>("[data-user-page-size]")!.addEventListener("change", (event) => { userPageSize = Number((event.target as HTMLSelectElement).value); userPage = 1; void refreshUsersSafely(); });
 document.querySelector("[data-batch-assign]")!.addEventListener("click", async () => {
   const select = document.querySelector<HTMLSelectElement>("[data-batch-workspaces]")!;
   const workspaces = [...select.selectedOptions].map((option) => option.value);

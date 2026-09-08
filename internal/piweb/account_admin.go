@@ -25,7 +25,10 @@ func (s *Server) listAccounts(w http.ResponseWriter, r *http.Request) {
 	if page < 1 {
 		page = 1
 	}
-	pageSize := 50
+	pageSize, _ := strconv.Atoi(r.URL.Query().Get("pageSize"))
+	if pageSize != 20 && pageSize != 50 && pageSize != 100 {
+		pageSize = 50
+	}
 	s.accounts.mu.Lock()
 	users := make([]Account, 0, len(s.accounts.Users))
 	for _, record := range s.accounts.Users {
