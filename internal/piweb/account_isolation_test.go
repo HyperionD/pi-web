@@ -72,6 +72,10 @@ func TestAccountSessionIsolationAndPersistence(t *testing.T) {
 			t.Fatalf("session listing leak: %s", w.Body.String())
 		}
 	}
+	w := accountRequest(s, "GET", "/api/workspaces/"+workspace.ID+"/sessions", "", admin)
+	if w.Code != 200 || !containsSession(w.Body.String(), aSession.ID) || !containsSession(w.Body.String(), bSession.ID) {
+		t.Fatalf("admin session listing incomplete: %s", w.Body.String())
+	}
 	reloaded := newAccountStore()
 	if reloaded.dbErr != nil {
 		t.Fatalf("ownership reload database error: %v", reloaded.dbErr)
@@ -79,7 +83,7 @@ func TestAccountSessionIsolationAndPersistence(t *testing.T) {
 	if !reloaded.owns(reloaded.Users["alice"].Account, aSession.ID) {
 		t.Fatalf("ownership not persisted: %#v", reloaded.Owners)
 	}
-	w := accountRequest(s, "DELETE", "/api/workspaces/"+workspace.ID+"/sessions", "", alice)
+	w = accountRequest(s, "DELETE", "/api/workspaces/"+workspace.ID+"/sessions", "", alice)
 	if w.Code != 200 {
 		t.Fatal(w.Body.String())
 	}

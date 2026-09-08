@@ -236,8 +236,10 @@ func (a *accountStore) save(users map[string]accountRecord, _ map[string]string)
 func (a *accountStore) owns(user Account, sessionID string) bool {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	owner := a.Owners[sessionID]
-	return owner == user.ID || (owner == "" && user.Role == "admin")
+	if user.Role == "admin" {
+		return true
+	}
+	return a.Owners[sessionID] == user.ID
 }
 func (a *accountStore) allows(user Account, workspaceID, path string) bool {
 	if user.Role == "admin" {
