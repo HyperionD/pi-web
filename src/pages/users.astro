@@ -22,7 +22,7 @@ import AccountLayout from "../components/AccountLayout.astro";
               <button type="button" data-open-directory>添加目录</button>
               <small data-selected-directory>未选择新目录。点击“添加目录”后从服务器目录树中选择。</small>
             </fieldset>
-            <small>列表中的目录可直接勾选；也可以手动添加尚未在工作区列表中的目录。</small>
+            <small>列表中的目录可直接勾选；也可以通过“添加目录”从服务器目录树中选择新目录。</small>
             <small>保存修改会使该用户的所有登录失效；用户重新登录后生效。</small>
             <div class="account-form-actions"><button type="submit" class="account-primary">保存用户</button><button type="button" data-user-delete hidden>删除用户</button></div>
           </fieldset>
@@ -31,7 +31,7 @@ import AccountLayout from "../components/AccountLayout.astro";
       </section>
     </div>
     <dialog data-directory-dialog>
-      <form method="dialog" data-directory-form><h2>选择服务器目录</h2><label>当前路径<input name="directory" data-directory-path required /></label><div class="account-form-actions"><button type="button" data-directory-up>上一级</button><button type="button" data-directory-load>打开</button></div><div data-directory-list class="account-directory-list"></div><div class="account-form-actions"><button value="cancel">取消</button><button value="confirm" class="account-primary">选择此目录</button></div></form>
+      <form method="dialog" data-directory-form><h2>选择服务器目录</h2><p class="account-directory-current"><span>当前位置</span><code data-directory-current aria-live="polite">加载目录中…</code></p><div class="account-form-actions"><button type="button" data-directory-up>上一级</button></div><div data-directory-list class="account-directory-list" role="tree" aria-label="服务器目录"></div><div class="account-form-actions"><button value="cancel">取消</button><button value="confirm" class="account-primary">选择此目录</button></div></form>
     </dialog>
     <dialog data-delete-dialog>
       <form method="dialog"><h2>删除用户？</h2><p>用户将立即退出登录。已有会话不会转交给其他用户。</p><p data-delete-name></p><div class="account-form-actions"><button value="cancel">取消</button><button value="confirm" class="account-danger">确认删除</button></div></form>

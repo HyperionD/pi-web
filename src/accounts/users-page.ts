@@ -75,21 +75,35 @@ form.addEventListener("submit", async (event) => {
 
 document.querySelector("[data-user-new]")!.addEventListener("click", () => selectUser(null));
 const directoryDialog = document.querySelector<HTMLDialogElement>("[data-directory-dialog]")!;
-const directoryPath = document.querySelector<HTMLInputElement>("[data-directory-path]")!;
+const directoryCurrent = document.querySelector<HTMLElement>("[data-directory-current]")!;
 const directoryList = document.querySelector<HTMLElement>("[data-directory-list]")!;
+let selectedDirectory = "/";
 async function loadDirectory(path: string) {
+  directoryCurrent.textContent = "加载目录中…";
+  directoryList.replaceChildren();
   try {
-    const result = await listFolders(path); directoryPath.value = result.path; directoryList.replaceChildren();
-    for (const folder of result.folders || []) { const button = document.createElement("button"); button.type = "button"; button.textContent = folder.displayPath || folder.name; button.addEventListener("click", () => void loadDirectory(folder.path)); directoryList.append(button); }
-  } catch (error) { showAccountError(error, errorMessage); }
+    const result = await listFolders(path);
+    selectedDirectory = result.path;
+    directoryCurrent.textContent = result.path;
+    const folders = result.folders || [];
+    if (!folders.length) directoryList.textContent = "此目录没有可浏览的子目录。";
+    for (const folder of folders) {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.setAttribute("role", "treeitem");
+      button.textContent = folder.name;
+      button.title = folder.displayPath || folder.path;
+      button.addEventListener("click", () => void loadDirectory(folder.path));
+      directoryList.append(button);
+    }
+  } catch (error) { directoryCurrent.textContent = "无法加载目录"; showAccountError(error, errorMessage); }
 }
-document.querySelector("[data-open-directory]")!.addEventListener("click", () => { directoryPath.value = "/"; directoryDialog.showModal(); void loadDirectory("/"); });
-document.querySelector("[data-directory-load]")!.addEventListener("click", () => void loadDirectory(directoryPath.value));
-document.querySelector("[data-directory-up]")!.addEventListener("click", () => void loadDirectory(directoryPath.value.replace(/\/[^/]*$/, "") || "/"));
+document.querySelector("[data-open-directory]")!.addEventListener("click", () => { directoryDialog.showModal(); void loadDirectory("/"); });
+document.querySelector("[data-directory-up]")!.addEventListener("click", () => void loadDirectory(selectedDirectory.replace(/\/[^/]*$/, "") || "/"));
 directoryDialog.addEventListener("close", () => {
   if (directoryDialog.returnValue !== "confirm") return;
-  (form.elements.namedItem("workspacePath") as HTMLInputElement).value = directoryPath.value;
-  document.querySelector<HTMLElement>("[data-selected-directory]")!.textContent = `已选择：${directoryPath.value}`;
+  (form.elements.namedItem("workspacePath") as HTMLInputElement).value = selectedDirectory;
+  document.querySelector<HTMLElement>("[data-selected-directory]")!.textContent = `已选择：${selectedDirectory}`;
 });
 removeButton.addEventListener("click", () => {
   document.querySelector("[data-delete-name]")!.textContent = editing?.username || "";

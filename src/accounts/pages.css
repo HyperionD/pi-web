@@ -15,6 +15,8 @@
 .account-main label { display: grid; gap: 8px; font-size: 13px; }
 .account-main input:not([type="checkbox"]) { box-sizing: border-box; width: 100%; min-height: 42px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 6px; color: var(--fg-0); background: var(--bg-0); font: inherit; }
 .account-path-row { display: grid; grid-template-columns: 1fr auto; gap: 8px; }
+.account-directory-current { display: flex; gap: 8px; margin: 0 0 16px; overflow-wrap: anywhere; color: var(--fg-2); font-size: 12px; }
+.account-directory-current code { overflow-wrap: anywhere; color: var(--fg-0); font-family: var(--font-mono, monospace); }
 .account-directory-list { display: grid; gap: 8px; max-height: 300px; overflow: auto; margin: 16px 0; }
 .account-directory-list button { text-align: left; }
 .account-main input:read-only { color: var(--fg-3); }
