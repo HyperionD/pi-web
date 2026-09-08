@@ -16,6 +16,27 @@
   align-items: center;
   gap: var(--space-2);
 }
+.sb-footer-actions {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.sb-footer-actions a {
+  width: 28px;
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid transparent;
+  border-radius: var(--radius-1);
+  color: var(--fg-3);
+}
+.sb-footer-actions a:hover {
+  border-color: var(--border-hi);
+  color: var(--accent);
+  background: var(--bg-1);
+}
 .sb-footer .status-dot {
   display: inline-block; width: 6px; height: 6px;
   background: var(--accent);

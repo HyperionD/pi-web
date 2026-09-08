@@ -12,6 +12,7 @@ import {
   SendHorizontal,
   Settings,
   Square,
+  Users,
   X,
 } from "@lucide/astro";
 import WorkspaceFileTree from "./components/WorkspaceFileTree";
@@ -132,7 +133,7 @@ function toolStatus(msg) {
         <div class="sb-footer">
           <div class="sb-footer-status">
             <span class="status-dot"></span><span>连接中</span>
-            <button class="sb-settings" type="button" data-action="open-settings" title="设置" aria-label="打开设置"><Settings size={14} strokeWidth={1.75} aria-hidden="true" /></button>
+            <span class="sb-footer-actions"><a href="/users" data-account-admin hidden title="用户管理" aria-label="用户管理"><Users size={14} strokeWidth={1.75} aria-hidden="true" /></a><button class="sb-settings" type="button" data-action="open-settings" title="设置" aria-label="打开设置"><Settings size={14} strokeWidth={1.75} aria-hidden="true" /></button></span>
           </div>
         </div>
       </aside>

@@ -15,7 +15,8 @@ async function start() {
   if (nav) {
     nav.hidden = false;
     nav.querySelector("[data-account-name]")!.textContent = user.username;
-    nav.querySelector<HTMLElement>("[data-account-admin]")!.hidden = user.role !== "admin";
+    const managementLink = document.querySelector<HTMLElement>("[data-account-admin]");
+    if (managementLink) managementLink.hidden = user.role !== "admin";
     nav.querySelector("[data-account-logout]")!.addEventListener("click", () => {
       void signOut().catch((error) => showAccountError(error, nav));
     });
