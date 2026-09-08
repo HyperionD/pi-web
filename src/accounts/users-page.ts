@@ -56,6 +56,16 @@ async function refreshUsersSafely() {
   try { await refreshUsers(); } catch (error) { showAccountError(error, errorMessage); }
 }
 
+function renderWorkspaceOptions() {
+  const batchSelect = document.querySelector<HTMLSelectElement>("[data-batch-workspaces]")!;
+  batchSelect.replaceChildren(...workspaces.map((workspace) => new Option(`${workspace.name} · ${workspace.path}`, workspace.id)));
+}
+
+async function refreshWorkspaceOptions() {
+  ({ workspaces } = await listWorkspaces());
+  renderWorkspaceOptions();
+}
+
 async function refreshUsers() {
   const query = document.querySelector<HTMLInputElement>("[data-user-search]")?.value.trim() || "";
   const { users, total, page } = await listUsers(query, userPage, 50);
@@ -93,6 +103,7 @@ form.addEventListener("submit", async (event) => {
   try {
     if (editing) await updateUser(editing.account, value);
     else await createUser(value);
+    await refreshWorkspaceOptions();
     await refreshUsers();
     userDialog.close("saved");
     selectUser(null);
@@ -167,9 +178,7 @@ dialog.addEventListener("close", async () => {
 
 async function initialize() {
   if (!await requireAccount(true)) return;
-  ({ workspaces } = await listWorkspaces());
-  const batchSelect = document.querySelector<HTMLSelectElement>("[data-batch-workspaces]")!;
-  batchSelect.replaceChildren(...workspaces.map((workspace) => new Option(`${workspace.name} · ${workspace.path}`, workspace.id)));
+  await refreshWorkspaceOptions();
   await refreshUsers();
   selectUser(null); syncBatchControls();
   document.querySelector<HTMLElement>("[data-users-content]")!.hidden = false;
