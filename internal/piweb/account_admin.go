@@ -32,12 +32,12 @@ func (s *Server) listAccounts(w http.ResponseWriter, r *http.Request) {
 		if record.Role == "admin" {
 			continue
 		}
-		if query == "" || strings.Contains(strings.ToLower(record.Username), query) {
+		if query == "" || strings.Contains(strings.ToLower(record.Account.Account), query) || strings.Contains(strings.ToLower(record.Username), query) {
 			users = append(users, record.Account)
 		}
 	}
 	s.accounts.mu.Unlock()
-	sort.Slice(users, func(i, j int) bool { return users[i].Username < users[j].Username })
+	sort.Slice(users, func(i, j int) bool { return users[i].Account < users[j].Account })
 	total := len(users)
 	maxPage := (total + pageSize - 1) / pageSize
 	if maxPage < 1 {

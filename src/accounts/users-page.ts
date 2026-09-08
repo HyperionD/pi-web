@@ -60,7 +60,7 @@ async function refreshUsers() {
   const query = document.querySelector<HTMLInputElement>("[data-user-search]")?.value.trim() || "";
   const { users, total, page } = await listUsers(query, userPage, 50);
   userTotal = total; userPage = page;
-  const container = document.querySelector("[data-users-list]")!;
+  const container = document.querySelector<HTMLTableSectionElement>("[data-users-list]")!;
   container.replaceChildren();
   document.querySelector<HTMLElement>("[data-users-empty]")!.hidden = users.length > 0;
   document.querySelector("[data-users-count]")!.textContent = String(total);
@@ -68,12 +68,17 @@ async function refreshUsers() {
   (document.querySelector("[data-users-prev]") as HTMLButtonElement).disabled = page <= 1;
   (document.querySelector("[data-users-next]") as HTMLButtonElement).disabled = page * 50 >= total;
   for (const user of users) {
-    const item = document.createElement("li");
-    const checkbox = document.createElement("input"); checkbox.type = "checkbox"; checkbox.checked = selectedUsers.has(user.username); checkbox.setAttribute("aria-label", `选择 ${user.username}`);
-    checkbox.addEventListener("change", () => { if (checkbox.checked) selectedUsers.add(user.username); else selectedUsers.delete(user.username); syncBatchControls(); });
-    const button = document.createElement("button"); button.type = "button"; button.textContent = `${user.account} · ${user.username} · ${user.workspaces.length} 个工作区${user.disabled ? " · 已禁用" : ""}`; button.addEventListener("click", () => selectUser(user));
-    item.append(checkbox, button);
-    container.append(item);
+    const row = document.createElement("tr");
+    const selectCell = document.createElement("td");
+    const checkbox = document.createElement("input"); checkbox.type = "checkbox"; checkbox.checked = selectedUsers.has(user.account); checkbox.setAttribute("aria-label", `选择 ${user.username}`);
+    checkbox.addEventListener("change", () => { if (checkbox.checked) selectedUsers.add(user.account); else selectedUsers.delete(user.account); syncBatchControls(); });
+    selectCell.append(checkbox);
+    const accountCell = document.createElement("td"); const accountCode = document.createElement("code"); accountCode.textContent = user.account; accountCell.append(accountCode);
+    const nameCell = document.createElement("td"); nameCell.textContent = user.username; nameCell.className = "account-user-name";
+    const statusCell = document.createElement("td"); const badge = document.createElement("span"); badge.textContent = user.disabled ? "已禁用" : "正常"; badge.className = `account-user-status${user.disabled ? " is-disabled" : ""}`; statusCell.append(badge);
+    const workspaceCell = document.createElement("td"); workspaceCell.textContent = `${user.workspaces.length} 个工作区`;
+    const actionCell = document.createElement("td"); const editButton = document.createElement("button"); editButton.type = "button"; editButton.className = "account-row-action"; editButton.textContent = "编辑"; editButton.addEventListener("click", () => openUserDialog(user)); actionCell.append(editButton);
+    row.append(selectCell, accountCell, nameCell, statusCell, workspaceCell, actionCell); container.append(row);
   }
 }
 
@@ -89,13 +94,18 @@ form.addEventListener("submit", async (event) => {
     if (editing) await updateUser(editing.account, value);
     else await createUser(value);
     await refreshUsers();
+    userDialog.close("saved");
     selectUser(null);
     status.textContent = "用户已保存。";
   } catch (error) { showAccountError(error, errorMessage); }
   finally { fields.disabled = false; }
 });
 
-document.querySelector("[data-user-new]")!.addEventListener("click", () => selectUser(null));
+const userDialog = document.querySelector<HTMLDialogElement>("[data-user-dialog]")!;
+function openUserDialog(user: Account | null) { selectUser(user); userDialog.showModal(); }
+document.querySelector("[data-user-new]")!.addEventListener("click", () => openUserDialog(null));
+document.querySelectorAll("[data-user-cancel]").forEach((button) => button.addEventListener("click", () => userDialog.close("cancel")));
+userDialog.addEventListener("close", () => selectUser(null));
 document.querySelector("[data-users-prev]")!.addEventListener("click", () => { if (userPage > 1) { userPage--; void refreshUsersSafely(); } });
 document.querySelector("[data-users-next]")!.addEventListener("click", () => { if (userPage * 50 < userTotal) { userPage++; void refreshUsersSafely(); } });
 document.querySelector<HTMLInputElement>("[data-user-search]")!.addEventListener("input", () => { window.clearTimeout(searchTimer); searchTimer = window.setTimeout(() => { userPage = 1; void refreshUsersSafely(); }, 250); });
@@ -148,6 +158,7 @@ dialog.addEventListener("close", async () => {
   try {
     await deleteUser(editing.account);
     await refreshUsers();
+    userDialog.close("deleted");
     selectUser(null);
     status.textContent = "用户已删除。";
   } catch (error) { showAccountError(error, errorMessage); }
