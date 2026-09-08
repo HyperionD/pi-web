@@ -92,6 +92,12 @@ export const attachmentMethods = {
     return this.estimatePromptJsonBytes(this.prompt?.value || "", attachments) <= PROMPT_REQUEST_BUDGET;
   },
 
+  canSendPrompt(text = this.prompt?.value || "", attachments = (this.attachmentContents || []).filter(Boolean)) {
+    const sendableAttachments = attachments.filter(Boolean);
+    return (!!text.trim() || sendableAttachments.length > 0)
+      && this.estimatePromptJsonBytes(text, sendableAttachments) <= PROMPT_REQUEST_BUDGET;
+  },
+
   estimatePromptJsonBytes(text, attachments) {
     const serializedAttachments = attachments.map(({ dataUrlByteLength, ...attachment }) => attachment);
     const skeletonBytes = this.utf8ByteLength(JSON.stringify({ text, attachments: serializedAttachments }));

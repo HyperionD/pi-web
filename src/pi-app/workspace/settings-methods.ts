@@ -435,6 +435,7 @@ export const settingsMethods = {
       if (appConfigResult.status === "fulfilled" && appConfigResult.value) {
         try {
           this.appConfigState = parseAppConfigResponse(appConfigResult.value);
+          this.updateAttachmentGuidance?.();
           this.applyBrand(this.appConfigState.config.brand);
           this.fillAppConfigFormState();
         } catch (error) {

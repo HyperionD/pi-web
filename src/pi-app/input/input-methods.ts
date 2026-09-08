@@ -6,7 +6,8 @@ export const inputMethods = {
   async submitPrompt() {
     this.updatePrompt?.();
     const text = this.prompt?.value.trim() || "";
-    if (!text && !this.hasSendableAttachments()) return;
+    const attachments = this.attachmentContents.filter(Boolean);
+    if (!this.canSendPrompt(text, attachments)) return;
     this.clearPromptDraft?.();
     if (this.running) {
       await this.submitSteeringPrompt(text);
@@ -34,7 +35,6 @@ export const inputMethods = {
       this.finalizeStreamingMessages();
       const waitForServerEcho = this.apiConnected && sessionId;
       const useAguiPrompt = waitForServerEcho && typeof EventSource !== "undefined";
-      const attachments = this.attachmentContents.filter(Boolean);
       const hasVisiblePrompt = !!text || attachments.length > 0;
       this.writeLastSessionPrompt(sessionId, text);
       if (hasVisiblePrompt) {
@@ -97,10 +97,11 @@ export const inputMethods = {
   },
 
   async submitSteeringPrompt(text) {
+    const attachments = this.attachmentContents.filter(Boolean);
+    if (!this.canSendPrompt(text, attachments)) return;
     const sessionId = this.dataset.activeSessionId;
     if (!sessionId || !this.apiConnected) return;
     this.writeLastSessionPrompt(sessionId, text);
-    const attachments = this.attachmentContents.filter(Boolean);
     try {
       await steerSession(sessionId, text, attachments);
       this.appendMessage({ kind: "user", text, attachments });
@@ -368,8 +369,8 @@ export const inputMethods = {
     const hasWorkspace = Boolean(this.dataset.activeWorkspaceId);
     this.prompt.disabled = !hasWorkspace;
     this.savePromptDraft?.();
-    const hasAttachments = this.hasSendableAttachments();
-    const canSend = hasWorkspace && (!!value.trim() || hasAttachments);
+    const attachments = (this.attachmentContents || []).filter(Boolean);
+    const canSend = hasWorkspace && this.canSendPrompt(value, attachments);
     this.updateAttachmentGuidance?.();
     this.sendButton.disabled = !canSend;
     this.sendButton.setAttribute("aria-disabled", canSend ? "false" : "true");

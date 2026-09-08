@@ -294,6 +294,33 @@ describe("app config methods", () => {
     expect(JSON.parse(patchCalls[0][1].body)).toEqual({ brand: "Custom" });
   });
 
+  it("refreshes attachment guidance immediately after saving the upload limit", async () => {
+    const app = await connectPiApp();
+    const guidance = document.createElement("div");
+    guidance.dataset.attachmentGuidance = "";
+    app.append(guidance);
+    app.apiConnected = true;
+    app.settingsState = { project: {}, global: {}, effective: {}, paths: {} };
+    app.appConfigState = {
+      config: { version: 1, brand: "saved", workspace: { maxUploadBytes: 100 * 1024 * 1024 } },
+      path: "/config",
+    };
+    Object.assign(app, appConfigMethods);
+    app.fillAppConfigForm();
+    app.updateAttachmentGuidance();
+    expect(guidance.textContent).toContain("100 MiB");
+    app.querySelector("[data-app-setting='max-upload-mib']").value = "256";
+    app.requestAdminPassword = vi.fn().mockResolvedValue("secret");
+    globalThis.fetch = vi.fn(async () => ok({
+      config: { version: 1, brand: "saved", workspace: { maxUploadBytes: 256 * 1024 * 1024 } },
+      path: "/config",
+    }));
+
+    await app.saveSettingsForm({ preventDefault: vi.fn() });
+
+    expect(guidance.textContent).toContain("256 MiB");
+  });
+
   it("renders one row per allowed root and exposes unrestricted empty state", async () => {
     const app = await connectPiApp();
     Object.assign(app, appConfigMethods);

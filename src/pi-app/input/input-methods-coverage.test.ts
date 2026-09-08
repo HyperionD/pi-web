@@ -230,6 +230,36 @@ describe("pi-app input methods coverage", () => {
     expect(app.querySelector(".send-btn").getAttribute("aria-disabled")).toBe("true");
   });
 
+  it("disables and blocks submission when text overflows an accepted attachment payload", async () => {
+    const app = await connectPiApp();
+    app.apiConnected = true;
+    app.dataset.activeWorkspaceId = "w1";
+    app.dataset.activeSessionId = "s1";
+    await app.addFiles([new File(["a".repeat(256 * 1024)], "accepted.txt", { type: "text/plain" })]);
+    app.prompt.value = "x".repeat(600 * 1024);
+    app.updatePrompt();
+    globalThis.fetch = vi.fn(async () => ok({ accepted: true }));
+
+    expect(app.querySelector(".send-btn").disabled).toBe(true);
+    await app.submitPrompt();
+
+    expect(globalThis.fetch).not.toHaveBeenCalled();
+  });
+
+  it("guards oversized steering payloads before calling the API", async () => {
+    const app = await connectPiApp();
+    app.apiConnected = true;
+    app.dataset.activeWorkspaceId = "w1";
+    app.dataset.activeSessionId = "s1";
+    app.attachmentContents = [{ type: "file", name: "accepted.txt", mimeType: "text/plain", content: "a".repeat(256 * 1024) }];
+    app.prompt.value = "x".repeat(600 * 1024);
+    globalThis.fetch = vi.fn(async () => ok({ accepted: true }));
+
+    await app.submitSteeringPrompt(app.prompt.value);
+
+    expect(globalThis.fetch).not.toHaveBeenCalled();
+  });
+
   it("renders attachment-only prompts in the transcript", async () => {
     const app = await connectPiApp();
     app.apiConnected = false;
