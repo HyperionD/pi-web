@@ -101,7 +101,7 @@ func TestUploadWorkspaceFileEndpointValidatesPathBeforeFileBytes(t *testing.T) {
 	}
 }
 
-func TestUploadWorkspaceFileEndpointBoundsUnknownMultipartPart(t *testing.T) {
+func TestUploadWorkspaceFileEndpointRejectsUnknownMultipartPartWithoutDraining(t *testing.T) {
 	_, server, workspace := newUploadTestServer(t, MinMaxUploadBytes)
 	payload := bytes.Repeat([]byte("x"), 4*1024*1024)
 	body, contentType := multipartUploadBodyWithUnknownPart(t, payload)
@@ -114,11 +114,43 @@ func TestUploadWorkspaceFileEndpointBoundsUnknownMultipartPart(t *testing.T) {
 	if response.Code != http.StatusBadRequest {
 		t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
 	}
-	if !strings.Contains(response.Body.String(), "multipart part is too large") {
+	if !strings.Contains(response.Body.String(), "unknown multipart field") {
 		t.Fatalf("unexpected unknown-part error: %s", response.Body.String())
 	}
 	if counted.read >= int64(len(payload)/2) {
 		t.Fatalf("unknown part consumed too much payload: %d bytes", counted.read)
+	}
+}
+
+func TestUploadWorkspaceFileEndpointRejectsMultipartPartCountOverflow(t *testing.T) {
+	_, server, workspace := newUploadTestServer(t, MinMaxUploadBytes)
+	body, contentType := multipartUploadBodyWithTooManyParts(t)
+	request := httptest.NewRequest(http.MethodPost, "/api/workspaces/"+workspace.ID+"/files/upload", body)
+	request.Header.Set("Content-Type", contentType)
+	response := httptest.NewRecorder()
+	server.Handler().ServeHTTP(response, request)
+
+	if response.Code != http.StatusBadRequest {
+		t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
+	}
+	if !strings.Contains(response.Body.String(), "too many multipart parts") {
+		t.Fatalf("unexpected part-count error: %s", response.Body.String())
+	}
+}
+
+func TestWorkspaceFileAssetRejectsSymlinkTarget(t *testing.T) {
+	root, server, workspace := newUploadTestServer(t, MinMaxUploadBytes)
+	if err := os.WriteFile(filepath.Join(root, "inside.txt"), []byte("inside"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Join(root, "inside.txt"), filepath.Join(root, "link.txt")); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+	request := httptest.NewRequest(http.MethodGet, "/api/workspaces/"+workspace.ID+"/files/raw?path=link.txt", nil)
+	response := httptest.NewRecorder()
+	server.Handler().ServeHTTP(response, request)
+	if response.Code == http.StatusOK || strings.Contains(response.Body.String(), "inside") {
+		t.Fatalf("symlink target was served: status=%d body=%q", response.Code, response.Body.String())
 	}
 }
 
@@ -265,6 +297,26 @@ func multipartUploadBodyWithUnknownPart(t *testing.T, content []byte) (io.Reader
 	}
 	if _, err := part.Write(content); err != nil {
 		t.Fatal(err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatal(err)
+	}
+	return &body, writer.FormDataContentType()
+}
+
+func multipartUploadBodyWithTooManyParts(t *testing.T) (io.Reader, string) {
+	t.Helper()
+	var body bytes.Buffer
+	writer := multipart.NewWriter(&body)
+	for _, value := range []struct{ name, content string }{
+		{"path", "docs/a.txt"},
+		{"overwrite", "false"},
+		{"file", "content"},
+		{"path", "extra"},
+	} {
+		if err := writer.WriteField(value.name, value.content); err != nil {
+			t.Fatal(err)
+		}
 	}
 	if err := writer.Close(); err != nil {
 		t.Fatal(err)

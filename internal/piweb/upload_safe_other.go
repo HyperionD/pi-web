@@ -8,6 +8,10 @@ func newUploadTransaction(root, rel string, overwrite bool) (*uploadTransaction,
 	return nil, ErrSafeUploadUnsupported
 }
 
+func openWorkspaceFileAsset(root, rel string) (*os.File, error) {
+	return nil, ErrSafeUploadUnsupported
+}
+
 func commitUploadTransaction(tx *uploadTransaction, overwrite bool) error {
 	return ErrSafeUploadUnsupported
 }

@@ -121,6 +121,19 @@ describe("file transfer transport", () => {
     });
   });
 
+  it("preserves status 501 for unsupported safe uploads", async () => {
+    FakeXMLHttpRequest.nextResponse = {
+      status: 501,
+      statusText: "Not Implemented",
+      responseText: '{"error":"safe upload unavailable"}',
+    };
+
+    await expect(uploadWorkspaceFile("w1", "unsupported.bin", new File(["x"], "unsupported.bin"), false)).rejects.toMatchObject({
+      message: "safe upload unavailable",
+      status: 501,
+    });
+  });
+
   it("preserves JSON errors returned in Blob download responses", async () => {
     FakeXMLHttpRequest.nextResponse = {
       status: 404,

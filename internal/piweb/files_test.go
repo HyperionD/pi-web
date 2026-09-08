@@ -350,6 +350,36 @@ func TestUploadWorkspaceFileStreamPinsParentDuringSymlinkReplacement(t *testing.
 	}
 }
 
+func TestWorkspaceFileAssetPinsHandleAcrossRename(t *testing.T) {
+	root := t.TempDir()
+	outside := t.TempDir()
+	path := filepath.Join(root, "asset.txt")
+	if err := os.WriteFile(path, []byte("inside"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	file, err := openWorkspaceFileAsset(root, "asset.txt")
+	if errors.Is(err, ErrSafeUploadUnsupported) {
+		t.Skipf("safe file operations unavailable: %v", err)
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer file.Close()
+	if err := os.Rename(path, filepath.Join(root, "renamed.txt")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(outside, "asset.txt"), []byte("outside"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Join(outside, "asset.txt"), path); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+	data, err := io.ReadAll(file)
+	if err != nil || string(data) != "inside" {
+		t.Fatalf("pinned asset=%q err=%v", data, err)
+	}
+}
+
 type barrierReader struct {
 	data    string
 	arrived chan<- struct{}
@@ -377,6 +407,39 @@ func TestUploadWorkspaceFileStreamCleansTempWhenSourceFails(t *testing.T) {
 		t.Fatalf("source error=%v", err)
 	}
 	assertNoUploadTemps(t, filepath.Join(root, "docs"))
+}
+
+func TestNoClobberCommitKeepsCommittedStateWhenTempCleanupFails(t *testing.T) {
+	root := t.TempDir()
+	tx, err := newUploadTransaction(root, "committed.txt", false)
+	if errors.Is(err, ErrSafeUploadUnsupported) {
+		t.Skipf("safe upload operations unavailable: %v", err)
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.cleanup()
+	if err := tx.copyFrom(strings.NewReader("committed"), 0); err != nil {
+		t.Fatal(err)
+	}
+	attempts := 0
+	tx.removeTemp = func(*os.File, string) error {
+		attempts++
+		return errors.New("temporary cleanup unavailable")
+	}
+	if err := tx.commit(false); err != nil {
+		t.Fatalf("committed upload reported failure: %v", err)
+	}
+	if !tx.committed || !tx.cleanupPending {
+		t.Fatalf("missing committed cleanup state: committed=%v pending=%v", tx.committed, tx.cleanupPending)
+	}
+	stored, err := os.ReadFile(filepath.Join(root, "committed.txt"))
+	if err != nil || string(stored) != "committed" {
+		t.Fatalf("committed target=%q err=%v", stored, err)
+	}
+	if attempts < 2 {
+		t.Fatalf("expected cleanup retry attempts, got %d", attempts)
+	}
 }
 
 type failingUploadReader struct{}

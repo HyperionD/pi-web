@@ -8,7 +8,6 @@ import (
 	"mime/multipart"
 	"net/http"
 	"os"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -334,34 +333,22 @@ func (s *Server) workspaceFileAsset(w http.ResponseWriter, r *http.Request) {
 		writeStoreError(w, err)
 		return
 	}
-	full, err := SafeJoin(root, r.URL.Query().Get("path"))
+	rel := r.URL.Query().Get("path")
+	full, err := SafeJoin(root, rel)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
-	realRoot, err := filepath.EvalSymlinks(root)
+	file, err := openWorkspaceFileAsset(root, rel)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err)
-		return
-	}
-	full, err = filepath.EvalSymlinks(full)
-	if err != nil {
-		if errors.Is(err, os.ErrNotExist) {
+		switch {
+		case errors.Is(err, ErrSafeUploadUnsupported):
+			writeError(w, http.StatusNotImplemented, err)
+		case errors.Is(err, ErrUnsafeWorkspacePath):
+			writeError(w, http.StatusForbidden, ErrWorkspaceForbidden)
+		case errors.Is(err, os.ErrNotExist):
 			writeError(w, http.StatusNotFound, err)
-		} else {
-			writeError(w, http.StatusInternalServerError, err)
-		}
-		return
-	}
-	if !pathWithinRoot(realRoot, full) {
-		writeError(w, http.StatusForbidden, ErrWorkspaceForbidden)
-		return
-	}
-	file, err := os.Open(full)
-	if err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			writeError(w, http.StatusNotFound, err)
-		} else {
+		default:
 			writeError(w, http.StatusInternalServerError, err)
 		}
 		return
@@ -492,6 +479,7 @@ func (s *Server) uploadWorkspaceFile(w http.ResponseWriter, r *http.Request) {
 }
 
 const maxMultipartFieldBytes = 16 * 1024
+const maxMultipartParts = 3
 
 func (s *Server) uploadMultipartWorkspaceFile(w http.ResponseWriter, r *http.Request, maxBytes int64) {
 	root, err := s.store.WorkspacePath(r.PathValue("workspaceID"))
@@ -524,10 +512,18 @@ func parseMultipartUpload(r *http.Request, root string, maxBytes int64) (*upload
 	}
 	metadata := multipartMetadata{}
 	var tx *uploadTransaction
+	partCount := 0
 	for {
 		part, err := reader.NextPart()
 		if errors.Is(err, io.EOF) {
 			break
+		}
+		partCount++
+		if partCount > maxMultipartParts {
+			if tx != nil {
+				tx.cleanup()
+			}
+			return nil, "", false, errors.New("too many multipart parts")
 		}
 		if err != nil {
 			if tx != nil {
@@ -566,7 +562,7 @@ func processMultipartPart(part *multipart.Part, metadata *multipartMetadata, tx 
 	case "file":
 		return processMultipartFile(part, metadata, tx, root, maxBytes)
 	default:
-		return tx, drainMultipartPart(part)
+		return tx, errors.New("unknown multipart field")
 	}
 }
 
@@ -624,18 +620,6 @@ func processMultipartFile(part *multipart.Part, metadata *multipartMetadata, tx 
 	}
 	metadata.fileSeen = true
 	return tx, nil
-}
-
-func drainMultipartPart(part *multipart.Part) error {
-	read := io.LimitReader(part, maxMultipartFieldBytes+1)
-	consumed, err := io.Copy(io.Discard, read)
-	if err != nil {
-		return err
-	}
-	if consumed > maxMultipartFieldBytes {
-		return errors.New("multipart part is too large")
-	}
-	return nil
 }
 
 func writeMultipartRequestError(w http.ResponseWriter, err error, maxBytes int64) {

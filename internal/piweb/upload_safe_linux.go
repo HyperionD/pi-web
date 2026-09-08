@@ -20,11 +20,7 @@ func newUploadTransaction(root, rel string, overwrite bool) (*uploadTransaction,
 	if err != nil {
 		return nil, err
 	}
-	realRoot, err := filepath.EvalSymlinks(root)
-	if err != nil {
-		return nil, err
-	}
-	rootDir, err := openUploadDirectoryPath(realRoot)
+	rootDir, err := openVerifiedUploadRoot(root)
 	if err != nil {
 		return nil, err
 	}
@@ -49,6 +45,37 @@ func newUploadTransaction(root, rel string, overwrite bool) (*uploadTransaction,
 	return &uploadTransaction{
 		parent: parent, temp: temp, tempName: tempName, targetName: target,
 	}, nil
+}
+
+func openVerifiedUploadRoot(root string) (*os.File, error) {
+	realRoot, err := filepath.EvalSymlinks(root)
+	if err != nil {
+		return nil, err
+	}
+	var expected unix.Stat_t
+	if err := unix.Stat(realRoot, &expected); err != nil {
+		return nil, err
+	}
+	opened, err := openUploadDirectoryPath(realRoot)
+	if err != nil {
+		return nil, err
+	}
+	if err := validateUploadRootIdentity(opened, expected); err != nil {
+		_ = opened.Close()
+		return nil, err
+	}
+	return opened, nil
+}
+
+func validateUploadRootIdentity(opened *os.File, expected unix.Stat_t) error {
+	var actual unix.Stat_t
+	if err := unix.Fstat(int(opened.Fd()), &actual); err != nil {
+		return err
+	}
+	if expected.Dev != actual.Dev || expected.Ino != actual.Ino {
+		return fmt.Errorf("workspace root changed while opening")
+	}
+	return nil
 }
 
 func openUploadDirectoryPath(path string) (*os.File, error) {
@@ -95,6 +122,53 @@ func openUploadParent(root *os.File, parentRel, target string) (*os.File, string
 		current = child
 	}
 	return current, target, nil
+}
+
+func openUploadDirectoryRelative(root *os.File, parentRel string) (*os.File, error) {
+	current := root
+	for _, part := range splitUploadPath(parentRel) {
+		childFD, err := unix.Openat(int(current.Fd()), part, uploadDirectoryFlags, 0)
+		if err != nil {
+			_ = current.Close()
+			if errors.Is(err, unix.ELOOP) {
+				return nil, fmt.Errorf("%w: %v", ErrUnsafeWorkspacePath, err)
+			}
+			return nil, err
+		}
+		child := os.NewFile(uintptr(childFD), part)
+		_ = current.Close()
+		current = child
+	}
+	return current, nil
+}
+
+func openWorkspaceFileAsset(root, rel string) (*os.File, error) {
+	full, err := SafeJoin(root, rel)
+	if err != nil {
+		return nil, err
+	}
+	rootDir, err := openVerifiedUploadRoot(root)
+	if err != nil {
+		return nil, err
+	}
+	relative, err := filepath.Rel(filepath.Clean(root), full)
+	if err != nil {
+		_ = rootDir.Close()
+		return nil, err
+	}
+	parent, err := openUploadDirectoryRelative(rootDir, filepath.Dir(relative))
+	if err != nil {
+		return nil, err
+	}
+	fileFD, err := unix.Openat(int(parent.Fd()), filepath.Base(relative), unix.O_RDONLY|unix.O_CLOEXEC|unix.O_NOFOLLOW, 0)
+	_ = parent.Close()
+	if err != nil {
+		if errors.Is(err, unix.ELOOP) {
+			return nil, fmt.Errorf("%w: %v", ErrUnsafeWorkspacePath, err)
+		}
+		return nil, err
+	}
+	return os.NewFile(uintptr(fileFD), filepath.Base(relative)), nil
 }
 
 func splitUploadPath(path string) []string {
@@ -146,7 +220,11 @@ func createUploadTemp(parent *os.File) (*os.File, string, error) {
 func commitUploadTransaction(tx *uploadTransaction, overwrite bool) error {
 	parentFD := int(tx.parent.Fd())
 	if overwrite {
-		return unix.Renameat(parentFD, tx.tempName, parentFD, tx.targetName)
+		if err := unix.Renameat(parentFD, tx.tempName, parentFD, tx.targetName); err != nil {
+			return err
+		}
+		tx.committed = true
+		return nil
 	}
 	if err := unix.Linkat(parentFD, tx.tempName, parentFD, tx.targetName, 0); err != nil {
 		if errors.Is(err, unix.EEXIST) {
@@ -154,7 +232,9 @@ func commitUploadTransaction(tx *uploadTransaction, overwrite bool) error {
 		}
 		return err
 	}
-	if err := unix.Unlinkat(parentFD, tx.tempName, 0); err != nil {
+	tx.committed = true
+	if err := tx.cleanupTemp(); err != nil {
+		tx.cleanupPending = true
 		return err
 	}
 	return nil

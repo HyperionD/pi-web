@@ -613,6 +613,52 @@ describe("WorkspaceFileTree", () => {
     await cleanup(root, host);
   });
 
+  it("maps upload status 413 to workspace guidance", async () => {
+    const error = Object.assign(new Error("413 Payload Too Large"), { status: 413 });
+    vi.mocked(uploadWorkspaceFile).mockRejectedValueOnce(error);
+    vi.spyOn(window, "alert").mockImplementation(() => {});
+    const { host, root } = await renderTree();
+    await updateTree();
+    const app = document.createElement("pi-app");
+    app.dataset.activeWorkspaceId = "workspace-1";
+    document.body.append(app);
+    const folder = host.querySelector<HTMLButtonElement>(".tree-node.dir");
+    await act(async () => folder?.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true })));
+    await act(async () => {
+      [...host.querySelectorAll<HTMLButtonElement>(".tree-action-menu button")]
+        .find((button) => button.textContent === "上传到此处")?.click();
+    });
+    const input = host.querySelector<HTMLInputElement>("input[type=file]")!;
+    Object.defineProperty(input, "files", { configurable: true, value: [new File(["x"], "large.bin")] });
+    await act(async () => input.dispatchEvent(new Event("change", { bubbles: true })));
+
+    expect(host.querySelector("[data-status='error']")?.textContent).toContain("文件超过上传上限，请先上传到工作区");
+    await cleanup(root, host);
+  });
+
+  it("maps upload status 501 to a clear platform guidance", async () => {
+    const error = Object.assign(new Error("501 Not Implemented"), { status: 501 });
+    vi.mocked(uploadWorkspaceFile).mockRejectedValueOnce(error);
+    vi.spyOn(window, "alert").mockImplementation(() => {});
+    const { host, root } = await renderTree();
+    await updateTree();
+    const app = document.createElement("pi-app");
+    app.dataset.activeWorkspaceId = "workspace-1";
+    document.body.append(app);
+    const folder = host.querySelector<HTMLButtonElement>(".tree-node.dir");
+    await act(async () => folder?.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true })));
+    await act(async () => {
+      [...host.querySelectorAll<HTMLButtonElement>(".tree-action-menu button")]
+        .find((button) => button.textContent === "上传到此处")?.click();
+    });
+    const input = host.querySelector<HTMLInputElement>("input[type=file]")!;
+    Object.defineProperty(input, "files", { configurable: true, value: [new File(["x"], "unsupported.bin")] });
+    await act(async () => input.dispatchEvent(new Event("change", { bubbles: true })));
+
+    expect(host.querySelector("[data-status='error']")?.textContent).toContain("当前平台不支持安全文件上传");
+    await cleanup(root, host);
+  });
+
   it("renames and deletes selected file targets from the action menu", async () => {
     const { host, root } = await renderTree();
     await updateTree();

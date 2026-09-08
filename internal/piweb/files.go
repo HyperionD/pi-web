@@ -16,6 +16,7 @@ import (
 const maxSearchFileBytes = 256 * 1024
 
 var ErrSafeUploadUnsupported = errors.New("safe upload operations are unavailable on this platform")
+var ErrUnsafeWorkspacePath = errors.New("workspace path is not a safe regular path")
 
 func RealFileTree(root string, maxDepth int) ([]FileNode, error) {
 	root = filepath.Clean(root)
@@ -278,10 +279,14 @@ func UploadWorkspaceFile(root, rel string, data []byte, overwrite bool) (FileCon
 }
 
 type uploadTransaction struct {
-	parent     *os.File
-	temp       *os.File
-	tempName   string
-	targetName string
+	parent         *os.File
+	temp           *os.File
+	tempName       string
+	targetName     string
+	removeTemp     func(*os.File, string) error
+	committed      bool
+	cleanupPending bool
+	cleanupErr     error
 }
 
 func UploadWorkspaceFileStream(root, rel string, source io.Reader, maxBytes int64, overwrite bool) (FileContent, error) {
@@ -326,10 +331,38 @@ func (tx *uploadTransaction) commit(overwrite bool) error {
 		return err
 	}
 	if err := commitUploadTransaction(tx, overwrite); err != nil {
+		if tx.committed {
+			tx.cleanupPending = true
+			return nil
+		}
 		return err
 	}
-	tx.tempName = ""
+	if !tx.cleanupPending {
+		tx.tempName = ""
+	}
 	return nil
+}
+
+func (tx *uploadTransaction) cleanupTemp() error {
+	if tx.tempName == "" || tx.parent == nil {
+		return nil
+	}
+	remove := tx.removeTemp
+	if remove == nil {
+		remove = removeUploadTemp
+	}
+	var err error
+	for range 3 {
+		err = remove(tx.parent, tx.tempName)
+		if err == nil || errors.Is(err, os.ErrNotExist) {
+			tx.cleanupPending = false
+			tx.cleanupErr = nil
+			tx.tempName = ""
+			return nil
+		}
+	}
+	tx.cleanupErr = err
+	return err
 }
 
 func (tx *uploadTransaction) cleanup() {
@@ -338,8 +371,9 @@ func (tx *uploadTransaction) cleanup() {
 		tx.temp = nil
 	}
 	if tx.tempName != "" && tx.parent != nil {
-		_ = removeUploadTemp(tx.parent, tx.tempName)
-		tx.tempName = ""
+		if err := tx.cleanupTemp(); err != nil {
+			tx.cleanupPending = true
+		}
 	}
 	if tx.parent != nil {
 		_ = tx.parent.Close()

@@ -467,6 +467,9 @@ function showTemporaryError(error: unknown) {
 }
 
 function transferErrorMessage(error: unknown) {
+  const status = error && typeof error === "object" && "status" in error ? (error as { status?: unknown }).status : undefined;
+  if (status === 413) return "文件超过上传上限，请先上传到工作区";
+  if (status === 501) return "当前平台不支持安全文件上传，请改用支持安全上传的平台";
   return error instanceof Error ? error.message : String(error);
 }
 
