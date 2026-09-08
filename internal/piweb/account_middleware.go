@@ -106,7 +106,7 @@ func memberAccountRoute(r *http.Request) bool {
 	}
 	// Global/provider configuration and workspace-wide deletion are administrator-only.
 	if parts[3] == "settings" {
-		return false
+		return r.Method == http.MethodGet
 	}
 	if len(parts) == 4 && parts[3] == "sessions" && r.Method == "DELETE" {
 		return true
