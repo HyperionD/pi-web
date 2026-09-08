@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 )
 
@@ -35,6 +36,38 @@ func accountServer(t *testing.T) (*Server, *http.Cookie) {
 		t.Fatalf("login: %d %s", login.Code, login.Body.String())
 	}
 	return s, login.Result().Cookies()[0]
+}
+
+func TestConcurrentDatabaseAccessDoesNotReturnLocked(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	agentRoot := t.TempDir()
+	t.Setenv("PI_CODING_AGENT_SESSION_DIR", filepath.Join(agentRoot, "sessions"))
+	db, err := openWebDB(DefaultWebDBPath())
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = db.Close()
+	var group sync.WaitGroup
+	errors := make(chan error, 24)
+	for range 24 {
+		group.Add(1)
+		go func() {
+			defer group.Done()
+			db, err := openWebDB(DefaultWebDBPath())
+			if err == nil {
+				_, err = db.Exec(`INSERT INTO app_settings(key,value) VALUES('parallel', '1') ON CONFLICT(key) DO UPDATE SET value='1'`)
+				_ = db.Close()
+			}
+			if err != nil {
+				errors <- err
+			}
+		}()
+	}
+	group.Wait()
+	close(errors)
+	for err := range errors {
+		t.Fatalf("concurrent database access: %v", err)
+	}
 }
 
 func TestAccountAuthenticationAndManagement(t *testing.T) {

@@ -25,6 +25,10 @@ func openWebDB(path string) (*sql.DB, error) {
 	if err != nil {
 		return nil, err
 	}
+	if _, err := db.Exec(`PRAGMA busy_timeout=5000;`); err != nil {
+		_ = db.Close()
+		return nil, err
+	}
 	if _, err := db.Exec(`
 PRAGMA journal_mode=WAL;
 CREATE TABLE IF NOT EXISTS workspaces (
