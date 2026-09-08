@@ -53,11 +53,12 @@ To restrict selectable workspaces, add `allowedRoots` to `pi-web-config.json`:
 
 When `allowedRoots` is missing or an empty array, workspace access is unrestricted. When it is non-empty, every root must resolve to a real, existing directory. Workspace paths that escape an allowed root through a symlink are rejected. Historical workspaces outside the configured roots are hidden and rejected. Deleting `pi-web-config.json` restores the default unrestricted workspace behavior.
 
-On the first launch, pi-web requires an administrator password to be created in the main screen. The password is stored as a salted hash in `pi-web-config.json`. Changing the brand or allowed workspace directories in the application settings requires this password; normal pi settings and authentication actions do not.
+On the first launch, pi-web opens a login page where the administrator creates the `admin` password. Accounts are stored as salted hashes in `pi-web-users.json` beside the app config, and browser sessions use HttpOnly cookies. Administrators can create users and assign existing workspaces at `/users`; users can only see their assigned workspaces and their own sessions, and cannot open or clone workspaces. Changing the brand, allowed workspace directories, provider credentials, or global settings remains administrator-only. This is application-level authorization, not an OS/container sandbox: shell commands still run with the server process permissions.
 
 ## Features
 
-- **Workspace management**: Open local folders, view recent workspaces, and open workspaces after cloning Git repositories.
+- **Workspace management**: Administrators open local folders and clone repositories; users receive only assigned workspaces.
+- **User and session isolation**: Manage accounts, assign workspaces, and isolate session ownership with HttpOnly login sessions.
 - **Session UI**: Browse existing pi sessions, create new sessions, and stream prompts/responses in real time.
 - **File browsing and preview**: Browse the workspace file tree, read files, edit them, and save changes from the UI.
 - **Local command execution**: Run shell commands in the selected workspace.

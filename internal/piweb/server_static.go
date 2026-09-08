@@ -20,6 +20,10 @@ func (s *Server) staticFile(w http.ResponseWriter, r *http.Request) {
 		http.ServeFileFS(w, r, s.config.StaticFiles, name)
 		return
 	}
+	if index := path.Join(name, "index.html"); fsFileExists(s.config.StaticFiles, index) {
+		http.ServeFileFS(w, r, s.config.StaticFiles, index)
+		return
+	}
 	if staticFallbackToIndex(name) && fsFileExists(s.config.StaticFiles, "index.html") {
 		http.ServeFileFS(w, r, s.config.StaticFiles, "index.html")
 		return

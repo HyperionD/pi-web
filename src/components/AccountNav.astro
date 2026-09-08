@@ -1,0 +1,13 @@
+<nav class="account-nav" aria-label="用户菜单" hidden data-account-nav>
+  <span data-account-name></span>
+  <a href="/users" data-account-admin hidden>用户管理</a>
+  <button type="button" data-account-logout>退出登录</button>
+</nav>
+
+<style>
+  .account-nav { display: flex; align-items: center; gap: 12px; font-size: 12px; }
+  .account-nav[hidden], [hidden] { display: none; }
+  a { color: var(--accent); text-decoration: none; }
+  button { color: var(--fg-2); background: transparent; border: 1px solid var(--border); padding: 5px 8px; cursor: pointer; }
+  @media (max-width: 600px) { [data-account-name] { display: none; } .account-nav { gap: 6px; } }
+</style>

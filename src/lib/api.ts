@@ -31,6 +31,7 @@ export function apiBase() {
 async function request(path: string, options: RequestInit = {}) {
   const response = await fetch(`${apiBase()}${path}`, {
     ...options,
+    credentials: "same-origin",
     headers: {
       "Content-Type": "application/json",
       ...options.headers,

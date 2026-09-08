@@ -1,0 +1,34 @@
+---
+import AccountLayout from "../components/AccountLayout.astro";
+---
+<AccountLayout title="用户管理">
+  <div data-users-content hidden>
+    <div class="account-heading"><div><h1>用户管理</h1><p>分配工作区，隔离个人会话。共享工作区内的文件仍然共享。</p></div><a href="/">返回会话</a></div>
+    <div class="account-columns">
+      <section class="account-card">
+        <h2>用户列表</h2>
+        <p data-users-empty>尚未创建用户。</p>
+        <ul class="account-users" data-users-list></ul>
+        <button type="button" data-user-new>创建用户</button>
+      </section>
+      <section class="account-card">
+        <h2 data-user-form-title>创建用户</h2>
+        <form data-user-form>
+          <fieldset data-user-fields>
+            <label>用户名<input name="username" required maxlength="64" pattern="[a-zA-Z0-9][a-zA-Z0-9_.\-]{0,63}" autocomplete="off" /></label>
+            <label><span data-password-label>初始密码</span><input name="password" type="password" required minlength="8" maxlength="128" autocomplete="new-password" /></label>
+            <fieldset><legend>允许访问的工作区</legend><div data-user-workspaces class="account-workspaces"></div></fieldset>
+            <small>只能分配管理员已打开的工作区。没有可选项时，请先返回会话页面打开工作区。</small>
+            <small>保存修改会使该用户的所有登录失效；用户重新登录后生效。</small>
+            <div class="account-form-actions"><button type="submit" class="account-primary">保存用户</button><button type="button" data-user-delete hidden>删除用户</button></div>
+          </fieldset>
+        </form>
+        <p role="status" aria-live="polite" data-user-status></p>
+      </section>
+    </div>
+    <dialog data-delete-dialog>
+      <form method="dialog"><h2>删除用户？</h2><p>用户将立即退出登录。已有会话不会转交给其他用户。</p><p data-delete-name></p><div class="account-form-actions"><button value="cancel">取消</button><button value="confirm" class="account-danger">确认删除</button></div></form>
+    </dialog>
+  </div>
+</AccountLayout>
+<script>import "../accounts/users-page";</script>

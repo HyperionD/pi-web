@@ -5,11 +5,19 @@ import (
 	"net/http"
 )
 
-func (s *Server) appConfig(w http.ResponseWriter, _ *http.Request) {
+func (s *Server) appConfig(w http.ResponseWriter, r *http.Request) {
 	response, err := LoadAppConfig()
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err)
 		return
+	}
+	if user, ok := requestAccount(r); ok && user.Role != "admin" {
+		workspace, _ := response.Config["workspace"].(map[string]any)
+		response = AppConfigResponse{Config: map[string]any{
+			"version":   response.Config["version"],
+			"brand":     response.Config["brand"],
+			"workspace": map[string]any{"maxUploadBytes": workspace["maxUploadBytes"]},
+		}}
 	}
 	writeJSON(w, http.StatusOK, response)
 }

@@ -1,0 +1,21 @@
+---
+import "../design-system/tokens.css";
+import "../styles.css";
+import "../accounts/pages.css";
+const { title } = Astro.props;
+---
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <title>{title} · pi-web</title>
+  </head>
+  <body class="account-page">
+    <main class="account-main">
+      <header class="account-header"><a href="/">pi.dev / web</a><span>账号与访问权限</span></header>
+      <slot />
+      <p role="alert" aria-live="polite" data-account-error></p>
+    </main>
+  </body>
+</html>

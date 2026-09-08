@@ -2,13 +2,10 @@ package piweb
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
-	"io"
 	"io/fs"
 	"log/slog"
 	"net/http"
-	"os"
 	"sync"
 	"time"
 )
@@ -18,6 +15,7 @@ type Config struct {
 	Port              string
 	AllowedOrigins    []string
 	EnablePiExecution bool
+	UserManagement    bool
 	StaticFiles       fs.FS
 }
 
@@ -27,6 +25,7 @@ type Server struct {
 	runner                  *Runner
 	mux                     *http.ServeMux
 	config                  Config
+	accounts                *accountStore
 	adminPasswordConfigured bool
 	adminPasswordCheckError error
 	adminPasswordStateMu    sync.RWMutex
@@ -57,6 +56,10 @@ func NewServer(config Config, store *Store, broker *Broker) *Server {
 		adminPasswordConfigured: adminPasswordConfigured,
 		adminPasswordCheckError: adminPasswordCheckError,
 	}
+	if config.UserManagement {
+		s.accounts = newAccountStore()
+		s.accountRoutes()
+	}
 	s.routes()
 	return s
 }
@@ -65,7 +68,7 @@ func (s *Server) Addr() string {
 	return s.config.Host + ":" + s.config.Port
 }
 func (s *Server) Handler() http.Handler {
-	return s.withLogging(s.withCORS(s.mux))
+	return s.withLogging(s.withCORS(s.withAccount(s.mux)))
 }
 func (s *Server) routes() {
 	s.mux.HandleFunc("GET /api/health", s.health)
@@ -128,7 +131,19 @@ func (s *Server) context() context.Context {
 }
 func (s *Server) withCORS(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Access-Control-Allow-Origin", "*")
+		if s.config.UserManagement {
+			if !s.originAllowed(r) {
+				writeError(w, http.StatusForbidden, errors.New("request origin is not allowed"))
+				return
+			}
+			if origin := r.Header.Get("Origin"); origin != "" {
+				w.Header().Set("Access-Control-Allow-Origin", origin)
+				w.Header().Set("Access-Control-Allow-Credentials", "true")
+				w.Header().Add("Vary", "Origin")
+			}
+		} else {
+			w.Header().Set("Access-Control-Allow-Origin", "*")
+		}
 		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Last-Event-ID")
 		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
 		if r.Method == http.MethodOptions {
@@ -221,108 +236,4 @@ func (s *Server) logoutProvider(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"provider": provider, "configured": false})
-}
-
-const maxJSONBodyBytes int64 = 1 << 20
-
-var errRequestBodyTooLarge = errors.New("request body is too large")
-
-type limitedJSONReader struct {
-	reader   io.Reader
-	read     int64
-	maxBytes int64
-}
-
-func (r *limitedJSONReader) Read(p []byte) (int, error) {
-	remaining := r.maxBytes + 1 - r.read
-	if remaining <= 0 {
-		return 0, errRequestBodyTooLarge
-	}
-	if int64(len(p)) > remaining {
-		p = p[:remaining]
-	}
-	n, err := r.reader.Read(p)
-	r.read += int64(n)
-	return n, err
-}
-
-func readJSON(r *http.Request, v any) error {
-	return readJSONWithLimit(r, v, maxJSONBodyBytes)
-}
-
-func readJSONWithLimit(r *http.Request, v any, maxBytes int64) error {
-	defer r.Body.Close()
-	if maxBytes <= 0 {
-		maxBytes = maxJSONBodyBytes
-	}
-	limited := &limitedJSONReader{reader: r.Body, maxBytes: maxBytes}
-	decoder := json.NewDecoder(limited)
-	if err := decoder.Decode(v); err != nil {
-		if limited.read > maxBytes {
-			return errRequestBodyTooLarge
-		}
-		return err
-	}
-	if err := decoder.Decode(&struct{}{}); err != io.EOF {
-		if limited.read > maxBytes {
-			return errRequestBodyTooLarge
-		}
-		if err == nil {
-			return errors.New("request body must contain only one JSON value")
-		}
-		return err
-	}
-	if limited.read > maxBytes {
-		return errRequestBodyTooLarge
-	}
-	return nil
-}
-func writeUploadTooLarge(w http.ResponseWriter, maxBytes int64) {
-	writeError(w, http.StatusRequestEntityTooLarge, &uploadTooLargeError{limit: maxBytes})
-}
-
-func maxUploadJSONBodyBytes(maxBytes int64) int64 {
-	return maxBytes + ((maxBytes+2)/3)*4 + 4096
-}
-
-func writeJSON(w http.ResponseWriter, status int, v any) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(v)
-}
-func writeError(w http.ResponseWriter, status int, err error) {
-	if errors.Is(err, errRequestBodyTooLarge) {
-		status = http.StatusRequestEntityTooLarge
-	}
-	writeJSON(w, status, ErrorResponse{Error: err.Error()})
-}
-func writeStoreError(w http.ResponseWriter, err error) {
-	if errors.Is(err, ErrNotFound) {
-		writeError(w, http.StatusNotFound, err)
-		return
-	}
-	if errors.Is(err, ErrSafeUploadUnsupported) {
-		writeError(w, http.StatusNotImplemented, err)
-		return
-	}
-	writeError(w, http.StatusInternalServerError, err)
-}
-
-func writeWorkspaceSelectionError(w http.ResponseWriter, err error) {
-	writeError(w, workspaceSelectionErrorStatus(err), err)
-}
-
-func workspaceSelectionErrorStatus(err error) int {
-	if errors.Is(err, ErrWorkspaceForbidden) {
-		return http.StatusForbidden
-	}
-	if errors.Is(err, ErrWorkspacePolicyInvalid) || isFilesystemError(err) {
-		return http.StatusInternalServerError
-	}
-	return http.StatusBadRequest
-}
-
-func isFilesystemError(err error) bool {
-	var pathError *os.PathError
-	return errors.As(err, &pathError) || errors.Is(err, fs.ErrPermission) || errors.Is(err, fs.ErrInvalid)
 }

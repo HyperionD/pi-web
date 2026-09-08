@@ -15,12 +15,12 @@ import {
   X,
 } from "@lucide/astro";
 import WorkspaceFileTree from "./components/WorkspaceFileTree";
-import { UI_LOCALES } from "./i18n/locales";
+import SettingsDialog from "./components/SettingsDialog.astro";
+import AccountNav from "./components/AccountNav.astro";
 import { escapeHtml, renderBannerBody, renderPiBody, renderUserBody } from "./lib/renderers";
 import { formatToolArgs, toolIconHtml } from "./pi-app/messages/tool-message-methods";
 import { isLargeToolBody, renderToolBody } from "./pi-app/messages/tool-output-rendering";
 import { TERMINAL_SPINNER_HTML } from "./pi-app/constants";
-import { SETTINGS_FIELDS as settingsFields } from "./pi-app/workspace/settings-schema";
 
 const {
   initialSession = "active",
@@ -48,30 +48,6 @@ const bodyGrid = sidebarCollapsed ? "1fr" : "280px 1fr";
 const sessionHidden = !sessionVisible;
 const emptyHidden = !emptyVisible;
 const compactionHidden = !showCompaction;
-const settingsFieldByPath = Object.fromEntries(settingsFields.map((field) => [field.path, field]));
-const settingsGroups = [
-  {
-    title: "Model",
-    titleKey: "model",
-    description: "provider, model, thinking",
-    descriptionKey: "modelDescription",
-    paths: ["defaultProvider", "defaultModel", "defaultThinkingLevel"],
-  },
-  {
-    title: "Conversation",
-    titleKey: "conversation",
-    description: "prompt flow and transcript behavior",
-    descriptionKey: "conversationDescription",
-    paths: ["compaction.enabled", "enableSkillCommands", "steeringMode", "followUpMode", "hideThinkingBlock"],
-  },
-  {
-    title: "Warnings",
-    titleKey: "warnings",
-    description: "usage and safety notices",
-    descriptionKey: "warningsDescription",
-    paths: ["warnings.anthropicExtraUsage"],
-  },
-].map((group) => ({ ...group, fields: group.paths.map((path) => settingsFieldByPath[path]).filter(Boolean) }));
 const treeHidden = !treeOpen;
 const statusColor = showDisconnect ? "var(--danger)" : "var(--fg-3)";
 const statusTitle = showDisconnect ? "已断开连接" : "连接中";
@@ -96,6 +72,7 @@ function toolStatus(msg) {
       <span class="sep">/</span><span class="session" data-active-session-title title={`${activeSessionTitle} · ${activeSessionID}`}>{activeSessionTitle}</span>
     </span>
     <div class="actions">
+      <AccountNav />
       <span class="iconbtn statusbtn" style={`color:${statusColor}`} title={statusTitle}>●</span>
     </div>
   </header>
@@ -244,152 +221,11 @@ function toolStatus(msg) {
     </form>
   </div>
 
-  <div class="settings-modal" data-settings-modal hidden>
-    <form class="settings-dialog" data-settings-form role="dialog" aria-modal="true" aria-labelledby="settings-title" tabindex="-1">
-      <div class="settings-head">
-        <div><strong id="settings-title" data-i18n="settingsTitle">pi settings</strong><small data-i18n="settingsSubtitle">same files used by settings command</small></div>
-        <button type="button" data-action="close-settings" aria-label="close settings" data-i18n-aria-label="closeSettings"><X size={14} strokeWidth={1.75} aria-hidden="true" /></button>
-      </div>
-      <div class="settings-body">
-        <div class="settings-language-row">
-          <label><span data-i18n="language">Language</span>
-            <select name="uiLanguage" data-ui-language>
-              {UI_LOCALES.map((locale) => <option value={locale.code}>{locale.label}</option>)}
-            </select>
-          </label>
-          <small data-i18n="languageHint">Changes apply immediately and are saved on this device.</small>
-        </div>
-        <div class="settings-toolbar">
-          <label><span data-i18n="scope">scope</span>
-            <select name="scope" data-settings-scope>
-              <option value="project" data-i18n="project">project</option>
-              <option value="global" data-i18n="global">global</option>
-            </select>
-          </label>
-          <span data-settings-path>—</span>
-        </div>
-        <section class="app-settings-section" aria-labelledby="app-settings-title">
-          <div class="app-settings-head">
-            <div>
-              <strong id="app-settings-title">pi-web 应用设置</strong>
-              <small>用户级配置，不随 project / global scope 切换</small>
-            </div>
-            <small class="app-settings-path">path: <code data-app-config-path>—</code></small>
-          </div>
-          <label class="settings-field app-settings-upload-limit">
-            <span>单文件上传上限（MiB）</span>
-            <input data-app-setting="max-upload-mib" type="number" min="1" max="2048" step="1" inputmode="numeric" autocomplete="off" aria-describedby="max-upload-mib-hint" />
-            <small id="max-upload-mib-hint">MiB；1–2048，保存后立即生效</small>
-          </label>
-          <label class="settings-field">
-            <span>品牌</span>
-            <input data-app-setting="brand" autocomplete="off" placeholder="pi.dev / web" />
-          </label>
-          <div class="allowed-roots-settings">
-            <div class="allowed-roots-head">
-              <div>
-                <strong>工作区允许目录</strong>
-                <small>限制工作区文件访问；不填写表示不限制。</small>
-              </div>
-              <button type="button" data-allowed-root-add aria-haspopup="dialog" aria-expanded="false">添加目录</button>
-            </div>
-            <textarea data-app-setting="allowed-roots" hidden aria-hidden="true"></textarea>
-            <div class="allowed-roots-list" data-allowed-roots-list></div>
-            <small class="allowed-roots-hint" data-allowed-roots-hint>不限制工作区目录</small>
-          </div>
-        </section>
-        <details class="auth-login" data-auth-form>
-          <summary>
-            <span class="auth-login-title"><span data-i18n="authTitle">Authentication</span> <em data-i18n="authMode">API key login</em></span>
-            <small data-auth-status>API key is stored in ~/.pi/agent/auth.json</small>
-          </summary>
-          <div class="auth-login-fields">
-            <label><span data-i18n="provider">provider</span>
-              <select data-auth-provider>
-                <option value="">loading providers…</option>
-              </select>
-            </label>
-            <label><span data-i18n="apiKey">API key</span>
-              <input data-auth-api-key type="password" autocomplete="off" placeholder="paste API key" data-i18n-placeholder="pasteApiKey" />
-            </label>
-            <div class="auth-login-actions">
-              <button type="button" data-action="save-auth-provider" data-i18n="saveKey">save key</button>
-              <button type="button" data-action="logout-auth-provider" data-i18n="logout">logout</button>
-            </div>
-          </div>
-          <div class="oauth-login-fields" data-oauth-fields hidden>
-            <label><span data-i18n="oauthProvider">OAuth provider</span>
-              <select data-oauth-provider>
-                <option value="" data-i18n="loadingOAuthProviders">loading OAuth providers…</option>
-              </select>
-            </label>
-            <button type="button" data-action="start-oauth-login" data-i18n="loginWithOAuth">login with OAuth</button>
-            <a data-oauth-link href="#" target="_blank" rel="noreferrer" hidden data-i18n="openLoginPage">open login page</a>
-            <input data-oauth-input autocomplete="off" placeholder="prompt input or redirect URL" data-i18n-placeholder="oauthInput" hidden />
-            <button type="button" data-action="send-oauth-input" hidden data-i18n="send">send</button>
-            <small data-oauth-status>OAuth supports Claude, Codex, and Copilot subscriptions.</small>
-          </div>
-        </details>
-        <div class="settings-groups">
-          {settingsGroups.map((group) => (
-            <section class="settings-group">
-              <div class="settings-group-head">
-                <div>
-                  <strong data-i18n={group.titleKey}>{group.title}</strong>
-                  <small data-i18n={group.descriptionKey}>{group.description}</small>
-                </div>
-              </div>
-              <div class="settings-grid">
-                {group.fields.map((field) => (
-                  <label
-                    class="settings-field"
-                  >
-                    <span>{field.label}</span>
-                      {field.type === "text" ? (
-                      <input data-setting={field.path} autocomplete="off" placeholder={field.hint} />
-                    ) : field.type === "password" ? (
-                      <input data-setting={field.path} type="password" autocomplete="off" placeholder={field.hint} />
-                    ) : field.type === "providerSelect" || field.type === "modelSelect" ? (
-                      <>
-                        <select data-setting={field.path} disabled>
-                          <option value="inherit">loading models…</option>
-                        </select>
-                        <input data-custom-setting={field.path} autocomplete="off" placeholder={`custom ${field.label}`} hidden />
-                      </>
-                    ) : field.type === "boolean" ? (
-                      <select data-setting={field.path}>
-                        <option value="inherit">inherit</option>
-                        <option value="true">on</option>
-                        <option value="false">off</option>
-                      </select>
-                    ) : field.type === "checkbox" ? (
-                      <span class="settings-checkbox"><input type="checkbox" data-setting={field.path} /> <span data-i18n="enabled">Enabled</span></span>
-                    ) : (
-                      <select data-setting={field.path}>
-                        <option value="inherit">inherit</option>
-                        {field.values.map((value) => <option value={value}>{value}</option>)}
-                      </select>
-                    )}
-                    <small>effective: not set</small>
-                  </label>
-                ))}
-              </div>
-            </section>
-          ))}
-        </div>
-
-      </div>
-      <div class="settings-foot">
-        <span data-settings-status>blank fields inherit from effective settings</span>
-        <button type="button" data-action="close-settings" data-i18n="cancel">cancel</button>
-        <button type="submit" data-i18n="save">save</button>
-      </div>
-    </form>
-  </div>
+  <SettingsDialog />
 
   <div class="twk-panel" data-tweaks hidden><div class="twk-hd"><b>调整项</b><button class="twk-x" type="button" data-action="close-tweaks" aria-label="关闭调整项"><X size={14} strokeWidth={1.75} aria-hidden="true" /></button></div><div class="twk-body"><div class="twk-sect">布局</div><button class="twk-btn secondary" type="button" data-action="route-picker">工作区选择器</button><button class="twk-btn secondary" type="button" data-action="route-workspace">会话视图</button><button class="twk-btn secondary" type="button" data-action="new-session">新建会话</button></div></div>
 </pi-app>
 
 <script>
-  import "./pi-app/index";
+  import "./accounts/app-entry";
 </script>

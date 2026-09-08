@@ -1,0 +1,155 @@
+package piweb
+
+import (
+	"errors"
+	"maps"
+	"net/http"
+	"path/filepath"
+	"sort"
+)
+
+type accountWriteRequest struct {
+	Username   string   `json:"username"`
+	Password   string   `json:"password"`
+	Workspaces []string `json:"workspaces"`
+}
+
+func (s *Server) listAccounts(w http.ResponseWriter, _ *http.Request) {
+	s.accounts.mu.Lock()
+	users := make([]Account, 0, len(s.accounts.Users))
+	for _, record := range s.accounts.Users {
+		users = append(users, record.Account)
+	}
+	s.accounts.mu.Unlock()
+	sort.Slice(users, func(i, j int) bool { return users[i].Username < users[j].Username })
+	writeJSON(w, 200, map[string]any{"users": users})
+}
+
+func (s *Server) accountPaths(ids []string) (map[string]string, error) {
+	paths := make(map[string]string, len(ids))
+	policy, err := LoadWorkspacePolicy()
+	if err != nil {
+		return nil, err
+	}
+	for _, id := range ids {
+		path, err := s.store.WorkspacePath(id)
+		if err != nil {
+			return nil, err
+		}
+		if err := policy.CheckExistingDirectory(path); err != nil {
+			return nil, err
+		}
+		realPath, err := filepath.EvalSymlinks(path)
+		if err != nil {
+			return nil, err
+		}
+		paths[id] = realPath
+	}
+	return paths, nil
+}
+
+func (s *Server) readAccountWrite(w http.ResponseWriter, r *http.Request, create bool) (accountRecord, bool) {
+	var req accountWriteRequest
+	if err := readJSONWithLimit(r, &req, 16384); err != nil {
+		writeError(w, 400, err)
+		return accountRecord{}, false
+	}
+	if !create {
+		req.Username = r.PathValue("username")
+	}
+	if !accountName.MatchString(req.Username) || req.Username == "admin" || len(req.Workspaces) > 100 {
+		writeError(w, 400, errors.New("invalid username or too many workspaces"))
+		return accountRecord{}, false
+	}
+	hash := ""
+	if create || req.Password != "" {
+		if err := validateAdminPassword(req.Password); err != nil {
+			writeError(w, 400, err)
+			return accountRecord{}, false
+		}
+		var err error
+		hash, err = hashAdminPassword(req.Password)
+		if err != nil {
+			writeError(w, 500, err)
+			return accountRecord{}, false
+		}
+	}
+	paths, err := s.accountPaths(req.Workspaces)
+	if err != nil {
+		writeError(w, 400, err)
+		return accountRecord{}, false
+	}
+	ids := make([]string, 0, len(paths))
+	for id := range paths {
+		ids = append(ids, id)
+	}
+	sort.Strings(ids)
+	return accountRecord{Account: Account{Username: req.Username, Role: "user", Workspaces: ids},
+		PasswordHash: hash, Paths: paths}, true
+}
+
+func (s *Server) createAccount(w http.ResponseWriter, r *http.Request) {
+	record, ok := s.readAccountWrite(w, r, true)
+	if !ok {
+		return
+	}
+	s.accounts.mu.Lock()
+	defer s.accounts.mu.Unlock()
+	if _, exists := s.accounts.Users[record.Username]; exists {
+		writeError(w, 409, errors.New("username already exists"))
+		return
+	}
+	record.ID = accountID()
+	users := maps.Clone(s.accounts.Users)
+	users[record.Username] = record
+	if err := s.accounts.save(users, s.accounts.Owners); err != nil {
+		writeError(w, 500, err)
+		return
+	}
+	writeJSON(w, 201, map[string]any{"user": record.Account})
+}
+
+func (s *Server) updateAccount(w http.ResponseWriter, r *http.Request) {
+	record, ok := s.readAccountWrite(w, r, false)
+	if !ok {
+		return
+	}
+	s.accounts.mu.Lock()
+	defer s.accounts.mu.Unlock()
+	previous, exists := s.accounts.Users[record.Username]
+	if !exists {
+		writeError(w, 404, errAccountDenied)
+		return
+	}
+	record.ID = previous.ID
+	if record.PasswordHash == "" {
+		record.PasswordHash = previous.PasswordHash
+	}
+	users := maps.Clone(s.accounts.Users)
+	users[record.Username] = record
+	if err := s.accounts.save(users, s.accounts.Owners); err != nil {
+		writeError(w, 500, err)
+		return
+	}
+	s.accounts.revoke(record.ID)
+	writeJSON(w, 200, map[string]any{"user": record.Account})
+}
+
+func (s *Server) deleteAccount(w http.ResponseWriter, r *http.Request) {
+	s.accounts.mu.Lock()
+	defer s.accounts.mu.Unlock()
+	record, ok := s.accounts.Users[r.PathValue("username")]
+	if !ok {
+		writeError(w, 404, errAccountDenied)
+		return
+	}
+	users := maps.Clone(s.accounts.Users)
+	delete(users, record.Username)
+	// Keep ownership tombstones: deleting/recreating a username must not expose its old sessions.
+	if err := s.accounts.save(users, s.accounts.Owners); err != nil {
+		writeError(w, 500, err)
+		return
+	}
+	s.accounts.revoke(record.ID)
+	writeJSON(w, 200, map[string]bool{"deleted": true})
+}

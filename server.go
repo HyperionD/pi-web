@@ -56,6 +56,7 @@ func runServerWithDependencies(options serverOptions, deps serverDependencies) e
 		Host:              options.Host,
 		Port:              options.Port,
 		EnablePiExecution: !options.Mock,
+		UserManagement:    true,
 		StaticFiles:       deps.staticFiles(),
 	}, store, deps.newBroker())
 	httpServer := &http.Server{
