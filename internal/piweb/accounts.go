@@ -70,18 +70,30 @@ func newAccountStore() *accountStore {
 		r.Paths = map[string]string{}
 		a.Users[r.Username] = r
 	}
+	if err := rows.Err(); err != nil {
+		a.dbErr = err
+		return a
+	}
 	for _, r := range a.Users {
 		a.loadWorkspaces(db, r)
 	}
 	owners, err := db.Query(`SELECT session_id, user_id FROM session_owners`)
-	if err == nil {
-		defer owners.Close()
-		for owners.Next() {
-			var session, user string
-			if owners.Scan(&session, &user) == nil {
-				a.Owners[session] = user
-			}
+	if err != nil {
+		a.dbErr = err
+		return a
+	}
+	defer owners.Close()
+	for owners.Next() {
+		var session, user string
+		if err := owners.Scan(&session, &user); err != nil {
+			a.dbErr = err
+			return a
 		}
+		a.Owners[session] = user
+	}
+	if err := owners.Err(); err != nil {
+		a.dbErr = err
+		return a
 	}
 	return a
 }

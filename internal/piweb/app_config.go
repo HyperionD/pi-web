@@ -57,11 +57,14 @@ func LoadAppConfig() (AppConfigResponse, error) {
 
 // LoadMaxUploadBytes returns the effective workspace upload limit for the current request.
 func LoadMaxUploadBytes() (int64, error) {
-	if value, ok, err := databaseSetting("maxUploadBytes"); err == nil && ok {
+	if value, ok, err := databaseSetting("maxUploadBytes"); err != nil {
+		return 0, err
+	} else if ok {
 		var number int64
-		if json.Unmarshal([]byte(value), &number) == nil {
-			return number, nil
+		if err := json.Unmarshal([]byte(value), &number); err != nil {
+			return 0, err
 		}
+		return number, nil
 	}
 	response, err := LoadAppConfig()
 	if err != nil {
