@@ -21,6 +21,9 @@ func (s *Server) accountRoutes() {
 
 func (s *Server) accountStatus(w http.ResponseWriter, _ *http.Request) {
 	configured, err := AdminPasswordConfigured()
+	if s.config.UserManagement {
+		configured, err = databaseAdminPasswordConfigured()
+	}
 	if err != nil {
 		writeError(w, 503, err)
 		return
@@ -70,7 +73,7 @@ func (s *Server) loginAccount(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) verifyAccount(username, password string) (Account, bool) {
 	if username == "admin" {
-		return Account{ID: "admin", Username: "admin", Role: "admin", Workspaces: []string{}}, VerifyAdminPassword(password) == nil
+		return Account{ID: "admin", Username: "admin", Role: "admin", Workspaces: []string{}}, verifyDatabaseAdminPassword(password) == nil
 	}
 	record, exists := s.accounts.Users[username]
 	if !exists {

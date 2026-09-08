@@ -1,4 +1,5 @@
 body[data-user-management="true"]:not([data-account-ready="true"]) pi-app { visibility: hidden; }
+body[data-user-management="true"] .allowed-roots-settings { display: none !important; }
 body[data-account-role="user"] [data-action="route-picker"],
 body[data-account-role="user"] [data-action="delete-workspace"],
 body[data-account-role="user"] [data-action="open-settings"],

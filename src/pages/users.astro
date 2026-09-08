@@ -17,8 +17,11 @@ import AccountLayout from "../components/AccountLayout.astro";
           <fieldset data-user-fields>
             <label>用户名<input name="username" required maxlength="64" pattern="[a-zA-Z0-9][a-zA-Z0-9_.\-]{0,63}" autocomplete="off" /></label>
             <label><span data-password-label>初始密码</span><input name="password" type="password" required minlength="8" maxlength="128" autocomplete="new-password" /></label>
-            <fieldset><legend>允许访问的工作区</legend><div data-user-workspaces class="account-workspaces"></div></fieldset>
-            <small>只能分配管理员已打开的工作区。没有可选项时，请先返回会话页面打开工作区。</small>
+            <fieldset><legend>允许访问的工作区</legend><div data-user-workspaces class="account-workspaces"></div>
+              <label class="account-path-input">直接添加目录<div class="account-path-row"><input name="workspacePath" placeholder="/workspaces/project" autocomplete="off" /><button type="button" data-open-directory>浏览</button></div></label>
+              <small>可填写服务器上的绝对路径。保存时会校验目录存在且符合允许目录策略。</small>
+            </fieldset>
+            <small>列表中的目录可直接勾选；也可以手动添加尚未在工作区列表中的目录。</small>
             <small>保存修改会使该用户的所有登录失效；用户重新登录后生效。</small>
             <div class="account-form-actions"><button type="submit" class="account-primary">保存用户</button><button type="button" data-user-delete hidden>删除用户</button></div>
           </fieldset>
@@ -26,6 +29,9 @@ import AccountLayout from "../components/AccountLayout.astro";
         <p role="status" aria-live="polite" data-user-status></p>
       </section>
     </div>
+    <dialog data-directory-dialog>
+      <form method="dialog" data-directory-form><h2>选择服务器目录</h2><label>当前路径<input name="directory" data-directory-path required /></label><div class="account-form-actions"><button type="button" data-directory-up>上一级</button><button type="button" data-directory-load>打开</button></div><div data-directory-list class="account-directory-list"></div><div class="account-form-actions"><button value="cancel">取消</button><button value="confirm" class="account-primary">选择此目录</button></div></form>
+    </dialog>
     <dialog data-delete-dialog>
       <form method="dialog"><h2>删除用户？</h2><p>用户将立即退出登录。已有会话不会转交给其他用户。</p><p data-delete-name></p><div class="account-form-actions"><button value="cancel">取消</button><button value="confirm" class="account-danger">确认删除</button></div></form>
     </dialog>

@@ -6,6 +6,15 @@ import (
 )
 
 func (s *Server) adminPasswordStatus(w http.ResponseWriter, _ *http.Request) {
+	if s.config.UserManagement {
+		configured, err := databaseAdminPasswordConfigured()
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, AdminPasswordStatusResponse{Configured: configured})
+		return
+	}
 	s.adminPasswordStateMu.RLock()
 	defer s.adminPasswordStateMu.RUnlock()
 	if s.adminPasswordCheckError != nil {
@@ -25,7 +34,11 @@ func (s *Server) setupAdminPassword(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, errors.New("admin password confirmation does not match"))
 		return
 	}
-	if err := SetupAdminPassword(req.Password); err != nil {
+	setup := SetupAdminPassword
+	if s.config.UserManagement {
+		setup = setupDatabaseAdminPassword
+	}
+	if err := setup(req.Password); err != nil {
 		status := http.StatusInternalServerError
 		switch {
 		case errors.Is(err, ErrAdminPasswordAlreadyConfigured):
@@ -36,6 +49,12 @@ func (s *Server) setupAdminPassword(w http.ResponseWriter, r *http.Request) {
 		writeError(w, status, err)
 		return
 	}
+	if s.config.UserManagement {
+		if err := s.accounts.ensureAdmin(); err != nil {
+			writeError(w, http.StatusInternalServerError, err)
+			return
+		}
+	}
 	s.adminPasswordStateMu.Lock()
 	s.adminPasswordConfigured = true
 	s.adminPasswordCheckError = nil
@@ -44,5 +63,8 @@ func (s *Server) setupAdminPassword(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) requireAdminPassword(r *http.Request) error {
+	if s.config.UserManagement {
+		return verifyDatabaseAdminPassword(r.Header.Get(adminPasswordHeader))
+	}
 	return VerifyAdminPassword(r.Header.Get(adminPasswordHeader))
 }

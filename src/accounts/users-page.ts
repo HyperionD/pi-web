@@ -1,4 +1,4 @@
-import { createUser, deleteUser, listUsers, listWorkspaces, updateUser, type Account, type ManagedWorkspace } from "./api";
+import { createUser, deleteUser, listFolders, listUsers, listWorkspaces, updateUser, type Account, type ManagedWorkspace } from "./api";
 import { requireAccount, showAccountError } from "./browser";
 
 const form = document.querySelector<HTMLFormElement>("[data-user-form]")!;
@@ -59,7 +59,7 @@ form.addEventListener("submit", async (event) => {
   event.preventDefault();
   const values = new FormData(form);
   const value = { username: String(values.get("username")), password: String(values.get("password")),
-    workspaces: values.getAll("workspaces").map(String) };
+    workspaces: values.getAll("workspaces").map(String), workspacePaths: [String(values.get("workspacePath") || "").trim()].filter(Boolean) };
   fields.disabled = true;
   errorMessage.textContent = "";
   try {
@@ -73,6 +73,19 @@ form.addEventListener("submit", async (event) => {
 });
 
 document.querySelector("[data-user-new]")!.addEventListener("click", () => selectUser(null));
+const directoryDialog = document.querySelector<HTMLDialogElement>("[data-directory-dialog]")!;
+const directoryPath = document.querySelector<HTMLInputElement>("[data-directory-path]")!;
+const directoryList = document.querySelector<HTMLElement>("[data-directory-list]")!;
+async function loadDirectory(path: string) {
+  try {
+    const result = await listFolders(path); directoryPath.value = result.path; directoryList.replaceChildren();
+    for (const folder of result.folders || []) { const button = document.createElement("button"); button.type = "button"; button.textContent = folder.displayPath || folder.name; button.addEventListener("click", () => void loadDirectory(folder.path)); directoryList.append(button); }
+  } catch (error) { showAccountError(error, errorMessage); }
+}
+document.querySelector("[data-open-directory]")!.addEventListener("click", () => { directoryPath.value = "/"; directoryDialog.showModal(); void loadDirectory("/"); });
+document.querySelector("[data-directory-load]")!.addEventListener("click", () => void loadDirectory(directoryPath.value));
+document.querySelector("[data-directory-up]")!.addEventListener("click", () => void loadDirectory(directoryPath.value.replace(/\/[^/]*$/, "") || "/"));
+directoryDialog.addEventListener("close", () => { if (directoryDialog.returnValue === "confirm") (form.elements.namedItem("workspacePath") as HTMLInputElement).value = directoryPath.value; });
 removeButton.addEventListener("click", () => {
   document.querySelector("[data-delete-name]")!.textContent = editing?.username || "";
   dialog.returnValue = "cancel";

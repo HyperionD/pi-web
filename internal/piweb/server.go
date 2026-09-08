@@ -129,6 +129,13 @@ func (s *Server) routes() {
 func (s *Server) context() context.Context {
 	return context.Background()
 }
+
+func (s *Server) workspacePolicy() (WorkspacePolicy, error) {
+	if s.config.UserManagement {
+		return WorkspacePolicy{}, nil
+	}
+	return LoadWorkspacePolicy()
+}
 func (s *Server) withCORS(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if s.config.UserManagement {

@@ -9,9 +9,10 @@ import (
 )
 
 type accountWriteRequest struct {
-	Username   string   `json:"username"`
-	Password   string   `json:"password"`
-	Workspaces []string `json:"workspaces"`
+	Username       string   `json:"username"`
+	Password       string   `json:"password"`
+	Workspaces     []string `json:"workspaces"`
+	WorkspacePaths []string `json:"workspacePaths"`
 }
 
 func (s *Server) listAccounts(w http.ResponseWriter, _ *http.Request) {
@@ -25,11 +26,21 @@ func (s *Server) listAccounts(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, 200, map[string]any{"users": users})
 }
 
-func (s *Server) accountPaths(ids []string) (map[string]string, error) {
+func (s *Server) accountPaths(ids, requestedPaths []string) (map[string]string, error) {
 	paths := make(map[string]string, len(ids))
-	policy, err := LoadWorkspacePolicy()
-	if err != nil {
-		return nil, err
+	policy := WorkspacePolicy{}
+	for _, requestedPath := range requestedPaths {
+		if requestedPath == "" {
+			continue
+		}
+		if err := policy.CheckExistingDirectory(requestedPath); err != nil {
+			return nil, err
+		}
+		workspace, err := s.store.OpenWorkspace(requestedPath)
+		if err != nil {
+			return nil, err
+		}
+		ids = append(ids, workspace.ID)
 	}
 	for _, id := range ids {
 		path, err := s.store.WorkspacePath(id)
@@ -57,7 +68,7 @@ func (s *Server) readAccountWrite(w http.ResponseWriter, r *http.Request, create
 	if !create {
 		req.Username = r.PathValue("username")
 	}
-	if !accountName.MatchString(req.Username) || req.Username == "admin" || len(req.Workspaces) > 100 {
+	if !accountName.MatchString(req.Username) || req.Username == "admin" || len(req.Workspaces)+len(req.WorkspacePaths) > 100 {
 		writeError(w, 400, errors.New("invalid username or too many workspaces"))
 		return accountRecord{}, false
 	}
@@ -74,7 +85,7 @@ func (s *Server) readAccountWrite(w http.ResponseWriter, r *http.Request, create
 			return accountRecord{}, false
 		}
 	}
-	paths, err := s.accountPaths(req.Workspaces)
+	paths, err := s.accountPaths(req.Workspaces, req.WorkspacePaths)
 	if err != nil {
 		writeError(w, 400, err)
 		return accountRecord{}, false

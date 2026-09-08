@@ -15,7 +15,7 @@ func (s *Server) requireWorkspaceAccess(next http.HandlerFunc) http.HandlerFunc 
 		if !s.accountWorkspaceAccess(w, r, r.PathValue("workspaceID"), path) {
 			return
 		}
-		policy, err := LoadWorkspacePolicy()
+		policy, err := s.workspacePolicy()
 		if err != nil {
 			writeWorkspacePolicyError(w, err)
 			return
@@ -38,7 +38,7 @@ func (s *Server) requireSessionAccess(next http.HandlerFunc) http.HandlerFunc {
 			writeStoreError(w, err)
 			return
 		}
-		policy, err := LoadWorkspacePolicy()
+		policy, err := s.workspacePolicy()
 		if err != nil {
 			writeWorkspacePolicyError(w, err)
 			return

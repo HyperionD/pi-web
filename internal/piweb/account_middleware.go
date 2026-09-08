@@ -47,7 +47,7 @@ func (s *Server) withAccount(next http.Handler) http.Handler {
 			return
 		}
 		w.Header().Set("Cache-Control", "no-store")
-		if s.accounts.err != nil {
+		if s.accounts.dbErr != nil {
 			writeError(w, 503, errors.New("account database is unavailable"))
 			return
 		}

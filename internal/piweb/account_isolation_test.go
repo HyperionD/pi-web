@@ -73,7 +73,7 @@ func TestAccountSessionIsolationAndPersistence(t *testing.T) {
 		}
 	}
 	reloaded := newAccountStore()
-	if reloaded.err != nil || !reloaded.owns(reloaded.Users["alice"].Account, aSession.ID) {
+	if reloaded.dbErr != nil || !reloaded.owns(reloaded.Users["alice"].Account, aSession.ID) {
 		t.Fatal("ownership not persisted")
 	}
 	w := accountRequest(s, "DELETE", "/api/workspaces/"+workspace.ID+"/sessions", "", alice)

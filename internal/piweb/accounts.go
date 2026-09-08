@@ -4,12 +4,9 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/sha256"
+	"database/sql"
 	"encoding/hex"
-	"encoding/json"
 	"errors"
-	"maps"
-	"os"
-	"path/filepath"
 	"regexp"
 	"sync"
 	"time"
@@ -21,26 +18,23 @@ type Account struct {
 	Role       string   `json:"role"`
 	Workspaces []string `json:"workspaces"`
 }
-
 type accountRecord struct {
 	Account
 	PasswordHash string            `json:"passwordHash"`
 	Paths        map[string]string `json:"paths"`
 }
-
 type accountLogin struct {
 	User    Account
 	Expires time.Time
 	Context context.Context
 	Cancel  context.CancelFunc
 }
-
 type accountStore struct {
 	mu       sync.Mutex
-	path     string
-	err      error
-	Users    map[string]accountRecord `json:"users"`
-	Owners   map[string]string        `json:"owners"`
+	dbPath   string
+	dbErr    error
+	Users    map[string]accountRecord
+	Owners   map[string]string
 	logins   map[[32]byte]accountLogin
 	attempts map[string][]time.Time
 }
@@ -49,44 +43,62 @@ var accountName = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,63}$`)
 var errAccountDenied = errors.New("account or resource is not accessible")
 
 func newAccountStore() *accountStore {
-	a := &accountStore{Users: map[string]accountRecord{}, Owners: map[string]string{},
-		logins: map[[32]byte]accountLogin{}, attempts: map[string][]time.Time{}}
-	configPath, err := AppConfigPath()
+	a := &accountStore{Users: map[string]accountRecord{}, Owners: map[string]string{}, logins: map[[32]byte]accountLogin{}, attempts: map[string][]time.Time{}}
+	a.dbPath = DefaultWebDBPath()
+	db, err := openWebDB(a.dbPath)
 	if err != nil {
-		a.err = err
+		a.dbErr = err
 		return a
 	}
-	a.path = filepath.Join(filepath.Dir(configPath), "pi-web-users.json")
-	data, err := os.ReadFile(a.path)
-	if errors.Is(err, os.ErrNotExist) {
+	defer db.Close()
+	rows, err := db.Query(`SELECT id, username, role, password_hash FROM users`)
+	if err != nil {
+		a.dbErr = err
 		return a
 	}
+	defer rows.Close()
+	for rows.Next() {
+		var r accountRecord
+		if err := rows.Scan(&r.ID, &r.Username, &r.Role, &r.PasswordHash); err != nil {
+			a.dbErr = err
+			return a
+		}
+		r.Workspaces = []string{}
+		r.Paths = map[string]string{}
+		a.Users[r.Username] = r
+	}
+	for _, r := range a.Users {
+		a.loadWorkspaces(db, r)
+	}
+	owners, err := db.Query(`SELECT session_id, user_id FROM session_owners`)
 	if err == nil {
-		err = json.Unmarshal(data, a)
+		defer owners.Close()
+		for owners.Next() {
+			var session, user string
+			if owners.Scan(&session, &user) == nil {
+				a.Owners[session] = user
+			}
+		}
 	}
-	if err == nil && (a.Users == nil || a.Owners == nil) {
-		err = errors.New("invalid account database")
-	}
-	a.err = err
 	return a
 }
-
-func (a *accountStore) save(users map[string]accountRecord, owners map[string]string) error {
-	if a.err != nil {
-		return a.err
+func (a *accountStore) loadWorkspaces(db *sql.DB, record accountRecord) {
+	rows, err := db.Query(`SELECT workspace_id, workspace_path FROM user_workspaces WHERE user_id = ?`, record.ID)
+	if err != nil {
+		a.dbErr = err
+		return
 	}
-	if err := writeAppConfig(a.path, map[string]any{"users": users, "owners": owners}); err != nil {
-		return err
+	defer rows.Close()
+	for rows.Next() {
+		var id, path string
+		if rows.Scan(&id, &path) == nil {
+			record.Workspaces = append(record.Workspaces, id)
+			record.Paths[id] = path
+		}
 	}
-	a.Users, a.Owners = users, owners
-	return nil
+	a.Users[record.Username] = record
 }
-
-func accountToken() string {
-	// crypto/rand.Text uses the operating system CSPRNG and cannot return a partial token.
-	return rand.Text() + rand.Text()
-}
-
+func accountToken() string { return rand.Text() + rand.Text() }
 func (a *accountStore) loginLocked(user Account) string {
 	token := accountToken()
 	ctx, cancel := context.WithCancel(context.Background())
@@ -99,23 +111,20 @@ func (a *accountStore) loginLocked(user Account) string {
 	a.logins[sha256.Sum256([]byte(token))] = accountLogin{user, time.Now().Add(12 * time.Hour), ctx, cancel}
 	return token
 }
-
 func (a *accountStore) authenticate(token string) (accountLogin, bool) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	key := sha256.Sum256([]byte(token))
 	login, ok := a.logins[key]
-	if !ok {
-		return accountLogin{}, false
-	}
-	if time.Now().After(login.Expires) {
-		login.Cancel()
-		delete(a.logins, key)
+	if !ok || time.Now().After(login.Expires) {
+		if ok {
+			login.Cancel()
+			delete(a.logins, key)
+		}
 		return accountLogin{}, false
 	}
 	return login, true
 }
-
 func (a *accountStore) revoke(userID string) {
 	for key, login := range a.logins {
 		if login.User.ID == userID {
@@ -124,60 +133,106 @@ func (a *accountStore) revoke(userID string) {
 		}
 	}
 }
-
 func (a *accountStore) own(sessionID, userID string) error {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	owners := maps.Clone(a.Owners)
-	owners[sessionID] = userID
-	return a.save(a.Users, owners)
+	db, err := openWebDB(a.dbPath)
+	if err != nil {
+		return err
+	}
+	defer db.Close()
+	if _, err = db.Exec(`INSERT OR REPLACE INTO session_owners(session_id, user_id) VALUES(?,?)`, sessionID, userID); err != nil {
+		return err
+	}
+	a.Owners[sessionID] = userID
+	return nil
+}
+func (a *accountStore) ensureAdmin() error {
+	encoded, ok, err := databaseSetting(databaseAdminPasswordKey)
+	if err != nil || !ok {
+		return err
+	}
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if _, exists := a.Users["admin"]; exists {
+		return nil
+	}
+	record := accountRecord{Account: Account{ID: "admin", Username: "admin", Role: "admin", Workspaces: []string{}}, PasswordHash: encoded, Paths: map[string]string{}}
+	users := map[string]accountRecord{"admin": record}
+	for name, user := range a.Users {
+		users[name] = user
+	}
+	return a.save(users, a.Owners)
 }
 
+func (a *accountStore) save(users map[string]accountRecord, _ map[string]string) error {
+	db, err := openWebDB(a.dbPath)
+	if err != nil {
+		return err
+	}
+	defer db.Close()
+	tx, err := db.Begin()
+	if err != nil {
+		return err
+	}
+	if _, err = tx.Exec(`DELETE FROM users`); err != nil {
+		_ = tx.Rollback()
+		return err
+	}
+	for _, r := range users {
+		if _, err = tx.Exec(`INSERT INTO users(id, username, role, password_hash, created_at) VALUES(?,?,?,?,?) ON CONFLICT(username) DO UPDATE SET id=excluded.id, role=excluded.role, password_hash=excluded.password_hash`, r.ID, r.Username, r.Role, r.PasswordHash, time.Now().UTC().Format(time.RFC3339Nano)); err != nil {
+			_ = tx.Rollback()
+			return err
+		}
+		if _, err = tx.Exec(`DELETE FROM user_workspaces WHERE user_id=?`, r.ID); err != nil {
+			_ = tx.Rollback()
+			return err
+		}
+		for id, path := range r.Paths {
+			if _, err = tx.Exec(`INSERT INTO user_workspaces(user_id, workspace_id, workspace_path) VALUES(?,?,?)`, r.ID, id, path); err != nil {
+				_ = tx.Rollback()
+				return err
+			}
+		}
+	}
+	if err = tx.Commit(); err != nil {
+		return err
+	}
+	a.Users = users
+	return nil
+}
 func (a *accountStore) owns(user Account, sessionID string) bool {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	owner := a.Owners[sessionID]
 	return owner == user.ID || (owner == "" && user.Role == "admin")
 }
-
 func (a *accountStore) allows(user Account, workspaceID, path string) bool {
 	if user.Role == "admin" {
 		return true
 	}
-	realPath, err := filepath.EvalSymlinks(path)
-	if err != nil {
-		return false
-	}
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	record, ok := a.Users[user.Username]
-	return ok && record.ID == user.ID && record.Paths[workspaceID] == realPath
+	r, ok := a.Users[user.Username]
+	return ok && r.ID == user.ID && r.Paths[workspaceID] == path
 }
-
 func (a *accountStore) permitLogin(address string) bool {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	now := time.Now()
-	for key, attempts := range a.attempts {
-		kept := attempts[:0]
-		for _, attempt := range attempts {
-			if now.Sub(attempt) < time.Minute {
-				kept = append(kept, attempt)
-			}
-		}
-		if len(kept) == 0 {
-			delete(a.attempts, key)
-		} else {
-			a.attempts[key] = kept
+	kept := a.attempts[address][:0]
+	for _, t := range a.attempts[address] {
+		if now.Sub(t) < time.Minute {
+			kept = append(kept, t)
 		}
 	}
-	if len(a.attempts[address]) >= 10 || len(a.attempts) >= 10000 {
+	if len(kept) >= 10 {
+		a.attempts[address] = kept
 		return false
 	}
-	a.attempts[address] = append(a.attempts[address], now)
+	a.attempts[address] = append(kept, now)
 	return true
 }
-
 func accountID() string {
 	sum := sha256.Sum256([]byte(accountToken()))
 	return hex.EncodeToString(sum[:16])

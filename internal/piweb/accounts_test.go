@@ -26,7 +26,7 @@ func accountServer(t *testing.T) (*Server, *http.Cookie) {
 	agentRoot := t.TempDir()
 	t.Setenv("PI_CODING_AGENT_SESSION_DIR", filepath.Join(agentRoot, "sessions"))
 	t.Setenv("PI_CODING_AGENT_DIR", filepath.Join(agentRoot, "agent"))
-	if err := SetupAdminPassword("admin-password"); err != nil {
+	if err := setupDatabaseAdminPassword("admin-password"); err != nil {
 		t.Fatal(err)
 	}
 	s := NewServer(Config{UserManagement: true}, NewMockStore(), NewBroker())

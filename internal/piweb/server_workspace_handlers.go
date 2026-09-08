@@ -26,7 +26,7 @@ func (s *Server) listFolders(w http.ResponseWriter, r *http.Request) {
 	var policy WorkspacePolicy
 	if purpose == folderPurposeWorkspace {
 		var err error
-		policy, err = LoadWorkspacePolicy()
+		policy, err = s.workspacePolicy()
 		if err != nil {
 			writeWorkspaceSelectionError(w, err)
 			return
@@ -66,7 +66,7 @@ func (s *Server) listFolders(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, folders)
 }
 func (s *Server) workspaces(w http.ResponseWriter, r *http.Request) {
-	policy, err := LoadWorkspacePolicy()
+	policy, err := s.workspacePolicy()
 	if err != nil {
 		writeWorkspaceSelectionError(w, err)
 		return
@@ -94,7 +94,7 @@ func (s *Server) openWorkspace(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
-	policy, err := LoadWorkspacePolicy()
+	policy, err := s.workspacePolicy()
 	if err != nil {
 		writeWorkspaceSelectionError(w, err)
 		return
@@ -116,7 +116,7 @@ func (s *Server) cloneWorkspace(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
-	policy, err := LoadWorkspacePolicy()
+	policy, err := s.workspacePolicy()
 	if err != nil {
 		writeWorkspaceSelectionError(w, err)
 		return

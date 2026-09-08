@@ -6,7 +6,11 @@ import (
 )
 
 func (s *Server) appConfig(w http.ResponseWriter, r *http.Request) {
-	response, err := LoadAppConfig()
+	load := LoadAppConfig
+	if s.config.UserManagement {
+		load = databaseAppConfig
+	}
+	response, err := load()
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err)
 		return
@@ -42,7 +46,11 @@ func (s *Server) patchAppConfig(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	response, err := SaveAppConfig(patch)
+	save := SaveAppConfig
+	if s.config.UserManagement {
+		save = saveDatabaseAppConfig
+	}
+	response, err := save(patch)
 	if err != nil {
 		status := http.StatusInternalServerError
 		if errors.Is(err, ErrAppConfigValidation) {
