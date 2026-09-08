@@ -18,8 +18,9 @@ import AccountLayout from "../components/AccountLayout.astro";
             <label>用户名<input name="username" required maxlength="64" pattern="[a-zA-Z0-9][a-zA-Z0-9_.\-]{0,63}" autocomplete="off" /></label>
             <label><span data-password-label>初始密码</span><input name="password" type="password" required minlength="8" maxlength="128" autocomplete="new-password" /></label>
             <fieldset><legend>允许访问的工作区</legend><div data-user-workspaces class="account-workspaces"></div>
-              <label class="account-path-input">直接添加目录<div class="account-path-row"><input name="workspacePath" placeholder="/workspaces/project" autocomplete="off" /><button type="button" data-open-directory>浏览</button></div></label>
-              <small>可填写服务器上的绝对路径。保存时会校验目录存在且符合允许目录策略。</small>
+              <input name="workspacePath" type="hidden" />
+              <button type="button" data-open-directory>添加目录</button>
+              <small data-selected-directory>未选择新目录。点击“添加目录”后从服务器目录树中选择。</small>
             </fieldset>
             <small>列表中的目录可直接勾选；也可以手动添加尚未在工作区列表中的目录。</small>
             <small>保存修改会使该用户的所有登录失效；用户重新登录后生效。</small>

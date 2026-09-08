@@ -13,6 +13,7 @@ let workspaces: ManagedWorkspace[] = [];
 function selectUser(user: Account | null) {
   editing = user;
   form.reset();
+  document.querySelector<HTMLElement>("[data-selected-directory]")!.textContent = "未选择新目录。点击“添加目录”后从服务器目录树中选择。";
   errorMessage.textContent = "";
   status.textContent = "";
   const username = form.elements.namedItem("username") as HTMLInputElement;
@@ -85,7 +86,11 @@ async function loadDirectory(path: string) {
 document.querySelector("[data-open-directory]")!.addEventListener("click", () => { directoryPath.value = "/"; directoryDialog.showModal(); void loadDirectory("/"); });
 document.querySelector("[data-directory-load]")!.addEventListener("click", () => void loadDirectory(directoryPath.value));
 document.querySelector("[data-directory-up]")!.addEventListener("click", () => void loadDirectory(directoryPath.value.replace(/\/[^/]*$/, "") || "/"));
-directoryDialog.addEventListener("close", () => { if (directoryDialog.returnValue === "confirm") (form.elements.namedItem("workspacePath") as HTMLInputElement).value = directoryPath.value; });
+directoryDialog.addEventListener("close", () => {
+  if (directoryDialog.returnValue !== "confirm") return;
+  (form.elements.namedItem("workspacePath") as HTMLInputElement).value = directoryPath.value;
+  document.querySelector<HTMLElement>("[data-selected-directory]")!.textContent = `已选择：${directoryPath.value}`;
+});
 removeButton.addEventListener("click", () => {
   document.querySelector("[data-delete-name]")!.textContent = editing?.username || "";
   dialog.returnValue = "cancel";
