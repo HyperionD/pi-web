@@ -92,20 +92,55 @@ export const attachmentMethods = {
     return this.estimatePromptJsonBytes(this.prompt?.value || "", attachments) <= PROMPT_REQUEST_BUDGET;
   },
 
+  normalizePromptText(text = "") {
+    return String(text ?? "").trim();
+  },
+
   canSendPrompt(text = this.prompt?.value || "", attachments = (this.attachmentContents || []).filter(Boolean)) {
+    const normalizedText = this.normalizePromptText(text);
     const sendableAttachments = attachments.filter(Boolean);
-    return (!!text.trim() || sendableAttachments.length > 0)
-      && this.estimatePromptJsonBytes(text, sendableAttachments) <= PROMPT_REQUEST_BUDGET;
+    return (!!normalizedText || sendableAttachments.length > 0)
+      && this.estimatePromptJsonBytes(normalizedText, sendableAttachments) <= PROMPT_REQUEST_BUDGET;
   },
 
   estimatePromptJsonBytes(text, attachments) {
-    const serializedAttachments = attachments.map(({ dataUrlByteLength, ...attachment }) => attachment);
-    const skeletonBytes = this.utf8ByteLength(JSON.stringify({ text, attachments: serializedAttachments }));
-    const projectedDataUrlBytes = attachments.reduce(
+    return Math.max(
+      this.estimateNormalPromptJsonBytes(text, attachments),
+      this.estimateAguiPromptJsonBytes(text, attachments),
+    );
+  },
+
+  estimateNormalPromptJsonBytes(text, attachments) {
+    const normalizedText = this.normalizePromptText(text);
+    const serializedAttachments = this.serializePromptAttachments(attachments);
+    const skeletonBytes = this.utf8ByteLength(JSON.stringify({ text: normalizedText, attachments: serializedAttachments }));
+    return skeletonBytes + this.projectedDataUrlBytes(attachments);
+  },
+
+  estimateAguiPromptJsonBytes(text, attachments) {
+    const normalizedText = this.normalizePromptText(text);
+    const serializedAttachments = this.serializePromptAttachments(attachments);
+    const payload = {
+      threadId: "session-id",
+      runId: "run-id",
+      tools: [],
+      context: [],
+      forwardedProps: { text: normalizedText, attachments: serializedAttachments },
+      state: {},
+      messages: [{ id: "message-id", role: "user", content: normalizedText }],
+    };
+    return this.utf8ByteLength(JSON.stringify(payload)) + this.projectedDataUrlBytes(attachments);
+  },
+
+  serializePromptAttachments(attachments = []) {
+    return attachments.map(({ dataUrlByteLength, ...attachment }) => attachment);
+  },
+
+  projectedDataUrlBytes(attachments = []) {
+    return attachments.reduce(
       (total, attachment) => total + (attachment.dataUrlByteLength || 0),
       0,
     );
-    return skeletonBytes + projectedDataUrlBytes;
   },
 
   utf8ByteLength(value) {

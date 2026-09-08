@@ -5,8 +5,8 @@ import { maxUploadBytesToMiB } from "../workspace/app-config-methods";
 export const inputMethods = {
   async submitPrompt() {
     this.updatePrompt?.();
-    const text = this.prompt?.value.trim() || "";
-    const attachments = this.attachmentContents.filter(Boolean);
+    const text = this.normalizePromptText(this.prompt?.value);
+    const attachments = (this.attachmentContents || []).filter(Boolean);
     if (!this.canSendPrompt(text, attachments)) return;
     this.clearPromptDraft?.();
     if (this.running) {
@@ -97,14 +97,15 @@ export const inputMethods = {
   },
 
   async submitSteeringPrompt(text) {
-    const attachments = this.attachmentContents.filter(Boolean);
-    if (!this.canSendPrompt(text, attachments)) return;
+    const normalizedText = this.normalizePromptText(text);
+    const attachments = (this.attachmentContents || []).filter(Boolean);
+    if (!this.canSendPrompt(normalizedText, attachments)) return;
     const sessionId = this.dataset.activeSessionId;
     if (!sessionId || !this.apiConnected) return;
-    this.writeLastSessionPrompt(sessionId, text);
+    this.writeLastSessionPrompt(sessionId, normalizedText);
     try {
-      await steerSession(sessionId, text, attachments);
-      this.appendMessage({ kind: "user", text, attachments });
+      await steerSession(sessionId, normalizedText, attachments);
+      this.appendMessage({ kind: "user", text: normalizedText, attachments });
       if (this.prompt) this.prompt.value = "";
       this.attachmentContents = [];
       this.attachments?.replaceChildren();
@@ -366,11 +367,12 @@ export const inputMethods = {
   updatePrompt() {
     if (!this.prompt || !this.sendButton) return;
     const value = this.prompt.value;
+    const text = this.normalizePromptText(value);
     const hasWorkspace = Boolean(this.dataset.activeWorkspaceId);
     this.prompt.disabled = !hasWorkspace;
     this.savePromptDraft?.();
     const attachments = (this.attachmentContents || []).filter(Boolean);
-    const canSend = hasWorkspace && this.canSendPrompt(value, attachments);
+    const canSend = hasWorkspace && this.canSendPrompt(text, attachments);
     this.updateAttachmentGuidance?.();
     this.sendButton.disabled = !canSend;
     this.sendButton.setAttribute("aria-disabled", canSend ? "false" : "true");

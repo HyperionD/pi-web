@@ -230,20 +230,56 @@ describe("pi-app input methods coverage", () => {
     expect(app.querySelector(".send-btn").getAttribute("aria-disabled")).toBe("true");
   });
 
-  it("disables and blocks submission when text overflows an accepted attachment payload", async () => {
+  it("disables and blocks submission when AG-UI duplicate text overflows the request budget", async () => {
     const app = await connectPiApp();
     app.apiConnected = true;
     app.dataset.activeWorkspaceId = "w1";
     app.dataset.activeSessionId = "s1";
-    await app.addFiles([new File(["a".repeat(256 * 1024)], "accepted.txt", { type: "text/plain" })]);
-    app.prompt.value = "x".repeat(600 * 1024);
+    globalThis.EventSource = undefined;
+    const text = "x".repeat(400 * 1024);
+    app.prompt.value = text;
     app.updatePrompt();
     globalThis.fetch = vi.fn(async () => ok({ accepted: true }));
 
+    expect(app.estimateNormalPromptJsonBytes(text, [])).toBeLessThan(768 * 1024);
+    expect(app.estimateAguiPromptJsonBytes(text, [])).toBeGreaterThan(768 * 1024);
     expect(app.querySelector(".send-btn").disabled).toBe(true);
     await app.submitPrompt();
 
     expect(globalThis.fetch).not.toHaveBeenCalled();
+  });
+
+  it("normalizes trailing whitespace before prompt budget checks and submit", async () => {
+    const app = await connectPiApp();
+    app.apiConnected = true;
+    app.dataset.activeWorkspaceId = "w1";
+    app.dataset.activeSessionId = "s1";
+    globalThis.EventSource = undefined;
+    const normalizedText = "x".repeat(350 * 1024);
+    app.prompt.value = normalizedText + " ".repeat(450 * 1024);
+    globalThis.fetch = vi.fn(async () => ok({ accepted: true }));
+
+    app.updatePrompt();
+    expect(app.querySelector(".send-btn").disabled).toBe(false);
+    await app.submitPrompt();
+
+    const body = JSON.parse(globalThis.fetch.mock.calls.at(-1)[1].body);
+    expect(body.text).toBe(normalizedText);
+  });
+
+  it("normalizes trailing whitespace before steering budget checks and submit", async () => {
+    const app = await connectPiApp();
+    app.apiConnected = true;
+    app.dataset.activeWorkspaceId = "w1";
+    app.dataset.activeSessionId = "s1";
+    const normalizedText = "x".repeat(350 * 1024);
+    const textWithTrailingWhitespace = normalizedText + " ".repeat(450 * 1024);
+    globalThis.fetch = vi.fn(async () => ok({ accepted: true }));
+
+    await app.submitSteeringPrompt(textWithTrailingWhitespace);
+
+    const body = JSON.parse(globalThis.fetch.mock.calls.at(-1)[1].body);
+    expect(body.text).toBe(normalizedText);
   });
 
   it("guards oversized steering payloads before calling the API", async () => {
