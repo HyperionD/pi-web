@@ -14,6 +14,8 @@ func (s *Server) accountRoutes() {
 	s.mux.HandleFunc("POST /api/account/login", s.loginAccount)
 	s.mux.HandleFunc("POST /api/account/logout", s.logoutAccount)
 	s.mux.HandleFunc("GET /api/admin/users", s.listAccounts)
+	s.mux.HandleFunc("GET /api/admin/users/import-template", s.userImportTemplate)
+	s.mux.HandleFunc("POST /api/admin/users/import", s.importAccounts)
 	s.mux.HandleFunc("POST /api/admin/users", s.createAccount)
 	s.mux.HandleFunc("POST /api/admin/users/batch-workspaces", s.batchAssignWorkspaces)
 	s.mux.HandleFunc("PATCH /api/admin/users/{username}", s.updateAccount)

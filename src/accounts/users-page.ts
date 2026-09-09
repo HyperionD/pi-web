@@ -1,10 +1,11 @@
-import { batchAssignWorkspaces, createUser, deleteUser, listFolders, listManagedWorkspaces, listUsers, updateUser, type Account, type ManagedWorkspace } from "./api";
+import { batchAssignWorkspaces, createUser, deleteUser, importUsers, listFolders, listManagedWorkspaces, listUsers, updateUser, type Account, type ManagedWorkspace } from "./api";
 import { requireAccount, showAccountError } from "./browser";
 
 const form = document.querySelector<HTMLFormElement>("[data-user-form]")!;
 const fields = document.querySelector<HTMLFieldSetElement>("[data-user-fields]")!;
 const errorMessage = document.querySelector<HTMLElement>("[data-account-error]")!;
 const status = document.querySelector<HTMLElement>("[data-user-status]")!;
+const usersStatus = document.querySelector<HTMLElement>("[data-users-status]")!;
 const removeButton = document.querySelector<HTMLButtonElement>("[data-user-delete]")!;
 const dialog = document.querySelector<HTMLDialogElement>("[data-delete-dialog]")!;
 let editing: Account | null = null;
@@ -125,6 +126,20 @@ document.querySelector("[data-users-prev]")!.addEventListener("click", () => { i
 document.querySelector("[data-users-next]")!.addEventListener("click", () => { if (userPage * userPageSize < userTotal) { userPage++; void refreshUsersSafely(); } });
 document.querySelector<HTMLInputElement>("[data-user-search]")!.addEventListener("input", () => { window.clearTimeout(searchTimer); searchTimer = window.setTimeout(() => { userPage = 1; void refreshUsersSafely(); }, 250); });
 document.querySelector<HTMLSelectElement>("[data-user-page-size]")!.addEventListener("change", (event) => { userPageSize = Number((event.target as HTMLSelectElement).value); userPage = 1; void refreshUsersSafely(); });
+const importInput = document.querySelector<HTMLInputElement>("[data-user-import-input]")!;
+document.querySelector("[data-user-import]")!.addEventListener("click", () => importInput.click());
+importInput.addEventListener("change", async () => {
+  const file = importInput.files?.[0];
+  importInput.value = "";
+  if (!file) return;
+  usersStatus.textContent = "导入中…";
+  try {
+    const result = await importUsers(file);
+    await refreshWorkspaceOptions();
+    await refreshUsers();
+    usersStatus.textContent = `成功导入 ${result.imported} 个用户。`;
+  } catch (error) { showAccountError(error, usersStatus); }
+});
 document.querySelector("[data-batch-assign]")!.addEventListener("click", async () => {
   const select = document.querySelector<HTMLSelectElement>("[data-batch-workspaces]")!;
   const workspaces = [...select.selectedOptions].map((option) => option.value);

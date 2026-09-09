@@ -28,6 +28,14 @@ export const listUsers = (query = "", page = 1, pageSize = 50) => accountRequest
 export const listManagedWorkspaces = () => accountRequest<{ workspaces: ManagedWorkspace[] }>("/api/admin/workspaces");
 export const listFolders = (path: string) => accountRequest<{ path: string; parent?: string; folders?: Array<{ name: string; path: string; displayPath?: string }> }>(`/api/system/folders?purpose=allowed-root&path=${encodeURIComponent(path)}`);
 export const createUser = (value: AccountInput) => accountRequest("/api/admin/users", "POST", value);
+export async function importUsers(file: File): Promise<{ imported: number }> {
+  const body = new FormData();
+  body.append("file", file);
+  const response = await fetch("/api/admin/users/import", { method: "POST", credentials: "same-origin", cache: "no-store", body });
+  const value = await response.json();
+  if (!response.ok) throw new AccountError(response.status, value.error || "导入失败，请检查文件");
+  return value;
+}
 export const updateUser = (name: string, value: AccountInput) =>
   accountRequest(`/api/admin/users/${encodeURIComponent(name)}`, "PATCH", value);
 export const deleteUser = (name: string) => accountRequest(`/api/admin/users/${encodeURIComponent(name)}`, "DELETE");

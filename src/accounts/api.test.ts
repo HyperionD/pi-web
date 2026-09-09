@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
-  AccountError, accountRequest, accountStatus, createUser, currentAccount, deleteUser, listUsers,
+  AccountError, accountRequest, accountStatus, createUser, currentAccount, deleteUser, importUsers, listUsers,
   listManagedWorkspaces, login, logout, setup, updateUser,
 } from "./api";
 
@@ -24,6 +24,17 @@ describe("account API", () => {
     expect(JSON.parse(fetchMock.mock.calls[7][1].body)).toMatchObject({ department: "研发部" });
     expect(JSON.parse(fetchMock.mock.calls[8][1].body)).toMatchObject({ department: "研发部" });
     expect(fetchMock.mock.calls[9][1].method).toBe("DELETE");
+  });
+  it("uploads an xlsx user import as multipart form data", async () => {
+    vi.stubGlobal("fetch", fetchMock.mockResolvedValue({ ok: true, json: async () => ({ imported: 2 }) }));
+    const file = new File(["xlsx"], "users.xlsx", { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+    await expect(importUsers(file)).resolves.toEqual({ imported: 2 });
+    const [path, options] = fetchMock.mock.calls[0];
+    expect(path).toBe("/api/admin/users/import");
+    expect(options.method).toBe("POST");
+    expect(options.headers).toBeUndefined();
+    expect(options.body).toBeInstanceOf(FormData);
+    expect((options.body as FormData).get("file")).toBe(file);
   });
   it("preserves status and server errors", async () => {
     vi.stubGlobal("fetch", fetchMock.mockResolvedValue({ ok: false, status: 401, json: async () => ({ error: "expired" }) }));
