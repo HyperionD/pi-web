@@ -145,11 +145,12 @@ Expected: 当前已存在的 Chrome 107 与权限测试通过；若新增契约�
 ```yaml
 - run: bun run lint
 - run: bun run typecheck
-- run: bun run test:coverage
+- run: bun run test
+- run: go test ./...
 - run: bun run build
 ```
 
-backend workflow 保留 `go test ./...` 和 Go coverage 门槛。
+Task 1 先启用可执行的前端 unit gate；现有全局 Vitest coverage 阈值为 100%，但基线仅有 82.98% statements，故 coverage gate 延后至 Task 12/13 收敛后启用。backend workflow 保留 `go test ./...` 和 Go coverage 门槛。
 
 - [ ] **Step 4: 提交基线**
 
@@ -1005,7 +1006,7 @@ git commit -m "test: add browser workflow coverage" -m "Co-authored-by: JuunAI <
 
 - 六个内置 slash 命令有成功、失败、运行中和权限测试。
 - slash palette 支持 `/` 查询、空格关闭、Tab、Enter、Escape、四方向和 IME。
-- Chrome 107 compatibility tests、typecheck、lint、unit、build 全部通过。
+- Chrome 107 compatibility tests、typecheck、lint、unit、build 全部通过；Task 12/13 完成后再启用并通过前端 coverage gate。
 - session branch/fork/search/export 至少有后端和浏览器链路测试。
 - 持久终端的 write、resize、断线恢复和 stop 有测试。
 
