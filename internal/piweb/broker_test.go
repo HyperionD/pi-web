@@ -176,6 +176,58 @@ func TestBrokerGapPrecedesCriticalEventWhenBufferIsFull(t *testing.T) {
 	}
 }
 
+func TestBacklogLimitCancelsAndRemovesBlockedForwarder(t *testing.T) {
+	broker := NewBroker()
+	broker.buffer = 1
+	broker.maxBacklog = 2
+	sendStarted := make(chan struct{})
+	var sendOnce sync.Once
+	broker.sendHook = func() { sendOnce.Do(func() { close(sendStarted) }) }
+	subscription := broker.SubscribeFrom("s1", 0)
+	defer subscription.Close()
+	broker.Publish("s1", "one", nil)
+	broker.Publish("s1", "two", nil)
+	<-sendStarted
+
+	broker.mu.RLock()
+	var finished <-chan struct{}
+	for subscriber := range broker.subscribers["s1"] {
+		finished = subscriber.finished
+		break
+	}
+	broker.mu.RUnlock()
+	if finished == nil {
+		t.Fatal("subscription was removed before backlog overflow")
+	}
+
+	broker.Publish("s1", "session.status", nil)
+	broker.Publish("s1", "error", nil)
+	broker.Publish("s1", "tool.output", nil)
+
+	broker.mu.RLock()
+	remaining := len(broker.subscribers["s1"])
+	broker.mu.RUnlock()
+	if remaining != 0 {
+		t.Fatalf("automatic termination left subscriber in registry: %d", remaining)
+	}
+	select {
+	case <-finished:
+	case <-time.After(time.Second):
+		t.Fatal("forwarder did not exit after automatic backlog termination")
+	}
+	deadline := time.After(time.Second)
+	for {
+		select {
+		case _, ok := <-subscription.Events:
+			if !ok {
+				return
+			}
+		case <-deadline:
+			t.Fatal("subscription channel did not close after automatic termination")
+		}
+	}
+}
+
 func TestClosingFullSubscriptionCancelsBlockedForwarder(t *testing.T) {
 	broker := NewBroker()
 	broker.buffer = 1
@@ -496,9 +548,15 @@ func TestHeartbeatDoesNotAdvanceLastEventIDCursor(t *testing.T) {
 		broker.ServeSession(writer, req, "s1")
 		close(done)
 	}()
-	deadline := time.Now().Add(time.Second)
-	for !strings.Contains(writer.String(), "event: heartbeat\n") && time.Now().Before(deadline) {
-		time.Sleep(time.Millisecond)
+	select {
+	case <-writer.flushed:
+	case <-time.After(time.Second):
+		t.Fatal("ServeSession did not flush its initial response")
+	}
+	select {
+	case <-writer.flushed:
+	case <-time.After(time.Second):
+		t.Fatal("ServeSession did not flush a heartbeat")
 	}
 	cancel()
 	select {
@@ -515,11 +573,19 @@ func TestHeartbeatDoesNotAdvanceLastEventIDCursor(t *testing.T) {
 	if heartbeatStart < 0 {
 		t.Fatalf("heartbeat was not written: %q", body)
 	}
-	heartbeatEnd := strings.Index(body[heartbeatStart:], "\n\n")
+	heartbeatBodyStart := heartbeatStart + len("event: heartbeat\n")
+	if heartbeatBodyStart > len(body) {
+		t.Fatalf("heartbeat start exceeded body length: %q", body)
+	}
+	heartbeatEnd := strings.Index(body[heartbeatBodyStart:], "\n\n")
 	if heartbeatEnd < 0 {
 		t.Fatalf("heartbeat event was incomplete: %q", body)
 	}
-	if strings.Contains(body[heartbeatStart:heartbeatStart+heartbeatEnd], "id:") {
+	heartbeatBodyEnd := heartbeatBodyStart + heartbeatEnd
+	if heartbeatBodyEnd > len(body) {
+		t.Fatalf("heartbeat end exceeded body length: %q", body)
+	}
+	if strings.Contains(body[heartbeatBodyStart:heartbeatBodyEnd], "id:") {
 		t.Fatalf("heartbeat must not advertise a Last-Event-ID cursor: %q", body)
 	}
 }

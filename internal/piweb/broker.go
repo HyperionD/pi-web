@@ -32,6 +32,7 @@ type Broker struct {
 }
 
 type brokerSubscriber struct {
+	sessionID    string
 	events       chan Event
 	after        uint64
 	capacity     int
@@ -74,7 +75,7 @@ func (b *Broker) SubscribeFrom(sessionID string, after uint64) EventSubscription
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	subscriber := &brokerSubscriber{
-		events: make(chan Event, buffer), after: after, capacity: buffer, backlogLimit: backlogLimit,
+		sessionID: sessionID, events: make(chan Event, buffer), after: after, capacity: buffer, backlogLimit: backlogLimit,
 		wake: make(chan struct{}, 1), finished: make(chan struct{}), ctx: ctx, cancel: cancel,
 	}
 	b.mu.Lock()
@@ -101,6 +102,11 @@ func (b *Broker) SubscribeFrom(sessionID string, after uint64) EventSubscription
 
 func (b *Broker) removeSubscriber(sessionID string, subscriber *brokerSubscriber) {
 	b.mu.Lock()
+	b.terminateSubscriberLocked(sessionID, subscriber)
+	b.mu.Unlock()
+}
+
+func (b *Broker) terminateSubscriberLocked(sessionID string, subscriber *brokerSubscriber) {
 	if subscribers := b.subscribers[sessionID]; subscribers != nil {
 		delete(subscribers, subscriber)
 		if len(subscribers) == 0 {
@@ -110,7 +116,6 @@ func (b *Broker) removeSubscriber(sessionID string, subscriber *brokerSubscriber
 	subscriber.closed = true
 	subscriber.cancel()
 	b.signalSubscriberLocked(subscriber)
-	b.mu.Unlock()
 }
 
 func (b *Broker) forwardSubscriber(subscriber *brokerSubscriber) {
@@ -256,9 +261,9 @@ func (b *Broker) recordGapLocked(subscriber *brokerSubscriber, sessionID string,
 	if len(subscriber.queue) < subscriber.backlogLimit {
 		subscriber.queue = append(subscriber.queue, *gap)
 	} else {
-		// Replace the unrecoverable prefix with one gap, then close after it.
+		// Replace the unrecoverable prefix with one gap, then terminate immediately.
 		subscriber.queue = []Event{*gap}
-		subscriber.closed = true
+		b.terminateSubscriberLocked(subscriber.sessionID, subscriber)
 	}
 	b.signalSubscriberLocked(subscriber)
 }
