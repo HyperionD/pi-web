@@ -34,3 +34,9 @@ export async function signOut() {
 export function showAccountError(error: unknown, element: HTMLElement) {
   element.textContent = error instanceof Error ? error.message : "请求失败，请重试";
 }
+
+export function showImportError(error: unknown, element: HTMLElement) {
+  showAccountError(error, element);
+  element.textContent = `导入失败：${element.textContent || "请求失败，请重试"}`;
+  element.classList.add("is-error");
+}

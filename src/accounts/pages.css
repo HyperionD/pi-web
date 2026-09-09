@@ -66,6 +66,7 @@
 .account-list-actions a, .account-list-actions button { font: inherit; }
 .account-list-head h2 { margin-bottom: 0; }
 [data-users-status] { min-height: 1.25em; margin: 12px 0 0; color: var(--fg-2); }
+[data-users-status].is-error { color: var(--danger); font-weight: 600; }
 .account-list-head small { color: var(--fg-3); font-weight: 400; }
 .account-search { margin: 18px 0; }
 .account-users { padding: 0; list-style: none; display: grid; gap: 10px; min-height: 120px; align-content: start; }

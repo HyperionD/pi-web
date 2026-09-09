@@ -1,5 +1,5 @@
 import { batchAssignWorkspaces, createUser, deleteUser, importUsers, listFolders, listManagedWorkspaces, listUsers, updateUser, type Account, type ManagedWorkspace } from "./api";
-import { requireAccount, showAccountError } from "./browser";
+import { requireAccount, showAccountError, showImportError } from "./browser";
 
 const form = document.querySelector<HTMLFormElement>("[data-user-form]")!;
 const fields = document.querySelector<HTMLFieldSetElement>("[data-user-fields]")!;
@@ -132,18 +132,21 @@ importInput.addEventListener("change", async () => {
   const file = importInput.files?.[0];
   importInput.value = "";
   if (!file) return;
+  usersStatus.classList.remove("is-error");
   usersStatus.textContent = "导入中…";
   let result: { imported: number };
   try {
     result = await importUsers(file);
   } catch (error) {
-    showAccountError(error, usersStatus);
+    showImportError(error, usersStatus);
     return;
   }
   try {
     await Promise.all([refreshWorkspaceOptions(), refreshUsers()]);
+    usersStatus.classList.remove("is-error");
     usersStatus.textContent = `成功导入 ${result.imported} 个用户。`;
   } catch {
+    usersStatus.classList.remove("is-error");
     usersStatus.textContent = `成功导入 ${result.imported} 个用户，但列表刷新失败，请手动刷新。`;
   }
 });

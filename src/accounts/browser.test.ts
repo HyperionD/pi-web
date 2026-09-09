@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AccountError, currentAccount, logout } from "./api";
-import { requireAccount, showAccountError, signOut, syncAccountCache } from "./browser";
+import { requireAccount, showAccountError, showImportError, signOut, syncAccountCache } from "./browser";
 
 vi.mock("./api", async (load) => ({ ...await load<typeof import("./api")>(),
   currentAccount: vi.fn(), logout: vi.fn() }));
@@ -63,5 +63,11 @@ describe("browser identity isolation", () => {
     expect(element.innerHTML).toBe("&lt;img&gt;");
     showAccountError(null, element);
     expect(element.textContent).toBe("请求失败，请重试");
+  });
+  it("shows the server reason as a visible import error", () => {
+    const element = document.createElement("p");
+    showImportError(new Error('第 2 行：账号 "0012" 已存在'), element);
+    expect(element.textContent).toBe('导入失败：第 2 行：账号 "0012" 已存在');
+    expect(element.classList.contains("is-error")).toBe(true);
   });
 });
