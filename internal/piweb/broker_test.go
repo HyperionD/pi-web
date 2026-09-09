@@ -176,10 +176,115 @@ func TestBrokerGapPrecedesCriticalEventWhenBufferIsFull(t *testing.T) {
 	}
 }
 
+func TestAutomaticOverflowDeliversGapBeforeTermination(t *testing.T) {
+	broker := NewBroker()
+	broker.buffer = 1
+	broker.maxBacklog = 2
+	broker.overflowDrainTimeout = 100 * time.Millisecond
+	sendStarted := make(chan struct{})
+	var sendOnce sync.Once
+	broker.sendHook = func() { sendOnce.Do(func() { close(sendStarted) }) }
+	subscription := broker.SubscribeFrom("s1", 0)
+	defer subscription.Close()
+	first := broker.Publish("s1", "one", nil)
+	broker.Publish("s1", "two", nil)
+	<-sendStarted
+	broker.Publish("s1", "session.status", nil)
+	broker.Publish("s1", "error", nil)
+	overflow := broker.Publish("s1", "tool.output", nil)
+
+	if event := <-subscription.Events; event.ID != first.ID {
+		t.Fatalf("unexpected first event: %#v", event)
+	}
+	var events []Event
+	deadline := time.After(time.Second)
+	for {
+		select {
+		case event, ok := <-subscription.Events:
+			if !ok {
+				goto terminated
+			}
+			events = append(events, event)
+		case <-deadline:
+			t.Fatal("subscription did not terminate after broker gap")
+		}
+	}
+terminated:
+	if len(events) == 0 {
+		t.Fatalf("subscription terminated without a gap: %#v", events)
+	}
+	gapIndex := -1
+	for index, event := range events {
+		payload, ok := event.Payload.(map[string]any)
+		if event.Type == "broker_gap" && ok && payload["latestEventId"] == overflow.ID {
+			gapIndex = index
+			break
+		}
+	}
+	if gapIndex < 0 {
+		t.Fatalf("gap did not expose the overflow event: %#v", events)
+	}
+	for _, event := range events[gapIndex+1:] {
+		if isCriticalBrokerEvent(event.Type) {
+			return
+		}
+	}
+	t.Fatalf("termination gap was not followed by a promised critical event: %#v", events)
+}
+
+func TestNonConsumingOverflowForwarderStopsAtFiniteDeadline(t *testing.T) {
+	broker := NewBroker()
+	broker.buffer = 1
+	broker.maxBacklog = 2
+	broker.overflowDrainTimeout = 50 * time.Millisecond
+	sendStarted := make(chan struct{})
+	var sendOnce sync.Once
+	broker.sendHook = func() { sendOnce.Do(func() { close(sendStarted) }) }
+	subscription := broker.SubscribeFrom("s1", 0)
+	broker.Publish("s1", "one", nil)
+	broker.Publish("s1", "two", nil)
+	<-sendStarted
+	broker.mu.RLock()
+	var finished <-chan struct{}
+	for subscriber := range broker.subscribers["s1"] {
+		finished = subscriber.finished
+		break
+	}
+	broker.mu.RUnlock()
+	if finished == nil {
+		t.Fatal("subscription was removed before overflow")
+	}
+	broker.Publish("s1", "session.status", nil)
+	broker.Publish("s1", "error", nil)
+	broker.Publish("s1", "tool.started", nil)
+
+	broker.mu.RLock()
+	var remaining int
+	for range broker.subscribers["s1"] {
+		remaining++
+	}
+	broker.mu.RUnlock()
+	if remaining != 0 {
+		t.Fatalf("overflow left subscriber in registry: %d", remaining)
+	}
+	select {
+	case <-finished:
+		t.Fatal("non-consuming forwarder stopped before its drain deadline")
+	case <-time.After(10 * time.Millisecond):
+	}
+	select {
+	case <-finished:
+	case <-time.After(time.Second):
+		t.Fatal("non-consuming forwarder did not stop at its finite deadline")
+	}
+	subscription.Close()
+}
+
 func TestBacklogLimitCancelsAndRemovesBlockedForwarder(t *testing.T) {
 	broker := NewBroker()
 	broker.buffer = 1
 	broker.maxBacklog = 2
+	broker.overflowDrainTimeout = 50 * time.Millisecond
 	sendStarted := make(chan struct{})
 	var sendOnce sync.Once
 	broker.sendHook = func() { sendOnce.Do(func() { close(sendStarted) }) }

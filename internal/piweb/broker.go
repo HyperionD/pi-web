@@ -11,17 +11,21 @@ import (
 	"time"
 )
 
-const defaultBrokerBacklog = 256
+const (
+	defaultBrokerBacklog        = 256
+	defaultOverflowDrainTimeout = time.Second
+)
 
 type Broker struct {
-	mu          sync.RWMutex
-	subscribers map[string]map[*brokerSubscriber]struct{}
-	nextID      uint64
-	buffer      int
-	maxBacklog  int
-	heartbeat   time.Duration
-	history     map[string][]Event
-	historySize int
+	mu                   sync.RWMutex
+	subscribers          map[string]map[*brokerSubscriber]struct{}
+	nextID               uint64
+	buffer               int
+	maxBacklog           int
+	overflowDrainTimeout time.Duration
+	heartbeat            time.Duration
+	history              map[string][]Event
+	historySize          int
 	// Hooks are test barriers. publishAdmissionHook runs before mu is acquired;
 	// the others run at their corresponding point in the locked/send pipeline.
 	subscribeHook        func()
@@ -43,6 +47,9 @@ type brokerSubscriber struct {
 	finished     chan struct{}
 	ctx          context.Context
 	cancel       context.CancelFunc
+	drainCtx     context.Context
+	drainCancel  context.CancelFunc
+	drainTimer   *time.Timer
 	sending      bool
 	sendingEvent *Event
 	closed       bool
@@ -50,12 +57,13 @@ type brokerSubscriber struct {
 
 func NewBroker() *Broker {
 	return &Broker{
-		subscribers: map[string]map[*brokerSubscriber]struct{}{},
-		history:     map[string][]Event{},
-		buffer:      32,
-		heartbeat:   15 * time.Second,
-		historySize: 256,
-		maxBacklog:  defaultBrokerBacklog,
+		subscribers:          map[string]map[*brokerSubscriber]struct{}{},
+		history:              map[string][]Event{},
+		buffer:               32,
+		heartbeat:            15 * time.Second,
+		historySize:          256,
+		maxBacklog:           defaultBrokerBacklog,
+		overflowDrainTimeout: defaultOverflowDrainTimeout,
 	}
 }
 
@@ -74,9 +82,11 @@ func (b *Broker) SubscribeFrom(sessionID string, after uint64) EventSubscription
 		backlogLimit = 2
 	}
 	ctx, cancel := context.WithCancel(context.Background())
+	drainCtx, drainCancel := context.WithCancel(context.Background())
 	subscriber := &brokerSubscriber{
 		sessionID: sessionID, events: make(chan Event, buffer), after: after, capacity: buffer, backlogLimit: backlogLimit,
 		wake: make(chan struct{}, 1), finished: make(chan struct{}), ctx: ctx, cancel: cancel,
+		drainCtx: drainCtx, drainCancel: drainCancel,
 	}
 	b.mu.Lock()
 	if b.subscribers[sessionID] == nil {
@@ -106,21 +116,53 @@ func (b *Broker) removeSubscriber(sessionID string, subscriber *brokerSubscriber
 	b.mu.Unlock()
 }
 
-func (b *Broker) terminateSubscriberLocked(sessionID string, subscriber *brokerSubscriber) {
+func (b *Broker) detachSubscriberLocked(sessionID string, subscriber *brokerSubscriber) {
 	if subscribers := b.subscribers[sessionID]; subscribers != nil {
 		delete(subscribers, subscriber)
 		if len(subscribers) == 0 {
 			delete(b.subscribers, sessionID)
 		}
 	}
+}
+
+func (b *Broker) terminateSubscriberLocked(sessionID string, subscriber *brokerSubscriber) {
+	b.detachSubscriberLocked(sessionID, subscriber)
 	subscriber.closed = true
 	subscriber.cancel()
+	subscriber.drainCancel()
+	if subscriber.drainTimer != nil {
+		subscriber.drainTimer.Stop()
+		subscriber.drainTimer = nil
+	}
+	b.signalSubscriberLocked(subscriber)
+}
+
+func (b *Broker) beginAutomaticTerminationLocked(sessionID string, subscriber *brokerSubscriber) {
+	if subscriber.closed {
+		return
+	}
+	b.detachSubscriberLocked(sessionID, subscriber)
+	subscriber.closed = true
+	timeout := b.overflowDrainTimeout
+	if timeout <= 0 {
+		timeout = time.Nanosecond
+	}
+	subscriber.drainTimer = time.AfterFunc(timeout, subscriber.drainCancel)
 	b.signalSubscriberLocked(subscriber)
 }
 
 func (b *Broker) forwardSubscriber(subscriber *brokerSubscriber) {
-	defer close(subscriber.events)
-	defer close(subscriber.finished)
+	defer func() {
+		subscriber.drainCancel()
+		b.mu.Lock()
+		if subscriber.drainTimer != nil {
+			subscriber.drainTimer.Stop()
+			subscriber.drainTimer = nil
+		}
+		b.mu.Unlock()
+		close(subscriber.events)
+		close(subscriber.finished)
+	}()
 	for {
 		b.mu.Lock()
 		if len(subscriber.queue) == 0 {
@@ -151,9 +193,7 @@ func (b *Broker) forwardSubscriber(subscriber *brokerSubscriber) {
 		if sendHook != nil {
 			sendHook()
 		}
-		select {
-		case subscriber.events <- event:
-		case <-subscriber.ctx.Done():
+		if !sendSubscriberEvent(subscriber, event) {
 			return
 		}
 		if sendCompleteHook != nil {
@@ -166,6 +206,27 @@ func (b *Broker) forwardSubscriber(subscriber *brokerSubscriber) {
 			subscriber.gapInFlight = false
 		}
 		b.mu.Unlock()
+	}
+}
+
+func sendSubscriberEvent(subscriber *brokerSubscriber, event Event) bool {
+	select {
+	case <-subscriber.ctx.Done():
+		return false
+	default:
+	}
+	select {
+	case subscriber.events <- event:
+		return true
+	default:
+	}
+	select {
+	case subscriber.events <- event:
+		return true
+	case <-subscriber.ctx.Done():
+		return false
+	case <-subscriber.drainCtx.Done():
+		return false
 	}
 }
 
@@ -207,6 +268,7 @@ func (b *Broker) enqueueCriticalLocked(subscriber *brokerSubscriber, event Event
 	if len(subscriber.queue) >= subscriber.backlogLimit {
 		gap := b.newGapLocked(subscriber, event.SessionID, event.ID)
 		subscriber.queue = []Event{*gap, event}
+		b.beginAutomaticTerminationLocked(subscriber.sessionID, subscriber)
 	} else {
 		subscriber.queue = append(subscriber.queue, event)
 	}
@@ -256,14 +318,23 @@ func (b *Broker) recordGapLocked(subscriber *brokerSubscriber, sessionID string,
 	gap := b.newGapLocked(subscriber, sessionID, latestEventID)
 	if index := b.pendingGapIndexLocked(subscriber); index >= 0 {
 		subscriber.queue[index] = *gap
+		if len(subscriber.queue) >= subscriber.backlogLimit {
+			b.beginAutomaticTerminationLocked(subscriber.sessionID, subscriber)
+		}
+		b.signalSubscriberLocked(subscriber)
 		return
 	}
 	if len(subscriber.queue) < subscriber.backlogLimit {
 		subscriber.queue = append(subscriber.queue, *gap)
 	} else {
-		// Replace the unrecoverable prefix with one gap, then terminate immediately.
-		subscriber.queue = []Event{*gap}
-		b.terminateSubscriberLocked(subscriber.sessionID, subscriber)
+		preserved := make([]Event, 0, subscriber.backlogLimit-1)
+		for _, queued := range subscriber.queue {
+			if isCriticalBrokerEvent(queued.Type) && len(preserved) < subscriber.backlogLimit-1 {
+				preserved = append(preserved, queued)
+			}
+		}
+		subscriber.queue = append([]Event{*gap}, preserved...)
+		b.beginAutomaticTerminationLocked(subscriber.sessionID, subscriber)
 	}
 	b.signalSubscriberLocked(subscriber)
 }
