@@ -115,6 +115,22 @@ func TestAguiStreamPreservesWhitespaceOnlyTextDeltas(t *testing.T) {
 	}
 }
 
+func TestAguiStreamStopsWithRunErrorOnBrokerGap(t *testing.T) {
+	res := httptest.NewRecorder()
+	stream := newAguiEventStream(res, t.Context())
+	state := newAguiStreamState("thread", "run", "session")
+
+	if !state.consume(Event{Type: "broker_gap", SessionID: "session", Payload: map[string]any{
+		"sessionId": "session", "after": uint64(3), "latestEventId": uint64(8),
+	}}, stream) {
+		t.Fatal("broker gap must terminate an AG-UI stream")
+	}
+	if !strings.Contains(res.Body.String(), `"type":"RUN_ERROR"`) ||
+		!strings.Contains(res.Body.String(), "broker gap") {
+		t.Fatalf("expected observable AG-UI run error:\n%s", res.Body.String())
+	}
+}
+
 func TestAguiStreamPreservesToolCallIDs(t *testing.T) {
 	res := httptest.NewRecorder()
 	stream := newAguiEventStream(res, t.Context())

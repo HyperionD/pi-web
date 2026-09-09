@@ -179,6 +179,10 @@ func (s *aguiStreamState) consume(event Event, stream *aguiEventStream) bool {
 		stream.write(aguievents.NewRunErrorEvent(fmt.Sprint(event.Payload), aguievents.WithRunID(s.runID)))
 		s.terminalEmitted = true
 		return true
+	case "broker_gap":
+		stream.write(aguievents.NewRunErrorEvent("broker gap: event delivery was interrupted", aguievents.WithRunID(s.runID)))
+		s.terminalEmitted = true
+		return true
 	case "session.status":
 		payload, ok := event.Payload.(map[string]string)
 		if ok && (payload["status"] == "idle" || payload["status"] == "cancelled") {
