@@ -11,6 +11,7 @@ import (
 
 type Store struct {
 	mu                       sync.RWMutex
+	workspaceMutationMu      sync.Mutex
 	workspaces               []Workspace
 	recentWorkspaceIDs       []string
 	files                    map[string][]FileNode

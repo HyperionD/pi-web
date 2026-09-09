@@ -36,6 +36,8 @@ func (s *Store) Workspace(workspaceID string) (Workspace, error) {
 }
 
 func (s *Store) OpenWorkspace(path string) (Workspace, error) {
+	s.workspaceMutationMu.Lock()
+	defer s.workspaceMutationMu.Unlock()
 	clean, err := ValidateWorkspacePath(path)
 	if err != nil {
 		return Workspace{}, err
@@ -59,6 +61,8 @@ func (s *Store) OpenWorkspace(path string) (Workspace, error) {
 
 // RegisterWorkspace adds a workspace to the catalog without making it recent.
 func (s *Store) RegisterWorkspace(path string) (Workspace, error) {
+	s.workspaceMutationMu.Lock()
+	defer s.workspaceMutationMu.Unlock()
 	clean, err := ValidateWorkspacePath(path)
 	if err != nil {
 		return Workspace{}, err
@@ -82,6 +86,8 @@ func (s *Store) RegisterWorkspace(path string) (Workspace, error) {
 }
 
 func (s *Store) RemoveWorkspaceRegistration(path string) error {
+	s.workspaceMutationMu.Lock()
+	defer s.workspaceMutationMu.Unlock()
 	clean, err := ValidateWorkspacePath(path)
 	if err != nil {
 		return err
@@ -104,12 +110,20 @@ func (s *Store) RemoveWorkspaceRegistration(path string) error {
 }
 
 func (s *Store) RollbackWorkspaceRegistrations(databasePaths, memoryPaths []string) error {
+	s.workspaceMutationMu.Lock()
+	defer s.workspaceMutationMu.Unlock()
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.rollbackWorkspaceRegistrationsLocked(databasePaths, memoryPaths)
 }
 
 func (s *Store) RegisterWorkspacePaths(paths []string) (map[string]workspaceGrant, []string, []string, error) {
+	s.workspaceMutationMu.Lock()
+	defer s.workspaceMutationMu.Unlock()
+	return s.registerWorkspacePaths(paths)
+}
+
+func (s *Store) registerWorkspacePaths(paths []string) (map[string]workspaceGrant, []string, []string, error) {
 	grants := make(map[string]workspaceGrant, len(paths))
 	entries := make([]struct {
 		clean, real string
@@ -227,6 +241,8 @@ func (s *Store) removeWorkspaceLocked(path string) {
 }
 
 func (s *Store) EnsureWorkspace(workspaceID, path string) (Workspace, error) {
+	s.workspaceMutationMu.Lock()
+	defer s.workspaceMutationMu.Unlock()
 	clean, err := ValidateWorkspacePath(path)
 	if err != nil {
 		return Workspace{}, err
@@ -242,6 +258,8 @@ func (s *Store) EnsureWorkspace(workspaceID, path string) (Workspace, error) {
 }
 
 func (s *Store) CloseWorkspace(workspaceID string) error {
+	s.workspaceMutationMu.Lock()
+	defer s.workspaceMutationMu.Unlock()
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	for index, recentID := range s.recentWorkspaceIDs {
