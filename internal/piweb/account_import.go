@@ -271,6 +271,8 @@ func parseImportDisabled(value string) (bool, error) {
 }
 
 func (s *Server) saveImportedAccounts(rows []accountImportRow) (int, error) {
+	s.store.workspaceMutationMu.Lock()
+	defer s.store.workspaceMutationMu.Unlock()
 	s.accounts.mu.Lock()
 	defer s.accounts.mu.Unlock()
 	if err := validateImportedAccounts(rows, s.accounts.Users); err != nil {
@@ -291,8 +293,6 @@ func (s *Server) saveImportedAccounts(rows []accountImportRow) (int, error) {
 	for _, row := range rows {
 		allWorkspacePaths = append(allWorkspacePaths, row.workspacePaths...)
 	}
-	s.store.workspaceMutationMu.Lock()
-	defer s.store.workspaceMutationMu.Unlock()
 	grants, databasePaths, memoryPaths, err := s.store.registerWorkspacePaths(allWorkspacePaths)
 	if err != nil {
 		return 0, fmt.Errorf("注册导入工作区：%w", err)

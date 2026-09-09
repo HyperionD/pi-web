@@ -33,10 +33,17 @@ func (s *Server) batchAssignWorkspaces(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	s.accounts.mu.Unlock()
-	paths, databasePaths, memoryPaths, err := s.accountPathsWithRegistrations(append([]string(nil), req.Workspaces...), req.WorkspacePaths)
+	s.store.workspaceMutationMu.Lock()
+	defer s.store.workspaceMutationMu.Unlock()
+	paths, databasePaths, memoryPaths, err := s.accountPathsWithRegistrationsLocked(append([]string(nil), req.Workspaces...), req.WorkspacePaths)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err)
 		return
+	}
+	rollback := func() error {
+		s.store.mu.Lock()
+		defer s.store.mu.Unlock()
+		return s.store.rollbackWorkspaceRegistrationsLocked(databasePaths, memoryPaths)
 	}
 	ids := make([]string, 0, len(paths))
 	for id := range paths {
@@ -48,7 +55,7 @@ func (s *Server) batchAssignWorkspaces(w http.ResponseWriter, r *http.Request) {
 	for _, username := range req.Usernames {
 		record, ok := users[username]
 		if !ok || record.Role == "admin" {
-			_ = s.store.RollbackWorkspaceRegistrations(databasePaths, memoryPaths)
+			_ = rollback()
 			writeError(w, http.StatusNotFound, errAccountDenied)
 			return
 		}
@@ -76,7 +83,7 @@ func (s *Server) batchAssignWorkspaces(w http.ResponseWriter, r *http.Request) {
 		users[username] = record
 	}
 	if err := s.accounts.save(users, s.accounts.Owners); err != nil {
-		_ = s.store.RollbackWorkspaceRegistrations(databasePaths, memoryPaths)
+		_ = rollback()
 		writeError(w, http.StatusInternalServerError, err)
 		return
 	}

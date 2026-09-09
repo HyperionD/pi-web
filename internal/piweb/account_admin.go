@@ -59,11 +59,47 @@ func (s *Server) listAccounts(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) accountPaths(ids, requestedPaths []string) (map[string]string, error) {
-	paths, _, _, err := s.accountPathsWithRegistrations(ids, requestedPaths)
-	return paths, err
+	paths := make(map[string]string, len(ids))
+	policy := WorkspacePolicy{}
+	for _, requestedPath := range requestedPaths {
+		if requestedPath == "" {
+			continue
+		}
+		if err := policy.CheckExistingDirectory(requestedPath); err != nil {
+			return nil, err
+		}
+		workspace, err := s.store.RegisterWorkspace(requestedPath)
+		if err != nil {
+			return nil, err
+		}
+		ids = append(ids, workspace.ID)
+	}
+	for _, id := range ids {
+		path, err := s.store.WorkspacePath(id)
+		if err != nil {
+			return nil, err
+		}
+		if err := policy.CheckExistingDirectory(path); err != nil {
+			return nil, err
+		}
+		realPath, err := filepath.EvalSymlinks(path)
+		if err != nil {
+			return nil, err
+		}
+		paths[id] = realPath
+	}
+	return paths, nil
 }
 
 func (s *Server) accountPathsWithRegistrations(ids, requestedPaths []string) (map[string]string, []string, []string, error) {
+	return s.accountPathsWithRegistrationsInternal(ids, requestedPaths, false)
+}
+
+func (s *Server) accountPathsWithRegistrationsLocked(ids, requestedPaths []string) (map[string]string, []string, []string, error) {
+	return s.accountPathsWithRegistrationsInternal(ids, requestedPaths, true)
+}
+
+func (s *Server) accountPathsWithRegistrationsInternal(ids, requestedPaths []string, storeLocked bool) (map[string]string, []string, []string, error) {
 	paths := make(map[string]string, len(ids))
 	policy := WorkspacePolicy{}
 	for _, requestedPath := range requestedPaths {
@@ -74,12 +110,25 @@ func (s *Server) accountPathsWithRegistrations(ids, requestedPaths []string) (ma
 			return nil, nil, nil, err
 		}
 	}
-	grants, databasePaths, memoryPaths, err := s.store.RegisterWorkspacePaths(requestedPaths)
+	var grants map[string]workspaceGrant
+	var databasePaths, memoryPaths []string
+	var err error
+	if storeLocked {
+		grants, databasePaths, memoryPaths, err = s.store.registerWorkspacePaths(requestedPaths)
+	} else {
+		grants, databasePaths, memoryPaths, err = s.store.RegisterWorkspacePaths(requestedPaths)
+	}
 	if err != nil {
 		return nil, nil, nil, err
 	}
 	rollback := func(cause error) (map[string]string, []string, []string, error) {
-		_ = s.store.RollbackWorkspaceRegistrations(databasePaths, memoryPaths)
+		if storeLocked {
+			s.store.mu.Lock()
+			defer s.store.mu.Unlock()
+			_ = s.store.rollbackWorkspaceRegistrationsLocked(databasePaths, memoryPaths)
+		} else {
+			_ = s.store.RollbackWorkspaceRegistrations(databasePaths, memoryPaths)
+		}
 		return nil, nil, nil, cause
 	}
 	for _, requestedPath := range requestedPaths {
