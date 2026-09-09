@@ -73,19 +73,28 @@ func TestRepositoryContract(t *testing.T) {
 		t.Fatalf("eslint.config.js is required: %v", err)
 	}
 
-	staticReadme := readRepositoryFile(t, root, "static/README.txt")
-	if !strings.Contains(staticReadme, "committed") || !strings.Contains(staticReadme, "embed:assets") {
-		t.Error("static README must document committed generated assets and the refresh command")
+	embedScript := packageManifest.Scripts["embed:assets"]
+	for _, fragment := range []string{"find static -mindepth 1", "! -name README.txt", "cp -R dist/. static/"} {
+		if !strings.Contains(embedScript, fragment) {
+			t.Errorf("embed:assets script must contain %q", fragment)
+		}
 	}
 	trackedStatic := gitFiles(t, root, "static")
-	if !contains(trackedStatic, "static/README.txt") || !containsPrefix(trackedStatic, "static/assets/") {
-		t.Error("generated static assets and their README must be tracked")
+	if !contains(trackedStatic, "static/README.txt") || !contains(trackedStatic, "static/index.html") || !containsPrefix(trackedStatic, "static/assets/") {
+		t.Error("generated static entrypoint, assets, and README must be tracked")
 	}
 	gitignore := readRepositoryFile(t, root, ".gitignore")
 	for _, rule := range strings.Split(gitignore, "\n") {
 		if strings.TrimSpace(rule) == "static/" {
 			t.Error(".gitignore must not ignore committed static assets")
 		}
+	}
+}
+
+func TestWorkflowRunCommandsRequireExactMatch(t *testing.T) {
+	workflow := "steps:\n  - run: bun run test:coverage\n"
+	if contains(workflowRunCommands(workflow), "bun run test") {
+		t.Fatal("workflow command matching must not treat test:coverage as test")
 	}
 }
 
@@ -150,14 +159,32 @@ func TestRoutes(t *testing.T) {
 
 func assertWorkflowCommands(t *testing.T, workflow string, commands []string) {
 	t.Helper()
+	actual := workflowRunCommands(workflow)
 	position := -1
 	for _, command := range commands {
-		next := strings.Index(workflow[position+1:], "run: "+command)
+		next := -1
+		for index := position + 1; index < len(actual); index++ {
+			if actual[index] == command {
+				next = index
+				break
+			}
+		}
 		if next < 0 {
 			t.Fatalf("workflow is missing ordered command %q", command)
 		}
-		position += next + 1
+		position = next
 	}
+}
+
+func workflowRunCommands(workflow string) []string {
+	var commands []string
+	for _, line := range strings.Split(workflow, "\n") {
+		line = strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(line), "- "))
+		if strings.HasPrefix(line, "run:") {
+			commands = append(commands, strings.TrimSpace(strings.TrimPrefix(line, "run:")))
+		}
+	}
+	return commands
 }
 
 func repositoryRoot(t *testing.T) string {

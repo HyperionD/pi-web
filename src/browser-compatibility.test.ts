@@ -32,12 +32,9 @@ describe("browser compatibility", () => {
   it("does not use authored CSS features newer than the Chrome 107 baseline", () => {
     const styles = collectAuthoredCss(new URL(".", import.meta.url));
     expect(styles).toContain("--app-viewport-height: 100vh");
+    expect(styles).toContain(".account-nav");
     expect(styles).not.toContain("color-mix(");
-    const authoredDeclarations = styles.replace(
-      "@supports (height: 100dvh) {\n  :root { --app-viewport-height: 100dvh; }\n}\n",
-      "",
-    );
-    expect(authoredDeclarations).not.toContain("100dvh");
+    expect(stripViewportFeatureQueries(styles)).not.toContain("100dvh");
   });
 });
 
@@ -45,8 +42,54 @@ function collectAuthoredCss(directory: URL): string {
   return readdirSync(directory, { withFileTypes: true })
     .flatMap((entry) => {
       const url = new URL(`${entry.name}${entry.isDirectory() ? "/" : ""}`, directory);
-      if (entry.isDirectory()) return collectAuthoredCss(url);
-      return entry.name.endsWith(".css") ? [readFileSync(url, "utf8")] : [];
+      if (entry.isDirectory()) return [collectAuthoredCss(url)];
+      if (entry.name.endsWith(".css")) return [readFileSync(url, "utf8")];
+      if (entry.name.endsWith(".astro")) return extractStyleBlocks(readFileSync(url, "utf8"));
+      return [];
     })
     .join("\n");
+}
+
+function extractStyleBlocks(source: string): string[] {
+  return [...source.matchAll(/<style(?:\s[^>]*)?>([\s\S]*?)<\/style\s*>/gi)].map(
+    (match) => match[1],
+  );
+}
+
+function stripViewportFeatureQueries(css: string): string {
+  const featureQuery = /@supports\s*\(\s*height\s*:\s*100dvh\s*\)\s*\{/i;
+  let cursor = 0;
+  let stripped = "";
+  while (true) {
+    const match = featureQuery.exec(css.slice(cursor));
+    if (!match || match.index === undefined) break;
+    const start = cursor + match.index;
+    const openingBrace = start + match[0].length - 1;
+    const end = findMatchingBrace(css, openingBrace);
+    stripped += css.slice(cursor, start);
+    cursor = end + 1;
+  }
+  return stripped + css.slice(cursor);
+}
+
+function findMatchingBrace(css: string, openingBrace: number): number {
+  let depth = 0;
+  let quote = "";
+  for (let index = openingBrace; index < css.length; index += 1) {
+    const character = css[index];
+    if (quote) {
+      if (character === quote && css[index - 1] !== "\\") quote = "";
+      continue;
+    }
+    if (character === "/" && css[index + 1] === "*") {
+      const commentEnd = css.indexOf("*/", index + 2);
+      if (commentEnd < 0) throw new Error("Unclosed CSS comment");
+      index = commentEnd + 1;
+      continue;
+    }
+    if (character === '"' || character === "'") quote = character;
+    if (character === "{") depth += 1;
+    if (character === "}" && --depth === 0) return index;
+  }
+  throw new Error("Unclosed CSS feature query");
 }
