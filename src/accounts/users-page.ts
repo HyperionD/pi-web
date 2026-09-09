@@ -26,6 +26,8 @@ function selectUser(user: Account | null) {
   account.readOnly = !!user;
   const username = form.elements.namedItem("username") as HTMLInputElement;
   username.value = user?.username || "";
+  const department = form.elements.namedItem("department") as HTMLInputElement;
+  department.value = user?.department || "";
   (form.elements.namedItem("password") as HTMLInputElement).required = !user;
   (form.elements.namedItem("disabled") as HTMLInputElement).checked = user?.disabled || false;
   document.querySelector("[data-user-form-title]")!.textContent = user ? `编辑 ${user.username}` : "创建用户";
@@ -86,17 +88,18 @@ async function refreshUsers() {
     selectCell.append(checkbox);
     const accountCell = document.createElement("td"); const accountCode = document.createElement("code"); accountCode.textContent = user.account; accountCell.append(accountCode);
     const nameCell = document.createElement("td"); nameCell.textContent = user.username; nameCell.className = "account-user-name";
+    const departmentCell = document.createElement("td"); departmentCell.textContent = user.department || "—";
     const statusCell = document.createElement("td"); const badge = document.createElement("span"); badge.textContent = user.disabled ? "已禁用" : "正常"; badge.className = `account-user-status${user.disabled ? " is-disabled" : ""}`; statusCell.append(badge);
     const workspaceCell = document.createElement("td"); workspaceCell.textContent = `${user.workspaces.length} 个工作区`;
     const actionCell = document.createElement("td"); const editButton = document.createElement("button"); editButton.type = "button"; editButton.className = "account-row-action"; editButton.textContent = "编辑"; editButton.addEventListener("click", () => openUserDialog(user)); actionCell.append(editButton);
-    row.append(selectCell, accountCell, nameCell, statusCell, workspaceCell, actionCell); container.append(row);
+    row.append(selectCell, accountCell, nameCell, departmentCell, statusCell, workspaceCell, actionCell); container.append(row);
   }
 }
 
 form.addEventListener("submit", async (event) => {
   event.preventDefault();
   const values = new FormData(form);
-  const value = { account: String(values.get("account")), username: String(values.get("username")), password: String(values.get("password")),
+  const value = { account: String(values.get("account")), username: String(values.get("username")), department: String(values.get("department") || "").trim(), password: String(values.get("password")),
     workspaces: values.getAll("workspaces").map(String), workspacePaths: [String(values.get("workspacePath") || "").trim()].filter(Boolean),
     disabled: values.get("disabled") === "on" };
   fields.disabled = true;

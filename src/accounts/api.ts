@@ -1,6 +1,6 @@
-export type Account = { id: string; account: string; username: string; role: "admin" | "user"; disabled: boolean; workspaces: string[] };
+export type Account = { id: string; account: string; username: string; department: string; role: "admin" | "user"; disabled: boolean; workspaces: string[] };
 export type ManagedWorkspace = { id: string; name: string; path: string };
-export type AccountInput = { account?: string; username: string; password: string; workspaces: string[]; workspacePaths?: string[]; disabled?: boolean };
+export type AccountInput = { account?: string; username: string; department: string; password: string; workspaces: string[]; workspacePaths?: string[]; disabled?: boolean };
 
 export class AccountError extends Error {
   constructor(public status: number, message: string) { super(message); }

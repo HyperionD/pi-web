@@ -17,16 +17,18 @@ type Account struct {
 	ID         string   `json:"id"`
 	Account    string   `json:"account"`
 	Username   string   `json:"username"`
+	Department string   `json:"department"`
 	Role       string   `json:"role"`
 	Disabled   bool     `json:"disabled"`
 	Workspaces []string `json:"workspaces"`
 }
 type accountRecord struct {
 	Account
-	PasswordHash string            `json:"passwordHash"`
-	Paths        map[string]string `json:"paths"`
-	workspaceSet bool
-	disabledSet  bool
+	PasswordHash  string            `json:"passwordHash"`
+	Paths         map[string]string `json:"paths"`
+	workspaceSet  bool
+	departmentSet bool
+	disabledSet   bool
 }
 type accountLogin struct {
 	User    Account
@@ -56,7 +58,7 @@ func newAccountStore() *accountStore {
 		return a
 	}
 	defer db.Close()
-	rows, err := db.Query(`SELECT id, account, username, role, password_hash, disabled FROM users`)
+	rows, err := db.Query(`SELECT id, account, username, department, role, password_hash, disabled FROM users`)
 	if err != nil {
 		a.dbErr = err
 		return a
@@ -64,7 +66,7 @@ func newAccountStore() *accountStore {
 	defer rows.Close()
 	for rows.Next() {
 		var r accountRecord
-		if err := rows.Scan(&r.ID, &r.Account.Account, &r.Username, &r.Role, &r.PasswordHash, &r.Disabled); err != nil {
+		if err := rows.Scan(&r.ID, &r.Account.Account, &r.Username, &r.Department, &r.Role, &r.PasswordHash, &r.Disabled); err != nil {
 			a.dbErr = err
 			return a
 		}
@@ -212,7 +214,7 @@ func (a *accountStore) save(users map[string]accountRecord, owners map[string]st
 		return err
 	}
 	for _, r := range users {
-		if _, err = tx.Exec(`INSERT INTO users(id, account, username, role, password_hash, disabled, created_at) VALUES(?,?,?,?,?,?,?) ON CONFLICT(account) DO UPDATE SET username=excluded.username, role=excluded.role, password_hash=excluded.password_hash, disabled=excluded.disabled`, r.ID, r.Account.Account, r.Username, r.Role, r.PasswordHash, r.Disabled, time.Now().UTC().Format(time.RFC3339Nano)); err != nil {
+		if _, err = tx.Exec(`INSERT INTO users(id, account, username, department, role, password_hash, disabled, created_at) VALUES(?,?,?,?,?,?,?,?) ON CONFLICT(account) DO UPDATE SET username=excluded.username, department=excluded.department, role=excluded.role, password_hash=excluded.password_hash, disabled=excluded.disabled`, r.ID, r.Account.Account, r.Username, r.Department, r.Role, r.PasswordHash, r.Disabled, time.Now().UTC().Format(time.RFC3339Nano)); err != nil {
 			_ = tx.Rollback()
 			return err
 		}

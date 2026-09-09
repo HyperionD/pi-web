@@ -13,6 +13,7 @@ import (
 type accountWriteRequest struct {
 	Account        string   `json:"account"`
 	Username       string   `json:"username"`
+	Department     *string  `json:"department"`
 	Password       string   `json:"password"`
 	Workspaces     []string `json:"workspaces"`
 	WorkspacePaths []string `json:"workspacePaths"`
@@ -35,7 +36,7 @@ func (s *Server) listAccounts(w http.ResponseWriter, r *http.Request) {
 		if record.Role == "admin" {
 			continue
 		}
-		if query == "" || strings.Contains(strings.ToLower(record.Account.Account), query) || strings.Contains(strings.ToLower(record.Username), query) {
+		if query == "" || strings.Contains(strings.ToLower(record.Account.Account), query) || strings.Contains(strings.ToLower(record.Username), query) || strings.Contains(strings.ToLower(record.Department), query) {
 			users = append(users, record.Account)
 		}
 	}
@@ -127,6 +128,10 @@ func (s *Server) readAccountWrite(w http.ResponseWriter, r *http.Request, create
 		writeError(w, 400, err)
 		return accountRecord{}, false
 	}
+	department := ""
+	if req.Department != nil {
+		department = strings.TrimSpace(*req.Department)
+	}
 	ids := make([]string, 0, len(paths))
 	for id := range paths {
 		ids = append(ids, id)
@@ -136,8 +141,8 @@ func (s *Server) readAccountWrite(w http.ResponseWriter, r *http.Request, create
 	if req.Disabled != nil {
 		disabled = *req.Disabled
 	}
-	return accountRecord{Account: Account{Account: req.Account, Username: req.Username, Role: "user", Disabled: disabled, Workspaces: ids},
-		PasswordHash: hash, Paths: paths, workspaceSet: req.Workspaces != nil || req.WorkspacePaths != nil, disabledSet: req.Disabled != nil}, true
+	return accountRecord{Account: Account{Account: req.Account, Username: req.Username, Department: department, Role: "user", Disabled: disabled, Workspaces: ids},
+		PasswordHash: hash, Paths: paths, workspaceSet: req.Workspaces != nil || req.WorkspacePaths != nil, departmentSet: req.Department != nil, disabledSet: req.Disabled != nil}, true
 }
 
 func (s *Server) createAccount(w http.ResponseWriter, r *http.Request) {
@@ -179,6 +184,9 @@ func (s *Server) updateAccount(w http.ResponseWriter, r *http.Request) {
 	}
 	if !record.workspaceSet {
 		record.Workspaces, record.Paths = previous.Workspaces, previous.Paths
+	}
+	if !record.departmentSet {
+		record.Department = previous.Department
 	}
 	if !record.disabledSet {
 		record.Disabled = previous.Disabled

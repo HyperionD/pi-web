@@ -10,7 +10,7 @@ afterEach(() => { vi.unstubAllGlobals(); fetchMock.mockReset(); });
 describe("account API", () => {
   it("uses same-origin cookies without persisting credentials", async () => {
     vi.stubGlobal("fetch", fetchMock.mockResolvedValue({ ok: true, json: async () => ({ ok: true }) }));
-    const input = { account: "alice", username: "Alice", password: "password-123", workspaces: ["one"] };
+    const input = { account: "alice", username: "Alice", department: "研发部", password: "password-123", workspaces: ["one"] };
     await currentAccount(); await accountStatus(); await login("alice", "password-123"); await logout();
     await setup("password-123", "password-123"); await listUsers(); await listManagedWorkspaces();
     await createUser(input); await updateUser("a b", input); await deleteUser("a b");
@@ -21,6 +21,8 @@ describe("account API", () => {
     expect(fetchMock.mock.calls[2][1]).toMatchObject({ credentials: "same-origin", cache: "no-store", method: "POST",
       body: JSON.stringify({ account: "alice", password: "password-123" }) });
     expect(fetchMock.mock.calls[0][1].body).toBeUndefined();
+    expect(JSON.parse(fetchMock.mock.calls[7][1].body)).toMatchObject({ department: "研发部" });
+    expect(JSON.parse(fetchMock.mock.calls[8][1].body)).toMatchObject({ department: "研发部" });
     expect(fetchMock.mock.calls[9][1].method).toBe("DELETE");
   });
   it("preserves status and server errors", async () => {

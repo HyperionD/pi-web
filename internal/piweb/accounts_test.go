@@ -70,6 +70,48 @@ func TestConcurrentDatabaseAccessDoesNotReturnLocked(t *testing.T) {
 	}
 }
 
+func TestAccountDepartmentPersistsAndSearches(t *testing.T) {
+	s, admin := accountServer(t)
+	create := accountRequest(s, "POST", "/api/admin/users", `{"username":"alice","password":"alice-password","department":"研发部","workspaces":[]}`, admin)
+	if create.Code != http.StatusCreated {
+		t.Fatalf("create: %d %s", create.Code, create.Body.String())
+	}
+	create = accountRequest(s, "POST", "/api/admin/users", `{"username":"bob","password":"bob-password","department":"市场部","workspaces":[]}`, admin)
+	if create.Code != http.StatusCreated {
+		t.Fatalf("create second user: %d %s", create.Code, create.Body.String())
+	}
+
+	list := accountRequest(s, "GET", "/api/admin/users?q=研发", "", admin)
+	if list.Code != http.StatusOK {
+		t.Fatalf("search departments: %d %s", list.Code, list.Body.String())
+	}
+	var body struct {
+		Users []struct {
+			Account    string `json:"account"`
+			Department string `json:"department"`
+		} `json:"users"`
+	}
+	if err := json.Unmarshal(list.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if len(body.Users) != 1 || body.Users[0].Account != "alice" || body.Users[0].Department != "研发部" {
+		t.Fatalf("department search result = %#v", body.Users)
+	}
+
+	db, err := openWebDB(DefaultWebDBPath())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	var department string
+	if err := db.QueryRow(`SELECT department FROM users WHERE account='alice'`).Scan(&department); err != nil {
+		t.Fatal(err)
+	}
+	if department != "研发部" {
+		t.Fatalf("stored department = %q", department)
+	}
+}
+
 func TestAccountListAcceptsPageSize(t *testing.T) {
 	s, admin := accountServer(t)
 	w := accountRequest(s, "GET", "/api/admin/users?page=1&pageSize=20", "", admin)
