@@ -1,8 +1,10 @@
 package piweb
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -20,14 +22,22 @@ func TestRepositoryContract(t *testing.T) {
 	assertWorkflowCommands(t, frontendWorkflow, []string{
 		"bun run lint",
 		"bun run typecheck",
-		"bun run test:coverage",
+		"bun run test",
+		"go test ./...",
 		"bun run build",
 	})
+	if !strings.Contains(frontendWorkflow, "uses: actions/setup-go@v6") {
+		t.Error("frontend workflow must set up Go for the backend unit step")
+	}
 	backendWorkflow := readRepositoryFile(t, root, ".github/workflows/backend.yml")
 	for _, command := range []string{"go test ./...", "go tool cover -func=/tmp/piweb-cover.out"} {
 		if !strings.Contains(backendWorkflow, command) {
 			t.Errorf("backend workflow does not retain %q", command)
 		}
+	}
+	coverageCommand := "go test $(go list ./... | grep -v '/node_modules/') -coverprofile=/tmp/piweb-cover.out"
+	if !strings.Contains(backendWorkflow, coverageCommand) {
+		t.Errorf("backend coverage must exclude nested node_modules packages: %q", coverageCommand)
 	}
 
 	tsconfig := readRepositoryFile(t, root, "tsconfig.json")
@@ -35,9 +45,47 @@ func TestRepositoryContract(t *testing.T) {
 		t.Error("tsconfig must enforce consistent file-name casing")
 	}
 
+	astroConfig := readRepositoryFile(t, root, "astro.config.ts")
+	if !strings.Contains(astroConfig, `target: "chrome107"`) {
+		t.Error("astro config must target Chrome 107")
+	}
+
+	packageJSON := readRepositoryFile(t, root, "package.json")
+	var packageManifest struct {
+		Scripts         map[string]string `json:"scripts"`
+		DevDependencies map[string]string `json:"devDependencies"`
+	}
+	if err := json.Unmarshal([]byte(packageJSON), &packageManifest); err != nil {
+		t.Fatalf("parse package.json: %v", err)
+	}
+	if packageManifest.Scripts["lint"] != "eslint ." {
+		t.Errorf("lint script = %q, want %q", packageManifest.Scripts["lint"], "eslint .")
+	}
+	for _, dependency := range []string{"eslint", "typescript-eslint", "eslint-plugin-astro"} {
+		if _, ok := packageManifest.DevDependencies[dependency]; !ok {
+			t.Errorf("package.json is missing lint dependency %q", dependency)
+		}
+	}
+	if !strings.Contains(packageManifest.Scripts["backend:test:coverage"], "grep -v '/node_modules/'") {
+		t.Error("backend coverage script must exclude nested node_modules packages")
+	}
+	if _, err := os.Stat(filepath.Join(root, "eslint.config.js")); err != nil {
+		t.Fatalf("eslint.config.js is required: %v", err)
+	}
+
 	staticReadme := readRepositoryFile(t, root, "static/README.txt")
 	if !strings.Contains(staticReadme, "committed") || !strings.Contains(staticReadme, "embed:assets") {
 		t.Error("static README must document committed generated assets and the refresh command")
+	}
+	trackedStatic := gitFiles(t, root, "static")
+	if !contains(trackedStatic, "static/README.txt") || !containsPrefix(trackedStatic, "static/assets/") {
+		t.Error("generated static assets and their README must be tracked")
+	}
+	gitignore := readRepositoryFile(t, root, ".gitignore")
+	for _, rule := range strings.Split(gitignore, "\n") {
+		if strings.TrimSpace(rule) == "static/" {
+			t.Error(".gitignore must not ignore committed static assets")
+		}
 	}
 }
 
@@ -128,4 +176,31 @@ func readRepositoryFile(t *testing.T, root, name string) string {
 		t.Fatalf("read %s: %v", name, err)
 	}
 	return string(contents)
+}
+
+func gitFiles(t *testing.T, root, path string) []string {
+	t.Helper()
+	output, err := exec.Command("git", "-C", root, "ls-files", path).Output()
+	if err != nil {
+		t.Fatalf("list tracked files under %s: %v", path, err)
+	}
+	return strings.Fields(string(output))
+}
+
+func contains(values []string, want string) bool {
+	for _, value := range values {
+		if value == want {
+			return true
+		}
+	}
+	return false
+}
+
+func containsPrefix(values []string, prefix string) bool {
+	for _, value := range values {
+		if strings.HasPrefix(value, prefix) {
+			return true
+		}
+	}
+	return false
 }

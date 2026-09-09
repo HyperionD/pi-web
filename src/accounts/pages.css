@@ -23,14 +23,14 @@ html.account-document, body.account-page { background: var(--bg-1); }
 .account-users-table th { color: var(--fg-3); font-size: 11px; font-weight: 600; letter-spacing: .04em; text-align: left; text-transform: uppercase; }
 .account-users-table th, .account-users-table td { padding: 14px 16px; border-bottom: 1px solid var(--border); vertical-align: middle; }
 .account-users-table tbody tr:last-child td { border-bottom: 0; }
-.account-users-table tbody tr:hover { background: color-mix(in srgb, var(--accent) 5%, transparent); }
+.account-users-table tbody tr:hover { background: var(--bg-3); }
 .account-users-table td:first-child, .account-users-table th:first-child { width: 36px; padding-right: 0; }
 .account-users-table td code { color: var(--fg-0); font-family: var(--font-mono, monospace); font-size: 12px; }
 .account-users-table .account-actions-heading { text-align: right; }
 .account-user-name { font-weight: 600; }
 .account-user-meta { display: block; margin-top: 3px; color: var(--fg-3); font-size: 11px; }
-.account-user-status { display: inline-flex; padding: 4px 8px; border-radius: 999px; background: color-mix(in srgb, var(--accent) 12%, transparent); color: var(--accent); font-size: 11px; }
-.account-user-status.is-disabled { background: color-mix(in srgb, var(--danger) 12%, transparent); color: var(--danger); }
+.account-user-status { display: inline-flex; padding: 4px 8px; border-radius: 999px; background: var(--accent-bg); color: var(--accent); font-size: 11px; }
+.account-user-status.is-disabled { background: var(--danger-bg); color: var(--danger); }
 .account-row-action { min-height: 32px !important; padding: 6px 10px !important; font-size: 12px !important; }
 .account-users-table td:last-child { text-align: right; }
 .account-users { display: none; }

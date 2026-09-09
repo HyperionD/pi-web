@@ -1,5 +1,5 @@
 // @vitest-environment node
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import astroConfig from "../astro.config";
 
@@ -30,22 +30,8 @@ describe("browser compatibility", () => {
   });
 
   it("does not use authored CSS features newer than the Chrome 107 baseline", () => {
-    const styles = [
-      "./styles.css",
-      "./design-system/tokens.css",
-      "./styles/parts/foundation-layout.css",
-      "./styles/parts/empty-shell.css",
-      "./styles/parts/sidebar-workspaces.css",
-      "./styles/parts/session-agent-children.css",
-      "./styles/parts/session-toasts.css",
-      "./styles/parts/terminal-messages.css",
-      "./styles/parts/tool-cards.css",
-      "./styles/parts/tree-preview-status.css",
-      "./styles/parts/prompt-composer.css",
-      "./styles/parts/workspace-picker.css",
-      "./styles/parts/responsive-themes.css",
-      "./styles/parts/settings-modal.css",
-    ].map((path) => readFileSync(new URL(path, import.meta.url), "utf8")).join("\n");
+    const styles = collectAuthoredCss(new URL(".", import.meta.url));
+    expect(styles).toContain("--app-viewport-height: 100vh");
     expect(styles).not.toContain("color-mix(");
     const authoredDeclarations = styles.replace(
       "@supports (height: 100dvh) {\n  :root { --app-viewport-height: 100dvh; }\n}\n",
@@ -54,3 +40,13 @@ describe("browser compatibility", () => {
     expect(authoredDeclarations).not.toContain("100dvh");
   });
 });
+
+function collectAuthoredCss(directory: URL): string {
+  return readdirSync(directory, { withFileTypes: true })
+    .flatMap((entry) => {
+      const url = new URL(`${entry.name}${entry.isDirectory() ? "/" : ""}`, directory);
+      if (entry.isDirectory()) return collectAuthoredCss(url);
+      return entry.name.endsWith(".css") ? [readFileSync(url, "utf8")] : [];
+    })
+    .join("\n");
+}

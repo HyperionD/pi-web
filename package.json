@@ -28,10 +28,11 @@
     "preview": "astro preview --host 0.0.0.0",
     "storybook": "storybook dev -p 6006",
     "build-storybook": "storybook build",
+    "lint": "eslint .",
     "backend": "go run .",
     "backend:mock": "go run . --mock",
     "backend:test": "go test ./...",
-    "backend:test:coverage": "go test ./... -coverprofile=/tmp/piweb-cover.out -covermode=count >/tmp/piweb-go-test.log && go tool cover -func=/tmp/piweb-cover.out | tail -1 | grep '100.0%'",
+    "backend:test:coverage": "go test $(go list ./... | grep -v '/node_modules/') -coverprofile=/tmp/piweb-cover.out -covermode=count >/tmp/piweb-go-test.log && go tool cover -func=/tmp/piweb-cover.out | tail -1 | grep '100.0%'",
     "test": "vitest run",
     "test:coverage": "vitest run --coverage",
     "test:watch": "vitest",
@@ -75,9 +76,12 @@
     "@types/react": "^19.2.15",
     "@types/react-dom": "^19.2.3",
     "@vitest/coverage-v8": "4.1.6",
+    "eslint": "^10.10.0",
+    "eslint-plugin-astro": "^3.1.0",
     "jsdom": "29.1.1",
     "storybook": "10.4.0",
     "typescript": "6.0.3",
+    "typescript-eslint": "^8.70.0",
     "vitest": "4.1.6"
   }
 }
