@@ -297,8 +297,14 @@ func CurrentPiModelStatus(ctx context.Context, cwd string) (RuntimeStatus, error
 	}
 	stderr, _ := cmd.StderrPipe()
 	var stderrBuf bytes.Buffer
+	stderrDone := make(chan struct{})
 	if stderr != nil {
-		go func() { _, _ = stderrBuf.ReadFrom(stderr) }()
+		go func() {
+			defer close(stderrDone)
+			_, _ = stderrBuf.ReadFrom(stderr)
+		}()
+	} else {
+		close(stderrDone)
 	}
 	if err := cmd.Start(); err != nil {
 		return RuntimeStatus{}, err
@@ -330,6 +336,7 @@ func CurrentPiModelStatus(ctx context.Context, cwd string) (RuntimeStatus, error
 	if ctx.Err() != nil {
 		return RuntimeStatus{}, ctx.Err()
 	}
+	<-stderrDone
 	if output := strings.TrimSpace(stderrBuf.String()); output != "" {
 		return RuntimeStatus{}, fmt.Errorf("pi get_state failed: %s", output)
 	}

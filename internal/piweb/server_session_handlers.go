@@ -48,7 +48,12 @@ func (s *Server) renameSession(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"session": session})
 }
 func (s *Server) deleteSession(w http.ResponseWriter, r *http.Request) {
-	if err := s.store.DeleteSession(r.PathValue("sessionID")); err != nil {
+	sessionID := r.PathValue("sessionID")
+	if err := s.runtimeManager.CloseSession(s.context(), sessionID); err != nil {
+		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
+	if err := s.store.DeleteSession(sessionID); err != nil {
 		writeStoreError(w, err)
 		return
 	}

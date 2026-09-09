@@ -24,6 +24,7 @@ type Broker struct {
 	maxBacklog           int
 	overflowDrainTimeout time.Duration
 	heartbeat            time.Duration
+	closed               bool
 	history              map[string][]Event
 	historySize          int
 	// Hooks are test barriers. publishAdmissionHook runs before mu is acquired;
@@ -354,6 +355,9 @@ func (b *Broker) Publish(sessionID, eventType string, payload any) Event {
 	}
 	b.mu.Lock()
 	defer b.mu.Unlock()
+	if b.closed {
+		return Event{SessionID: sessionID, Type: eventType}
+	}
 	event := Event{
 		ID:        b.nextEventIDLocked(),
 		Type:      eventType,
@@ -369,6 +373,31 @@ func (b *Broker) Publish(sessionID, eventType string, payload any) Event {
 		b.enqueueLocked(subscriber, event)
 	}
 	return event
+}
+
+func (b *Broker) Shutdown(ctx context.Context) error {
+	b.mu.Lock()
+	if b.closed {
+		b.mu.Unlock()
+		return nil
+	}
+	b.closed = true
+	var subscribers []*brokerSubscriber
+	for sessionID, entries := range b.subscribers {
+		for subscriber := range entries {
+			subscribers = append(subscribers, subscriber)
+			b.terminateSubscriberLocked(sessionID, subscriber)
+		}
+	}
+	b.mu.Unlock()
+	for _, subscriber := range subscribers {
+		select {
+		case <-subscriber.finished:
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
+	return nil
 }
 
 func (b *Broker) nextEventIDLocked() uint64 {

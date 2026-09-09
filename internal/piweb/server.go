@@ -23,8 +23,13 @@ type Server struct {
 	store                   *Store
 	broker                  *Broker
 	runner                  *Runner
+	runtimeManager          *RuntimeManager
 	mux                     *http.ServeMux
 	config                  Config
+	ctx                     context.Context
+	cancel                  context.CancelFunc
+	shutdownMu              sync.RWMutex
+	shuttingDown            bool
 	accounts                *accountStore
 	workspaceAccess         *WorkspaceAccess
 	adminPasswordConfigured bool
@@ -33,6 +38,13 @@ type Server struct {
 }
 
 func NewServer(config Config, store *Store, broker *Broker) *Server {
+	return NewServerWithRuntimeManager(config, store, broker, NewRuntimeManager(store))
+}
+
+func NewServerWithRuntimeManager(config Config, store *Store, broker *Broker, manager *RuntimeManager) *Server {
+	if manager == nil {
+		manager = NewRuntimeManager(store)
+	}
 	if config.Host == "" {
 		config.Host = "127.0.0.1"
 	}
@@ -48,12 +60,16 @@ func NewServer(config Config, store *Store, broker *Broker) *Server {
 		}
 	}
 	adminPasswordConfigured, adminPasswordCheckError := AdminPasswordConfigured()
+	ctx, cancel := context.WithCancel(context.Background())
 	s := &Server{
 		store:                   store,
 		broker:                  broker,
-		runner:                  NewRunner(),
+		runtimeManager:          manager,
+		runner:                  NewRunnerWithRuntimeManager(manager),
 		mux:                     http.NewServeMux(),
 		config:                  config,
+		ctx:                     ctx,
+		cancel:                  cancel,
 		adminPasswordConfigured: adminPasswordConfigured,
 		adminPasswordCheckError: adminPasswordCheckError,
 	}
@@ -70,7 +86,20 @@ func (s *Server) Addr() string {
 	return s.config.Host + ":" + s.config.Port
 }
 func (s *Server) Handler() http.Handler {
-	return s.withLogging(s.withCORS(s.withAccount(s.mux)))
+	return s.withLogging(s.withShutdownGuard(s.withCORS(s.withAccount(s.mux))))
+}
+
+func (s *Server) withShutdownGuard(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		s.shutdownMu.RLock()
+		shuttingDown := s.shuttingDown
+		s.shutdownMu.RUnlock()
+		if shuttingDown {
+			writeError(w, http.StatusServiceUnavailable, errors.New("server is shutting down"))
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
 }
 func (s *Server) routes() {
 	s.mux.HandleFunc("GET /api/health", s.health)
@@ -130,7 +159,19 @@ func (s *Server) routes() {
 	}
 }
 func (s *Server) context() context.Context {
-	return context.Background()
+	return s.ctx
+}
+
+func (s *Server) Shutdown(ctx context.Context) error {
+	s.shutdownMu.Lock()
+	if s.shuttingDown {
+		s.shutdownMu.Unlock()
+		return nil
+	}
+	s.shuttingDown = true
+	s.cancel()
+	s.shutdownMu.Unlock()
+	return errors.Join(s.runtimeManager.Shutdown(ctx), s.broker.Shutdown(ctx))
 }
 
 func (s *Server) workspacePolicy() (WorkspacePolicy, error) {

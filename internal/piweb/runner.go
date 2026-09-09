@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
-	"os/exec"
 	"strings"
 	"sync"
 	"time"
@@ -34,11 +33,13 @@ const fallbackChoiceSystemPrompt = `Pi Web UI fallback choice protocol:
 type Runner struct {
 	mu      sync.Mutex
 	running map[string]*activePiRun
+	manager *RuntimeManager
 }
 
 type activePiRun struct {
 	cancel     context.CancelFunc
 	stdin      io.WriteCloser
+	runtime    PiRuntime
 	compacting bool
 	mu         sync.Mutex
 }
@@ -46,6 +47,13 @@ type activePiRun struct {
 func NewRunner() *Runner {
 	return &Runner{running: map[string]*activePiRun{}}
 }
+
+func NewRunnerWithRuntimeManager(manager *RuntimeManager) *Runner {
+	runner := NewRunner()
+	runner.manager = manager
+	return runner
+}
+
 func (r *Runner) StartPiPrompt(
 	parent context.Context,
 	broker *Broker,
@@ -55,97 +63,81 @@ func (r *Runner) StartPiPrompt(
 	images []PromptAttachment,
 	displayText string,
 ) error {
-	sessionFile, cwd, ok := store.SessionRuntime(sessionID)
-	if !ok {
-		return ErrNotFound
+	manager, err := r.runtimeManager(store)
+	if err != nil {
+		return err
+	}
+	runtime, err := manager.Ensure(parent, sessionID)
+	if err != nil {
+		return err
 	}
 	ctx, cancel := context.WithCancel(parent)
-	cmd := exec.CommandContext(ctx, "pi", piRPCArgs(sessionFile)...)
-	cmd.Dir = cwd
-	configureCommandProcessGroup(cmd)
-	stdin, err := cmd.StdinPipe()
-	if err != nil {
-		cancel()
-		return err
-	}
-	stdout, err := cmd.StdoutPipe()
-	if err != nil {
-		cancel()
-		return err
-	}
-	stderr, _ := cmd.StderrPipe()
-
-	activeRun := &activePiRun{cancel: cancel, stdin: stdin}
+	activeRun := &activePiRun{cancel: cancel, runtime: runtime}
 	if err := r.claimRun(sessionID, activeRun); err != nil {
 		cancel()
 		return err
 	}
 
-	if err := cmd.Start(); err != nil {
+	user := Message{Kind: "user", Text: displayText, Attachments: images}
+	if err := store.AppendMessage(sessionID, user); err != nil {
 		r.forgetRun(sessionID, activeRun)
 		cancel()
 		return err
 	}
-	if err := activeRun.send(rpcPromptCommand(text, images, "")); err != nil {
+	broker.Publish(sessionID, "session.message", user)
+	broker.Publish(sessionID, "session.status", map[string]string{"status": "running"})
+	go r.consumeRuntimeEvents(ctx, broker, store, sessionID, runtime, activeRun)
+	if err := activeRun.sendContext(ctx, rpcPromptCommand(text, images, "")); err != nil {
 		r.forgetRun(sessionID, activeRun)
 		cancel()
+		broker.Publish(sessionID, "error", map[string]string{"error": err.Error()})
+		broker.Publish(sessionID, "session.status", map[string]string{"status": "idle"})
 		return err
 	}
+	return nil
+}
 
-	go func() {
-		defer func() {
-			r.forgetRun(sessionID, activeRun)
-			cancel()
-		}()
-		user := Message{Kind: "user", Text: displayText, Attachments: images}
-		_ = store.AppendMessage(sessionID, user)
-		broker.Publish(sessionID, "session.message", user)
-		broker.Publish(sessionID, "session.status", map[string]string{"status": "running"})
+func (r *Runner) runtimeManager(store *Store) (*RuntimeManager, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.manager == nil {
+		r.manager = NewRuntimeManager(store)
+	}
+	return r.manager, nil
+}
 
-		go func() {
-			<-ctx.Done()
-			terminateCommandProcessGroup(cmd)
-		}()
-
-		state := &jsonStreamState{}
-		stdoutDone := make(chan struct{})
-		agentDone := make(chan struct{})
-		var doneOnce sync.Once
-		go streamPipe(stdout, func(line string) {
-			if isPiRPCAgentEnd(line) {
-				doneOnce.Do(func() { close(agentDone) })
+func (r *Runner) consumeRuntimeEvents(ctx context.Context, broker *Broker, store *Store, sessionID string, runtime PiRuntime, run *activePiRun) {
+	state := &jsonStreamState{}
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case event, ok := <-runtime.Events():
+			if !ok {
+				r.finishPrompt(sessionID, run, broker, errors.New("pi runtime exited"))
+				return
 			}
+			line := string(event.Raw)
 			if !handlePiJSONEvent(line, broker, store, sessionID, state) && !isPiTerminalNotification(line) {
 				broker.Publish(sessionID, "tool.output", map[string]string{"tool": "pi", "chunk": line})
 			}
-		}, stdoutDone)
-		go streamPipe(stderr, func(line string) {
-			if !isPiTerminalNotification(line) {
-				broker.Publish(sessionID, "tool.output", map[string]string{"tool": "pi", "chunk": line})
+			if event.Type == "agent_end" {
+				r.finishPrompt(sessionID, run, broker, nil)
+				return
 			}
-		}, nil)
+		}
+	}
+}
 
-		select {
-		case <-agentDone:
-			_ = stdin.Close()
-		case <-ctx.Done():
-		case <-stdoutDone:
-		}
-		err := cmd.Wait()
-		if ctx.Err() != nil {
-			return
-		}
-		if err != nil {
-			broker.Publish(sessionID, "error", map[string]string{"error": err.Error()})
-			broker.Publish(sessionID, "session.status", map[string]string{"status": "idle"})
-			return
-		}
-		broker.Publish(sessionID, "session.status", map[string]string{
-			"status":     "idle",
-			"finishedAt": time.Now().UTC().Format(time.RFC3339),
-		})
-	}()
-	return nil
+func (r *Runner) finishPrompt(sessionID string, run *activePiRun, broker *Broker, runErr error) {
+	r.forgetRun(sessionID, run)
+	run.cancel()
+	if runErr != nil {
+		broker.Publish(sessionID, "error", map[string]string{"error": runErr.Error()})
+	}
+	broker.Publish(sessionID, "session.status", map[string]string{
+		"status": "idle", "finishedAt": time.Now().UTC().Format(time.RFC3339),
+	})
 }
 
 func (r *Runner) Steer(sessionID string, text string, images []PromptAttachment) error {
@@ -155,7 +147,7 @@ func (r *Runner) Steer(sessionID string, text string, images []PromptAttachment)
 	if !ok || run.compacting {
 		return errors.New("session is not running")
 	}
-	return run.send(rpcPromptCommand(text, images, "steer"))
+	return run.sendContext(context.Background(), rpcPromptCommand(text, images, "steer"))
 }
 
 func (r *Runner) IsRunning(sessionID string) bool {
@@ -225,14 +217,38 @@ func rpcImages(images []PromptAttachment) []rpcImage {
 }
 
 func (r *activePiRun) send(command any) error {
+	return r.sendContext(context.Background(), command)
+}
+
+func (r *activePiRun) sendContext(ctx context.Context, command any) error {
+	if r.runtime != nil {
+		payload, err := json.Marshal(command)
+		if err != nil {
+			return err
+		}
+		typeName := ""
+		if value, ok := command.(rpcPrompt); ok {
+			typeName = value.Type
+		}
+		response, err := r.runtime.Send(ctx, RPCCommand{Type: typeName, Payload: payload})
+		if err != nil {
+			return err
+		}
+		if !response.Success {
+			if response.Error == "" {
+				response.Error = "pi RPC command failed"
+			}
+			return errors.New(response.Error)
+		}
+		return nil
+	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	line, err := json.Marshal(command)
 	if err != nil {
 		return err
 	}
-	line = append(line, '\n')
-	_, err = r.stdin.Write(line)
+	_, err = r.stdin.Write(append(line, '\n'))
 	return err
 }
 
