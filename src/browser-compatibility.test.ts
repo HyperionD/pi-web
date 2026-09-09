@@ -33,10 +33,32 @@ describe("browser compatibility", () => {
     const styles = collectAuthoredCss(new URL(".", import.meta.url));
     expect(styles).toContain(".account-nav");
     expect(styles).not.toContain("color-mix(");
-    expect(stripFeatureQueries(styles, /@supports\b[^\{]*\{/i)).toContain(
-      "--app-viewport-height: 100vh",
-    );
-    expect(stripViewportFeatureQueries(styles)).not.toContain("100dvh");
+    assertViewportFallback(styles);
+  });
+
+  it("rejects a fallback placed inside the complete dynamic viewport feature query", () => {
+    expect(() =>
+      assertViewportFallback(`
+        @supports (height: 100dvh) {
+          :root { --app-viewport-height: 100vh; }
+        }
+      `),
+    ).toThrow();
+  });
+
+  it("rejects a fallback found only inside a CSS comment", () => {
+    expect(() =>
+      assertViewportFallback(`
+        /* :root { --app-viewport-height: 100vh; } */
+        @supports (height: 100dvh) {
+          :root { --app-viewport-height: 100dvh; }
+        }
+      `),
+    ).toThrow();
+  });
+
+  it("rejects uppercase dynamic viewport units outside the feature query", () => {
+    expect(() => assertViewportFallback(".app { height: 100DVH; }")).toThrow();
   });
 });
 
@@ -56,6 +78,18 @@ function extractStyleBlocks(source: string): string[] {
   return [...source.matchAll(/<style(?:\s[^>]*)?>([\s\S]*?)<\/style\s*>/gi)].map(
     (match) => match[1],
   );
+}
+
+function stripCssComments(css: string): string {
+  return css.replace(/\/\*[\s\S]*?\*\//g, "");
+}
+
+function assertViewportFallback(css: string): void {
+  const outsideViewportFeatureQueries = stripViewportFeatureQueries(stripCssComments(css));
+  expect(outsideViewportFeatureQueries).toMatch(
+    /--app-viewport-height\s*:\s*100vh\b/i,
+  );
+  expect(outsideViewportFeatureQueries).not.toMatch(/100dvh/i);
 }
 
 function stripViewportFeatureQueries(css: string): string {
