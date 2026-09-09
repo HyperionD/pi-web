@@ -49,11 +49,15 @@ func (s *Store) OpenWorkspace(path string) (Workspace, error) {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	wasKnown := workspacePathKnown(s.workspaces, clean)
 	workspace := s.addWorkspaceLocked(clean, storedID)
 	previousRecents := append([]string(nil), s.recentWorkspaceIDs...)
 	s.markWorkspaceRecentLocked(workspace.ID)
 	if err := saveWebWorkspaceOpened(s.dbPath, webWorkspaceRecord{ID: workspace.ID, Path: workspace.Path}); err != nil {
 		s.recentWorkspaceIDs = previousRecents
+		if !wasKnown {
+			s.removeWorkspaceLocked(clean)
+		}
 		return Workspace{}, err
 	}
 	return workspace, nil
@@ -98,7 +102,6 @@ func (s *Store) RemoveWorkspaceRegistration(path string) error {
 	if s.dbPath != "" {
 		deleted, err := deleteWebWorkspaceRegistration(s.dbPath, clean)
 		if err != nil {
-			s.removeWorkspaceLocked(clean)
 			return err
 		}
 		if !deleted {
@@ -194,16 +197,20 @@ func workspacePathKnown(workspaces []Workspace, path string) bool {
 
 func (s *Store) rollbackWorkspaceRegistrationsLocked(databasePaths, memoryPaths []string) error {
 	var rollbackErr error
+	failedDatabasePaths := make(map[string]bool, len(databasePaths))
 	for _, path := range databasePaths {
 		if s.dbPath == "" {
 			continue
 		}
 		if _, err := deleteWebWorkspaceRegistration(s.dbPath, path); err != nil {
+			failedDatabasePaths[path] = true
 			rollbackErr = errors.Join(rollbackErr, err)
 		}
 	}
 	for _, path := range memoryPaths {
-		s.removeWorkspaceLocked(path)
+		if !failedDatabasePaths[path] {
+			s.removeWorkspaceLocked(path)
+		}
 	}
 	return rollbackErr
 }
