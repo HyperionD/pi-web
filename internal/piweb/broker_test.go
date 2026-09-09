@@ -73,7 +73,7 @@ func TestBrokerFanoutAndUnsubscribe(t *testing.T) {
 		if ok {
 			t.Fatalf("received event after unsubscribe: %#v", event)
 		}
-	case <-time.After(10 * time.Millisecond):
+	case <-time.After(time.Second):
 		t.Fatal("subscription channel did not close")
 	}
 }
@@ -167,9 +167,82 @@ func TestBrokerGapPrecedesCriticalEventWhenBufferIsFull(t *testing.T) {
 	if first.ID != queued.ID || gap.Type != "broker_gap" || terminal.ID != idle.ID {
 		t.Fatalf("full buffer lost ordering or terminal event: %#v, %#v, %#v", first, gap, terminal)
 	}
+	if gap.ID != 0 {
+		t.Fatalf("broker gap must not advance the event cursor: %#v", gap)
+	}
 	payload := gap.Payload.(map[string]any)
 	if payload["latestEventId"] != idle.ID {
 		t.Fatalf("gap did not identify the overflowing event: %#v", payload)
+	}
+}
+
+func TestClosingFullSubscriptionCancelsBlockedForwarder(t *testing.T) {
+	broker := NewBroker()
+	broker.buffer = 1
+	sendAttempted := make(chan struct{})
+	broker.sendHook = func() { close(sendAttempted) }
+	subscription := broker.SubscribeFrom("s1", 0)
+	broker.Publish("s1", "one", nil)
+	broker.Publish("s1", "two", nil)
+	<-sendAttempted
+
+	broker.mu.RLock()
+	var finished <-chan struct{}
+	for subscriber := range broker.subscribers["s1"] {
+		finished = subscriber.finished
+		break
+	}
+	broker.mu.RUnlock()
+	if finished == nil {
+		t.Fatal("subscription was removed before Close")
+	}
+
+	closed := make(chan struct{})
+	go func() {
+		subscription.Close()
+		close(closed)
+	}()
+	select {
+	case <-closed:
+	case <-time.After(time.Second):
+		t.Fatal("Close blocked with a full channel and no consumer")
+	}
+	select {
+	case <-finished:
+	case <-time.After(time.Second):
+		t.Fatal("forwarder did not exit after Close")
+	}
+}
+
+func TestGapPayloadIsImmutableAfterExposure(t *testing.T) {
+	broker := NewBroker()
+	broker.buffer = 1
+	sendCompleted := make(chan struct{})
+	releaseStateCommit := make(chan struct{})
+	var sendOnce sync.Once
+	broker.sendCompleteHook = func() {
+		sendOnce.Do(func() {
+			close(sendCompleted)
+			<-releaseStateCommit
+		})
+	}
+	subscription := broker.SubscribeFrom("s1", 0)
+	defer subscription.Close()
+	seed := broker.Publish("s1", "seed", nil)
+	dropped := broker.Publish("s1", "dropped", nil)
+	if event := <-subscription.Events; event.ID != seed.ID {
+		t.Fatalf("unexpected seed event: %#v", event)
+	}
+	<-sendCompleted
+	latest := broker.Publish("s1", "latest", nil)
+	close(releaseStateCommit)
+	gap := <-subscription.Events
+	if gap.Type != "broker_gap" {
+		t.Fatalf("expected broker gap, got %#v", gap)
+	}
+	payload, ok := gap.Payload.(map[string]any)
+	if !ok || payload["latestEventId"] != dropped.ID {
+		t.Fatalf("exposed gap payload was mutated: payload=%#v dropped=%d latest=%d", gap.Payload, dropped.ID, latest.ID)
 	}
 }
 
@@ -319,7 +392,7 @@ func TestBrokerCriticalBacklogIsBoundedAndGapIsVisible(t *testing.T) {
 	}
 }
 
-func TestClosingSubscriptionDrainsQueuedAndInFlightEvents(t *testing.T) {
+func TestClosingSubscriptionCancelsQueuedAndInFlightEvents(t *testing.T) {
 	broker := NewBroker()
 	broker.buffer = 1
 	sendStarted := make(chan struct{})
@@ -333,7 +406,7 @@ func TestClosingSubscriptionDrainsQueuedAndInFlightEvents(t *testing.T) {
 	}
 	subscription := broker.SubscribeFrom("s1", 0)
 	first := broker.Publish("s1", "one", nil)
-	second := broker.Publish("s1", "session.status", nil)
+	broker.Publish("s1", "session.status", nil)
 	if event := <-subscription.Events; event.ID != first.ID {
 		t.Fatalf("unexpected first event: %#v", event)
 	}
@@ -349,29 +422,16 @@ func TestClosingSubscriptionDrainsQueuedAndInFlightEvents(t *testing.T) {
 		t.Fatal("Close blocked on an in-flight send")
 	}
 	close(releaseSend)
-	select {
-	case event := <-subscription.Events:
-		if event.Type != "broker_gap" {
-			t.Fatalf("Close dropped the committed gap: %#v", event)
+	deadline := time.After(time.Second)
+	for {
+		select {
+		case _, ok := <-subscription.Events:
+			if !ok {
+				return
+			}
+		case <-deadline:
+			t.Fatal("subscription channel did not close after cancellation")
 		}
-	case <-time.After(time.Second):
-		t.Fatal("timed out waiting for committed gap after Close")
-	}
-	select {
-	case event := <-subscription.Events:
-		if event.ID != second.ID {
-			t.Fatalf("Close dropped committed event: %#v", event)
-		}
-	case <-time.After(time.Second):
-		t.Fatal("timed out waiting for committed event after Close")
-	}
-	select {
-	case _, ok := <-subscription.Events:
-		if ok {
-			t.Fatal("subscription remained open after draining committed events")
-		}
-	case <-time.After(time.Second):
-		t.Fatal("subscription channel did not close after draining")
 	}
 }
 
@@ -452,8 +512,14 @@ func TestHeartbeatDoesNotAdvanceLastEventIDCursor(t *testing.T) {
 	}
 	body := writer.String()
 	heartbeatStart := strings.Index(body, "event: heartbeat\n")
+	if heartbeatStart < 0 {
+		t.Fatalf("heartbeat was not written: %q", body)
+	}
 	heartbeatEnd := strings.Index(body[heartbeatStart:], "\n\n")
-	if heartbeatStart < 0 || heartbeatEnd < 0 || strings.Contains(body[heartbeatStart:heartbeatStart+heartbeatEnd], "id:") {
+	if heartbeatEnd < 0 {
+		t.Fatalf("heartbeat event was incomplete: %q", body)
+	}
+	if strings.Contains(body[heartbeatStart:heartbeatStart+heartbeatEnd], "id:") {
 		t.Fatalf("heartbeat must not advertise a Last-Event-ID cursor: %q", body)
 	}
 }
@@ -546,7 +612,7 @@ func TestServeSessionReplaysBeforeLiveAfterLastEventID(t *testing.T) {
 
 func TestWriteSSEIncludesBrokerGapRecoveryFields(t *testing.T) {
 	var body strings.Builder
-	event := Event{ID: 9, Type: "broker_gap", SessionID: "s1", Payload: map[string]any{
+	event := Event{ID: 0, Type: "broker_gap", SessionID: "s1", Payload: map[string]any{
 		"sessionId": "s1", "after": uint64(3), "latestEventId": uint64(8),
 	}}
 	if err := WriteSSE(&body, event); err != nil {
@@ -554,11 +620,14 @@ func TestWriteSSEIncludesBrokerGapRecoveryFields(t *testing.T) {
 	}
 	got := body.String()
 	for _, want := range []string{
-		"event: broker_gap\n", "id: 9\n", `"sessionId":"s1"`, `"after":3`, `"latestEventId":8`,
+		"event: broker_gap\n", `"sessionId":"s1"`, `"after":3`, `"latestEventId":8`,
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("expected %q in gap SSE %q", want, got)
 		}
+	}
+	if strings.Contains(got, "id:") {
+		t.Fatalf("broker gap must not advertise a Last-Event-ID cursor: %q", got)
 	}
 }
 

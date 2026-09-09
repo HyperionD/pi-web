@@ -28,6 +28,7 @@ type Broker struct {
 	publishAdmissionHook func(eventType string)
 	publishHook          func()
 	sendHook             func()
+	sendCompleteHook     func()
 }
 
 type brokerSubscriber struct {
@@ -39,6 +40,8 @@ type brokerSubscriber struct {
 	gapInFlight  bool
 	wake         chan struct{}
 	finished     chan struct{}
+	ctx          context.Context
+	cancel       context.CancelFunc
 	sending      bool
 	sendingEvent *Event
 	closed       bool
@@ -69,9 +72,10 @@ func (b *Broker) SubscribeFrom(sessionID string, after uint64) EventSubscription
 	if backlogLimit < 2 {
 		backlogLimit = 2
 	}
+	ctx, cancel := context.WithCancel(context.Background())
 	subscriber := &brokerSubscriber{
 		events: make(chan Event, buffer), after: after, capacity: buffer, backlogLimit: backlogLimit,
-		wake: make(chan struct{}, 1), finished: make(chan struct{}),
+		wake: make(chan struct{}, 1), finished: make(chan struct{}), ctx: ctx, cancel: cancel,
 	}
 	b.mu.Lock()
 	if b.subscribers[sessionID] == nil {
@@ -104,6 +108,7 @@ func (b *Broker) removeSubscriber(sessionID string, subscriber *brokerSubscriber
 		}
 	}
 	subscriber.closed = true
+	subscriber.cancel()
 	b.signalSubscriberLocked(subscriber)
 	b.mu.Unlock()
 }
@@ -119,26 +124,42 @@ func (b *Broker) forwardSubscriber(subscriber *brokerSubscriber) {
 				return
 			}
 			wake := subscriber.wake
+			ctx := subscriber.ctx
 			b.mu.Unlock()
-			<-wake
+			select {
+			case <-wake:
+			case <-ctx.Done():
+				return
+			}
 			continue
 		}
 		event := subscriber.queue[0]
 		subscriber.queue = subscriber.queue[1:]
 		subscriber.sending = true
-		subscriber.sendingEvent = &event
 		if event.Type == "broker_gap" {
 			subscriber.gapInFlight = true
 		}
+		subscriber.sendingEvent = &event
 		sendHook := b.sendHook
+		sendCompleteHook := b.sendCompleteHook
 		b.mu.Unlock()
 		if sendHook != nil {
 			sendHook()
 		}
-		subscriber.events <- event
+		select {
+		case subscriber.events <- event:
+		case <-subscriber.ctx.Done():
+			return
+		}
+		if sendCompleteHook != nil {
+			sendCompleteHook()
+		}
 		b.mu.Lock()
 		subscriber.sending = false
 		subscriber.sendingEvent = nil
+		if event.Type != "broker_gap" {
+			subscriber.gapInFlight = false
+		}
 		b.mu.Unlock()
 	}
 }
@@ -155,7 +176,7 @@ func (b *Broker) enqueueLocked(subscriber *brokerSubscriber, event Event) {
 		}
 	}
 	if isCriticalBrokerEvent(event.Type) {
-		if b.pendingLocked(subscriber) >= subscriber.capacity && b.gapLocked(subscriber) == nil {
+		if b.pendingLocked(subscriber) >= subscriber.capacity && !b.activeGapLocked(subscriber) {
 			b.recordGapLocked(subscriber, event.SessionID, event.ID)
 		}
 		b.enqueueCriticalLocked(subscriber, event)
@@ -179,14 +200,8 @@ func (b *Broker) pendingLocked(subscriber *brokerSubscriber) int {
 
 func (b *Broker) enqueueCriticalLocked(subscriber *brokerSubscriber, event Event) {
 	if len(subscriber.queue) >= subscriber.backlogLimit {
-		gap := b.pendingGapLocked(subscriber)
-		if gap == nil {
-			gap = b.newGapLocked(subscriber, event.SessionID, event.ID)
-		} else {
-			updateGapLatest(gap, event.ID)
-		}
+		gap := b.newGapLocked(subscriber, event.SessionID, event.ID)
 		subscriber.queue = []Event{*gap, event}
-		subscriber.gapInFlight = false
 	} else {
 		subscriber.queue = append(subscriber.queue, event)
 	}
@@ -200,30 +215,24 @@ func (b *Broker) signalSubscriberLocked(subscriber *brokerSubscriber) {
 	}
 }
 
-func (b *Broker) pendingGapLocked(subscriber *brokerSubscriber) *Event {
+func (b *Broker) pendingGapIndexLocked(subscriber *brokerSubscriber) int {
 	for index := range subscriber.queue {
 		if subscriber.queue[index].Type == "broker_gap" {
-			return &subscriber.queue[index]
+			return index
 		}
 	}
+	return -1
+}
+
+func (b *Broker) pendingGapLocked(subscriber *brokerSubscriber) *Event {
+	if index := b.pendingGapIndexLocked(subscriber); index >= 0 {
+		return &subscriber.queue[index]
+	}
 	return nil
 }
 
-func (b *Broker) gapLocked(subscriber *brokerSubscriber) *Event {
-	if gap := b.pendingGapLocked(subscriber); gap != nil {
-		return gap
-	}
-	if subscriber.sending && subscriber.sendingEvent != nil && subscriber.sendingEvent.Type == "broker_gap" {
-		return subscriber.sendingEvent
-	}
-	return nil
-}
-
-func updateGapLatest(gap *Event, latestEventID uint64) {
-	payload, ok := gap.Payload.(map[string]any)
-	if ok {
-		payload["latestEventId"] = latestEventID
-	}
+func (b *Broker) activeGapLocked(subscriber *brokerSubscriber) bool {
+	return subscriber.gapInFlight || b.pendingGapLocked(subscriber) != nil
 }
 
 func (b *Broker) newGapLocked(subscriber *brokerSubscriber, sessionID string, latestEventID uint64) *Event {
@@ -239,11 +248,11 @@ func (b *Broker) newGapLocked(subscriber *brokerSubscriber, sessionID string, la
 }
 
 func (b *Broker) recordGapLocked(subscriber *brokerSubscriber, sessionID string, latestEventID uint64) {
-	if gap := b.gapLocked(subscriber); gap != nil {
-		updateGapLatest(gap, latestEventID)
+	gap := b.newGapLocked(subscriber, sessionID, latestEventID)
+	if index := b.pendingGapIndexLocked(subscriber); index >= 0 {
+		subscriber.queue[index] = *gap
 		return
 	}
-	gap := b.newGapLocked(subscriber, sessionID, latestEventID)
 	if len(subscriber.queue) < subscriber.backlogLimit {
 		subscriber.queue = append(subscriber.queue, *gap)
 	} else {
@@ -251,7 +260,6 @@ func (b *Broker) recordGapLocked(subscriber *brokerSubscriber, sessionID string,
 		subscriber.queue = []Event{*gap}
 		subscriber.closed = true
 	}
-	subscriber.gapInFlight = false
 	b.signalSubscriberLocked(subscriber)
 }
 
