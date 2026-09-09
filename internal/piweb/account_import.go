@@ -295,10 +295,12 @@ func (s *Server) saveImportedAccounts(rows []accountImportRow) (int, error) {
 	if err != nil {
 		return 0, fmt.Errorf("注册导入工作区：%w", err)
 	}
-	rollback := func() {
+	rollback := func() error {
+		var rollbackErr error
 		for _, path := range registeredPaths {
-			_ = s.store.RemoveWorkspaceRegistration(path)
+			rollbackErr = errors.Join(rollbackErr, s.store.RemoveWorkspaceRegistration(path))
 		}
+		return rollbackErr
 	}
 	users := mapsCloneAccounts(s.accounts.Users)
 	for _, row := range rows {
@@ -306,13 +308,11 @@ func (s *Server) saveImportedAccounts(rows []accountImportRow) (int, error) {
 		for _, requestedPath := range row.workspacePaths {
 			realPath, err := filepath.EvalSymlinks(requestedPath)
 			if err != nil {
-				rollback()
-				return 0, fmt.Errorf("解析导入工作区：%w", err)
+				return 0, errors.Join(fmt.Errorf("解析导入工作区：%w", err), rollback())
 			}
 			grant, ok := grants[realPath]
 			if !ok {
-				rollback()
-				return 0, errors.New("导入工作区未注册")
+				return 0, errors.Join(errors.New("导入工作区未注册"), rollback())
 			}
 			paths[grant.ID] = grant.Path
 		}
@@ -330,8 +330,7 @@ func (s *Server) saveImportedAccounts(rows []accountImportRow) (int, error) {
 		}
 	}
 	if err := s.accounts.save(users, s.accounts.Owners); err != nil {
-		rollback()
-		return 0, err
+		return 0, errors.Join(err, rollback())
 	}
 	return len(rows), nil
 }

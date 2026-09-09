@@ -311,6 +311,20 @@ ORDER BY hidden ASC, last_opened_at DESC, path ASC
 	return records
 }
 
+func webWorkspaceExists(dbPath, path string) (bool, error) {
+	if dbPath == "" {
+		return false, nil
+	}
+	db, err := openWebDB(dbPath)
+	if err != nil {
+		return false, err
+	}
+	defer db.Close()
+	var exists bool
+	err = db.QueryRow(`SELECT EXISTS(SELECT 1 FROM workspaces WHERE path=?)`, path).Scan(&exists)
+	return exists, err
+}
+
 func loadWebWorkspaceID(dbPath, path string) (string, error) {
 	if dbPath == "" {
 		return "", nil

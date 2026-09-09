@@ -70,8 +70,12 @@ func (s *Store) RegisterWorkspace(path string) (Workspace, error) {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	wasKnown := workspacePathKnown(s.workspaces, clean)
 	workspace := s.addWorkspaceLocked(clean, storedID)
 	if err := saveWebWorkspaceRegistered(s.dbPath, webWorkspaceRecord{ID: workspace.ID, Path: workspace.Path}); err != nil {
+		if !wasKnown {
+			s.removeWorkspaceLocked(clean)
+		}
 		return Workspace{}, err
 	}
 	return workspace, nil
@@ -83,21 +87,28 @@ func (s *Store) RemoveWorkspaceRegistration(path string) error {
 		return err
 	}
 	clean = canonicalWorkspacePath(clean)
-	if s.dbPath != "" {
-		deleted, err := deleteWebWorkspaceRegistration(s.dbPath, clean)
-		if err != nil || !deleted {
-			return err
-		}
-	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if s.dbPath != "" {
+		deleted, err := deleteWebWorkspaceRegistration(s.dbPath, clean)
+		if err != nil {
+			s.removeWorkspaceLocked(clean)
+			return err
+		}
+		if !deleted {
+			return nil
+		}
+	}
 	s.removeWorkspaceLocked(clean)
 	return nil
 }
 
 func (s *Store) RegisterWorkspacePaths(paths []string) (map[string]workspaceGrant, []string, error) {
 	grants := make(map[string]workspaceGrant, len(paths))
-	entries := make([]struct{ clean, real string }, 0, len(paths))
+	entries := make([]struct {
+		clean, real string
+		existing    bool
+	}, 0, len(paths))
 	seen := make(map[string]bool, len(paths))
 	for _, path := range paths {
 		clean, err := ValidateWorkspacePath(path)
@@ -112,8 +123,15 @@ func (s *Store) RegisterWorkspacePaths(paths []string) (map[string]workspaceGran
 		if seen[realPath] {
 			continue
 		}
+		existing, err := webWorkspaceExists(s.dbPath, clean)
+		if err != nil {
+			return nil, nil, err
+		}
 		seen[realPath] = true
-		entries = append(entries, struct{ clean, real string }{clean: clean, real: realPath})
+		entries = append(entries, struct {
+			clean, real string
+			existing    bool
+		}{clean: clean, real: realPath, existing: existing})
 	}
 	storedIDs := make(map[string]string, len(entries))
 	for _, entry := range entries {
@@ -127,7 +145,7 @@ func (s *Store) RegisterWorkspacePaths(paths []string) (map[string]workspaceGran
 	defer s.mu.Unlock()
 	created := make([]string, 0, len(entries))
 	for _, entry := range entries {
-		wasKnown := workspacePathKnown(s.workspaces, entry.clean)
+		wasKnown := workspacePathKnown(s.workspaces, entry.clean) || entry.existing
 		workspace := s.addWorkspaceLocked(entry.clean, storedIDs[entry.clean])
 		if !wasKnown {
 			created = append(created, workspace.Path)
@@ -154,13 +172,9 @@ func (s *Store) rollbackWorkspaceRegistrationsLocked(paths []string) error {
 	var rollbackErr error
 	for _, path := range paths {
 		if s.dbPath != "" {
-			deleted, err := deleteWebWorkspaceRegistration(s.dbPath, path)
+			_, err := deleteWebWorkspaceRegistration(s.dbPath, path)
 			if err != nil {
 				rollbackErr = errors.Join(rollbackErr, err)
-				continue
-			}
-			if !deleted {
-				continue
 			}
 		}
 		s.removeWorkspaceLocked(path)
