@@ -72,6 +72,44 @@ func (s *Store) RegisterWorkspace(path string) (Workspace, error) {
 	return workspace, nil
 }
 
+func (s *Store) RemoveWorkspaceRegistration(path string) error {
+	clean, err := ValidateWorkspacePath(path)
+	if err != nil {
+		return err
+	}
+	clean = canonicalWorkspacePath(clean)
+	if s.dbPath != "" {
+		if err := deleteWebWorkspaceRegistration(s.dbPath, clean); err != nil {
+			return err
+		}
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	index := -1
+	for i, workspace := range s.workspaces {
+		if workspace.Path == clean {
+			index = i
+			break
+		}
+	}
+	if index < 0 {
+		return nil
+	}
+	workspaceID := s.workspaces[index].ID
+	s.workspaces = append(s.workspaces[:index], s.workspaces[index+1:]...)
+	delete(s.files, workspaceID)
+	delete(s.workspacePath, workspaceID)
+	delete(s.workspaceSessionDir, workspaceID)
+	recent := s.recentWorkspaceIDs[:0]
+	for _, id := range s.recentWorkspaceIDs {
+		if id != workspaceID {
+			recent = append(recent, id)
+		}
+	}
+	s.recentWorkspaceIDs = recent
+	return nil
+}
+
 func (s *Store) EnsureWorkspace(workspaceID, path string) (Workspace, error) {
 	clean, err := ValidateWorkspacePath(path)
 	if err != nil {

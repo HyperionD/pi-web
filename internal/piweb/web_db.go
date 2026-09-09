@@ -350,6 +350,16 @@ ON CONFLICT(path) DO UPDATE SET
 	return err
 }
 
+func deleteWebWorkspaceRegistration(dbPath, path string) error {
+	db, err := openWebDB(dbPath)
+	if err != nil {
+		return err
+	}
+	defer db.Close()
+	_, err = db.Exec(`DELETE FROM workspaces WHERE path=? AND hidden=1`, path)
+	return err
+}
+
 func saveWebWorkspaceClosed(dbPath, path string) error {
 	if dbPath == "" {
 		return nil

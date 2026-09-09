@@ -14,12 +14,13 @@ import (
 )
 
 const (
-	maxUserImportBytes      = 5 << 20
-	maxUserImportRows       = 1000
-	maxUserImportCellBytes  = 4096
-	maxUserImportXMLBytes   = 16 << 20
-	maxUserImportUnzipBytes = 32 << 20
-	maxUserImportWorkspaces = 100
+	maxUserImportBytes        = 5 << 20
+	maxUserImportRows         = 1000
+	maxUserImportCellBytes    = 4096
+	maxUserImportXMLBytes     = 16 << 20
+	maxUserImportUnzipBytes   = 32 << 20
+	maxUserImportWorkspaces   = 100
+	maxUserImportContentBytes = 1 << 20
 )
 
 var userImportHeaders = []string{"账号", "用户名", "部门", "初始密码", "工作区路径", "禁用"}
@@ -35,8 +36,10 @@ type accountImportRow struct {
 }
 
 type accountImportValidationError struct{ message string }
+type accountImportPayloadError struct{ message string }
 
 func (e *accountImportValidationError) Error() string { return e.message }
+func (e *accountImportPayloadError) Error() string    { return e.message }
 
 func (s *Server) userImportTemplate(w http.ResponseWriter, _ *http.Request) {
 	file := excelize.NewFile()
@@ -92,7 +95,12 @@ func (s *Server) importAccounts(w http.ResponseWriter, r *http.Request) {
 	}
 	rows, err := parseUserImportRows(file)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, err)
+		status := http.StatusBadRequest
+		var payloadErr *accountImportPayloadError
+		if errors.As(err, &payloadErr) {
+			status = http.StatusRequestEntityTooLarge
+		}
+		writeError(w, status, err)
 		return
 	}
 	imported, err := s.saveImportedAccounts(rows)
@@ -113,6 +121,9 @@ func parseUserImportRows(reader io.Reader) ([]accountImportRow, error) {
 		UnzipSizeLimit: maxUserImportUnzipBytes, UnzipXMLSizeLimit: maxUserImportXMLBytes,
 	})
 	if err != nil {
+		if strings.Contains(err.Error(), "unzip size exceeds") {
+			return nil, &accountImportPayloadError{message: "Excel 解压内容超过可处理大小"}
+		}
 		return nil, errors.New("无法读取 Excel 文件")
 	}
 	defer func() { _ = file.Close() }()
@@ -120,16 +131,32 @@ func parseUserImportRows(reader io.Reader) ([]accountImportRow, error) {
 	if len(sheets) == 0 {
 		return nil, errors.New("Excel 文件没有工作表")
 	}
-	rows, err := file.GetRows(sheets[0])
+	rows, err := file.Rows(sheets[0])
 	if err != nil {
 		return nil, errors.New("无法读取 Excel 工作表")
 	}
-	if len(rows) == 0 || !validUserImportHeader(rows[0]) {
-		return nil, fmt.Errorf("模板表头必须为：%s", strings.Join(userImportHeaders, "、"))
-	}
-	parsed := make([]accountImportRow, 0, len(rows)-1)
-	for index, row := range rows[1:] {
-		rowNumber := index + 2
+	defer func() { _ = rows.Close() }()
+	parsed := make([]accountImportRow, 0, 32)
+	rowNumber := 0
+	contentBytes := 0
+	for rows.Next() {
+		rowNumber++
+		row, err := rows.Columns()
+		if err != nil {
+			return nil, errors.New("无法读取 Excel 行")
+		}
+		for _, value := range row {
+			contentBytes += len(value)
+		}
+		if contentBytes > maxUserImportContentBytes {
+			return nil, &accountImportPayloadError{message: "导入内容不能超过 1 MiB"}
+		}
+		if rowNumber == 1 {
+			if !validUserImportHeader(row) {
+				return nil, fmt.Errorf("模板表头必须为：%s", strings.Join(userImportHeaders, "、"))
+			}
+			continue
+		}
 		if emptyImportRow(row) {
 			continue
 		}
@@ -141,6 +168,15 @@ func parseUserImportRows(reader io.Reader) ([]accountImportRow, error) {
 			return nil, err
 		}
 		parsed = append(parsed, parsedRow)
+	}
+	if err := rows.Error(); err != nil {
+		if strings.Contains(err.Error(), "maximum") || strings.Contains(err.Error(), "limit") {
+			return nil, &accountImportPayloadError{message: "Excel 工作表超过可处理大小"}
+		}
+		return nil, errors.New("无法读取 Excel 工作表")
+	}
+	if rowNumber == 0 {
+		return nil, errors.New("Excel 文件没有表头")
 	}
 	if len(parsed) == 0 {
 		return nil, errors.New("Excel 中没有可导入的用户")
@@ -170,6 +206,9 @@ func emptyImportRow(row []string) bool {
 }
 
 func parseUserImportRow(row []string, rowNumber int) (accountImportRow, error) {
+	if len(row) > len(userImportHeaders) {
+		return accountImportRow{}, fmt.Errorf("第 %d 行：列数不能超过 %d 列", rowNumber, len(userImportHeaders))
+	}
 	for _, value := range row {
 		if len(value) > maxUserImportCellBytes {
 			return accountImportRow{}, fmt.Errorf("第 %d 行：单元格内容过长", rowNumber)
@@ -249,9 +288,21 @@ func (s *Server) saveImportedAccounts(rows []accountImportRow) (int, error) {
 		hashes[row.rowNumber] = hash
 	}
 	users := mapsCloneAccounts(s.accounts.Users)
+	knownPaths := make(map[string]bool)
+	for _, workspace := range s.store.AllWorkspaces() {
+		knownPaths[workspace.Path] = true
+	}
+	registeredPaths := make([]string, 0)
+	rollback := func() {
+		for _, path := range registeredPaths {
+			_ = s.store.RemoveWorkspaceRegistration(path)
+		}
+	}
 	for _, row := range rows {
 		paths, err := s.accountPaths(nil, row.workspacePaths)
+		registeredPaths = append(registeredPaths, newWorkspacePaths(s.store, knownPaths)...)
 		if err != nil {
+			rollback()
 			return 0, fmt.Errorf("注册导入工作区：%w", err)
 		}
 		ids := make([]string, 0, len(paths))
@@ -268,9 +319,22 @@ func (s *Server) saveImportedAccounts(rows []accountImportRow) (int, error) {
 		}
 	}
 	if err := s.accounts.save(users, s.accounts.Owners); err != nil {
+		rollback()
 		return 0, err
 	}
 	return len(rows), nil
+}
+
+func newWorkspacePaths(store *Store, known map[string]bool) []string {
+	paths := make([]string, 0)
+	for _, workspace := range store.AllWorkspaces() {
+		if known[workspace.Path] {
+			continue
+		}
+		known[workspace.Path] = true
+		paths = append(paths, workspace.Path)
+	}
+	return paths
 }
 
 func validateImportWorkspacePaths(rows []accountImportRow) error {
