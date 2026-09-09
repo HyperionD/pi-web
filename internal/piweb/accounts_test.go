@@ -114,12 +114,22 @@ func TestAccountDepartmentPersistsAndSearches(t *testing.T) {
 
 func TestAccountListAcceptsPageSize(t *testing.T) {
 	s, admin := accountServer(t)
-	w := accountRequest(s, "GET", "/api/admin/users?page=1&pageSize=20", "", admin)
+	w := accountRequest(s, "GET", "/api/admin/users?page=1&pageSize=10", "", admin)
 	if w.Code != http.StatusOK {
-		t.Fatalf("list: %d %s", w.Code, w.Body.String())
+		t.Fatalf("list ten: %d %s", w.Code, w.Body.String())
 	}
 	var body struct {
 		PageSize int `json:"pageSize"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if body.PageSize != 10 {
+		t.Fatalf("ten page size = %d, want 10", body.PageSize)
+	}
+	w = accountRequest(s, "GET", "/api/admin/users?page=1&pageSize=20", "", admin)
+	if w.Code != http.StatusOK {
+		t.Fatalf("list: %d %s", w.Code, w.Body.String())
 	}
 	if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
 		t.Fatal(err)

@@ -72,8 +72,8 @@ async function refreshWorkspaceOptions() {
 
 async function refreshUsers() {
   const query = document.querySelector<HTMLInputElement>("[data-user-search]")?.value.trim() || "";
-  const { users, total, page } = await listUsers(query, userPage, userPageSize);
-  userTotal = total; userPage = page;
+  const { users, total, page, pageSize } = await listUsers(query, userPage, userPageSize);
+  userTotal = total; userPage = page; userPageSize = pageSize;
   const container = document.querySelector<HTMLTableSectionElement>("[data-users-list]")!;
   container.replaceChildren();
   document.querySelector<HTMLElement>("[data-users-empty]")!.hidden = users.length > 0;
