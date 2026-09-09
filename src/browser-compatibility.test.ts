@@ -47,5 +47,10 @@ describe("browser compatibility", () => {
       "./styles/parts/settings-modal.css",
     ].map((path) => readFileSync(new URL(path, import.meta.url), "utf8")).join("\n");
     expect(styles).not.toContain("color-mix(");
+    const authoredDeclarations = styles.replace(
+      "@supports (height: 100dvh) {\n  :root { --app-viewport-height: 100dvh; }\n}\n",
+      "",
+    );
+    expect(authoredDeclarations).not.toContain("100dvh");
   });
 });

@@ -3,6 +3,7 @@
   "compilerOptions": {
     "types": ["astro/client", "vitest/globals", "@testing-library/jest-dom"],
     "moduleResolution": "bundler",
+    "forceConsistentCasingInFileNames": true,
     "strict": false,
     "noEmit": true
   },
