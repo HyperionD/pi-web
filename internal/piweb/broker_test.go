@@ -3,6 +3,7 @@ package piweb
 import (
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -61,8 +62,76 @@ func TestBrokerFanoutAndUnsubscribe(t *testing.T) {
 		t.Fatal("timed out waiting for event")
 	}
 	unsubscribe()
-	_, ok := <-ch
-	if ok {
-		t.Fatal("expected subscription channel to close")
+	broker.Publish("s1", "session.status", map[string]string{"status": "closed"})
+	select {
+	case event := <-ch:
+		t.Fatalf("received event after unsubscribe: %#v", event)
+	case <-time.After(10 * time.Millisecond):
+	}
+}
+
+func TestSubscribeFromDoesNotMissEventBetweenReplayAndLive(t *testing.T) {
+	broker := NewBroker()
+	first := broker.Publish("s1", "session.message", map[string]string{"text": "first"})
+	second := broker.Publish("s1", "session.status", map[string]string{"status": "thinking"})
+
+	subscription := broker.SubscribeFrom("s1", first.ID)
+	defer subscription.Close()
+	third := broker.Publish("s1", "tool.started", map[string]string{"tool": "bash"})
+
+	events := append([]Event(nil), subscription.Replay...)
+	select {
+	case event := <-subscription.Events:
+		events = append(events, event)
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for live event")
+	}
+	if len(events) != 2 || events[0].ID != second.ID || events[1].ID != third.ID {
+		t.Fatalf("subscription missed or reordered events: %#v", events)
+	}
+}
+
+func TestBrokerGapIsObservableWhenSubscriberIsSlow(t *testing.T) {
+	broker := NewBroker()
+	broker.buffer = 1
+	after := broker.Publish("s1", "session.message", map[string]string{"text": "before"})
+	subscription := broker.SubscribeFrom("s1", after.ID)
+	defer subscription.Close()
+	broker.Publish("s1", "session.message", map[string]string{"text": "queued"})
+	latest := broker.Publish("s1", "session.status", map[string]string{"status": "idle"})
+
+	select {
+	case event := <-subscription.Events:
+		if event.Type != "broker_gap" {
+			t.Fatalf("expected broker_gap, got %#v", event)
+		}
+		payload, ok := event.Payload.(map[string]any)
+		if !ok || payload["sessionId"] != "s1" || payload["after"] != after.ID || payload["latestEventId"] != latest.ID {
+			t.Fatalf("unexpected broker gap payload: %#v", event.Payload)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for broker gap")
+	}
+}
+
+func TestClosingSubscriptionConcurrentlyWithPublishDoesNotPanic(t *testing.T) {
+	broker := NewBroker()
+	for i := 0; i < 100; i++ {
+		subscription := broker.SubscribeFrom("s1", 0)
+		start := make(chan struct{})
+		var waitGroup sync.WaitGroup
+		waitGroup.Add(2)
+		go func() {
+			defer waitGroup.Done()
+			<-start
+			broker.Publish("s1", "error", map[string]string{"message": "boom"})
+		}()
+		go func() {
+			defer waitGroup.Done()
+			<-start
+			subscription.Close()
+		}()
+		close(start)
+		waitGroup.Wait()
 	}
 }

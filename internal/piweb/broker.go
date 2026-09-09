@@ -14,7 +14,7 @@ import (
 
 type Broker struct {
 	mu          sync.RWMutex
-	subscribers map[string]map[chan Event]struct{}
+	subscribers map[string]map[*brokerSubscriber]struct{}
 	nextID      atomic.Uint64
 	buffer      int
 	heartbeat   time.Duration
@@ -22,9 +22,14 @@ type Broker struct {
 	historySize int
 }
 
+type brokerSubscriber struct {
+	events chan Event
+	after  uint64
+}
+
 func NewBroker() *Broker {
 	return &Broker{
-		subscribers: map[string]map[chan Event]struct{}{},
+		subscribers: map[string]map[*brokerSubscriber]struct{}{},
 		history:     map[string][]Event{},
 		buffer:      32,
 		heartbeat:   15 * time.Second,
@@ -33,28 +38,43 @@ func NewBroker() *Broker {
 }
 
 func (b *Broker) Subscribe(sessionID string) (<-chan Event, func()) {
-	eventChannel := make(chan Event, b.buffer)
+	subscription := b.SubscribeFrom(sessionID, 0)
+	return subscription.Events, subscription.Close
+}
+
+func (b *Broker) SubscribeFrom(sessionID string, after uint64) EventSubscription {
+	buffer := b.buffer
+	if buffer < 1 {
+		buffer = 1
+	}
+	subscriber := &brokerSubscriber{events: make(chan Event, buffer), after: after}
 	b.mu.Lock()
 	if b.subscribers[sessionID] == nil {
-		b.subscribers[sessionID] = map[chan Event]struct{}{}
+		b.subscribers[sessionID] = map[*brokerSubscriber]struct{}{}
 	}
-	b.subscribers[sessionID][eventChannel] = struct{}{}
+	b.subscribers[sessionID][subscriber] = struct{}{}
+	replay := b.replayLocked(sessionID, after)
 	b.mu.Unlock()
 
-	unsubscribe := func() {
-		b.mu.Lock()
-		if subscribers := b.subscribers[sessionID]; subscribers != nil {
-			if _, ok := subscribers[eventChannel]; ok {
-				delete(subscribers, eventChannel)
-				close(eventChannel)
-			}
-			if len(subscribers) == 0 {
-				delete(b.subscribers, sessionID)
-			}
-		}
-		b.mu.Unlock()
+	var closeOnce sync.Once
+	return EventSubscription{
+		Events: subscriber.events,
+		Replay: replay,
+		Close: func() {
+			closeOnce.Do(func() { b.removeSubscriber(sessionID, subscriber) })
+		},
 	}
-	return eventChannel, unsubscribe
+}
+
+func (b *Broker) removeSubscriber(sessionID string, subscriber *brokerSubscriber) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if subscribers := b.subscribers[sessionID]; subscribers != nil {
+		delete(subscribers, subscriber)
+		if len(subscribers) == 0 {
+			delete(b.subscribers, sessionID)
+		}
+	}
 }
 
 func (b *Broker) Publish(sessionID, eventType string, payload any) Event {
@@ -66,27 +86,54 @@ func (b *Broker) Publish(sessionID, eventType string, payload any) Event {
 		At:        time.Now().UTC(),
 	}
 	b.mu.Lock()
-	b.history[sessionID] = append(b.history[sessionID], event)
-	if len(b.history[sessionID]) > b.historySize {
-		b.history[sessionID] = b.history[sessionID][len(b.history[sessionID])-b.historySize:]
-	}
-	var subscribers []chan Event
-	for eventChannel := range b.subscribers[sessionID] {
-		subscribers = append(subscribers, eventChannel)
-	}
-	b.mu.Unlock()
-	for _, eventChannel := range subscribers {
+	defer b.mu.Unlock()
+	b.appendHistoryLocked(sessionID, event)
+	for subscriber := range b.subscribers[sessionID] {
 		select {
-		case eventChannel <- event:
+		case subscriber.events <- event:
 		default:
+			b.publishGapLocked(sessionID, subscriber, event.ID)
 		}
 	}
 	return event
 }
 
+func (b *Broker) appendHistoryLocked(sessionID string, event Event) {
+	b.history[sessionID] = append(b.history[sessionID], event)
+	if len(b.history[sessionID]) > b.historySize {
+		b.history[sessionID] = b.history[sessionID][len(b.history[sessionID])-b.historySize:]
+	}
+}
+
+func (b *Broker) publishGapLocked(sessionID string, subscriber *brokerSubscriber, latestEventID uint64) {
+	for {
+		select {
+		case <-subscriber.events:
+		default:
+			gap := Event{
+				ID:        b.nextID.Add(1),
+				Type:      "broker_gap",
+				SessionID: sessionID,
+				Payload: map[string]any{
+					"sessionId":     sessionID,
+					"after":         subscriber.after,
+					"latestEventId": latestEventID,
+				},
+				At: time.Now().UTC(),
+			}
+			subscriber.events <- gap
+			return
+		}
+	}
+}
+
 func (b *Broker) Replay(sessionID string, after uint64) []Event {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
+	return b.replayLocked(sessionID, after)
+}
+
+func (b *Broker) replayLocked(sessionID string, after uint64) []Event {
 	var replay []Event
 	for _, event := range b.history[sessionID] {
 		if event.ID > after {
@@ -112,8 +159,10 @@ func (b *Broker) ServeSession(w http.ResponseWriter, r *http.Request, sessionID 
 	if value := r.Header.Get("Last-Event-ID"); value != "" {
 		after, _ = strconv.ParseUint(value, 10, 64)
 	}
+	subscription := b.SubscribeFrom(sessionID, after)
+	defer subscription.Close()
 	if shouldReplayHistory(r, after) {
-		for _, event := range b.Replay(sessionID, after) {
+		for _, event := range subscription.Replay {
 			if err := WriteSSE(w, event); err != nil {
 				return
 			}
@@ -121,8 +170,7 @@ func (b *Broker) ServeSession(w http.ResponseWriter, r *http.Request, sessionID 
 		flusher.Flush()
 	}
 
-	events, unsubscribe := b.Subscribe(sessionID)
-	defer unsubscribe()
+	events := subscription.Events
 	ticker := time.NewTicker(b.heartbeat)
 	defer ticker.Stop()
 
