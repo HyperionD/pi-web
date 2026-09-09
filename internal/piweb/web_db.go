@@ -359,6 +359,26 @@ func saveWebWorkspaceClosed(dbPath, path string) error {
 	return err
 }
 
+func saveWebWorkspaceRegistered(dbPath string, record webWorkspaceRecord) error {
+	if dbPath == "" {
+		return nil
+	}
+	db, err := openWebDB(dbPath)
+	if err != nil {
+		return err
+	}
+	defer db.Close()
+	now := time.Now().UTC().Format(time.RFC3339Nano)
+	_, err = db.Exec(`
+INSERT INTO workspaces(path, workspace_id, name, created_at, last_opened_at, hidden)
+VALUES (?, ?, ?, ?, ?, 1)
+ON CONFLICT(path) DO UPDATE SET
+  workspace_id=COALESCE(workspaces.workspace_id, excluded.workspace_id),
+  name=excluded.name
+`, record.Path, record.ID, filepath.Base(record.Path), now, now)
+	return err
+}
+
 func SaveWebWorkspacePaths(dbPath string, paths []string) error {
 	records := make([]webWorkspaceRecord, 0, len(paths))
 	for _, path := range paths {

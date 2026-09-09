@@ -134,6 +134,49 @@ func containsJSONID(value any, id string) bool {
 	return false
 }
 
+func TestGrantingNewWorkspaceDoesNotAddItToAdminRecents(t *testing.T) {
+	s, admin := accountServer(t)
+	s.store = emptyStore(DefaultWebDBPath())
+	s.workspaceAccess.store = s.store
+	root := t.TempDir()
+	body := fmt.Sprintf(`{"username":"alice","password":"test-password","workspaces":[],"workspacePaths":[%q]}`, root)
+	created := accountRequest(s, "POST", "/api/admin/users", body, admin)
+	if created.Code != http.StatusCreated {
+		t.Fatalf("create user with workspace path: %d %s", created.Code, created.Body.String())
+	}
+
+	workspaces := s.store.AllWorkspaces()
+	if len(workspaces) != 1 {
+		t.Fatalf("registered workspaces = %d, want 1", len(workspaces))
+	}
+	workspace := workspaces[0]
+	adminList := accountRequest(s, "GET", "/api/workspaces", "", admin)
+	if adminList.Code != http.StatusOK {
+		t.Fatalf("admin workspace list: %d %s", adminList.Code, adminList.Body.String())
+	}
+	if containsJSONIDFromBody(adminList.Body.Bytes(), workspace.ID) {
+		t.Fatalf("newly granted workspace appeared in admin recents: %s", adminList.Body.String())
+	}
+
+	alice := loginAccount(t, s, "alice", "test-password")
+	memberList := accountRequest(s, "GET", "/api/workspaces", "", alice)
+	if memberList.Code != http.StatusOK || !containsJSONIDFromBody(memberList.Body.Bytes(), workspace.ID) {
+		t.Fatalf("granted workspace missing for member: %d %s", memberList.Code, memberList.Body.String())
+	}
+
+	restarted := NewServer(Config{UserManagement: true}, NewWebStore(DefaultWebDBPath()), NewBroker())
+	restartedAdmin := loginAccount(t, restarted, "admin", "admin-password")
+	restartedAdminList := accountRequest(restarted, "GET", "/api/workspaces", "", restartedAdmin)
+	if restartedAdminList.Code != http.StatusOK || containsJSONIDFromBody(restartedAdminList.Body.Bytes(), workspace.ID) {
+		t.Fatalf("registered workspace became an admin recent after restart: %d %s", restartedAdminList.Code, restartedAdminList.Body.String())
+	}
+	restartedAlice := loginAccount(t, restarted, "alice", "test-password")
+	restartedMemberList := accountRequest(restarted, "GET", "/api/workspaces", "", restartedAlice)
+	if restartedMemberList.Code != http.StatusOK || !containsJSONIDFromBody(restartedMemberList.Body.Bytes(), workspace.ID) {
+		t.Fatalf("registered workspace was not restored for member: %d %s", restartedMemberList.Code, restartedMemberList.Body.String())
+	}
+}
+
 func TestAdminWorkspaceCatalogIncludesClosedWorkspace(t *testing.T) {
 	s, admin := accountServer(t)
 	workspace, err := s.store.OpenWorkspace(t.TempDir())

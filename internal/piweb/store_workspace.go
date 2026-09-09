@@ -52,6 +52,26 @@ func (s *Store) OpenWorkspace(path string) (Workspace, error) {
 	return workspace, nil
 }
 
+// RegisterWorkspace adds a workspace to the catalog without making it recent.
+func (s *Store) RegisterWorkspace(path string) (Workspace, error) {
+	clean, err := ValidateWorkspacePath(path)
+	if err != nil {
+		return Workspace{}, err
+	}
+	clean = canonicalWorkspacePath(clean)
+	storedID, err := loadWebWorkspaceID(s.dbPath, clean)
+	if err != nil {
+		return Workspace{}, err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	workspace := s.addWorkspaceLocked(clean, storedID)
+	if err := saveWebWorkspaceRegistered(s.dbPath, webWorkspaceRecord{ID: workspace.ID, Path: workspace.Path}); err != nil {
+		return Workspace{}, err
+	}
+	return workspace, nil
+}
+
 func (s *Store) EnsureWorkspace(workspaceID, path string) (Workspace, error) {
 	clean, err := ValidateWorkspacePath(path)
 	if err != nil {

@@ -67,7 +67,7 @@ func (s *Server) accountPaths(ids, requestedPaths []string) (map[string]string, 
 		if err := policy.CheckExistingDirectory(requestedPath); err != nil {
 			return nil, err
 		}
-		workspace, err := s.store.OpenWorkspace(requestedPath)
+		workspace, err := s.store.RegisterWorkspace(requestedPath)
 		if err != nil {
 			return nil, err
 		}
