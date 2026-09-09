@@ -6,13 +6,14 @@
 
 **Architecture:** 不迁移到 Next.js；在 Go 后端增加按 session 管理的持久 Pi RPC runtime、可靠事件订阅和命令路由。前端继续使用 Astro + `PiApp` Custom Element，逐步把运行状态、输入状态和 API 类型从隐式 DOM 状态抽离为可测试模块。
 
-**Tech Stack:** Go 1.26, `net/http`, SQLite, external `pi --mode rpc`, Astro, React islands, TypeScript, Vitest, Go `testing`, Playwright, Vite `chrome107`。
+**Tech Stack:** Go 1.26, `net/http`, SQLite, external `pi --mode rpc`, Astro, React islands, TypeScript, Vitest, Go `testing`, Playwright, Vite `chrome107`；PTY 首期仅支持 Linux（优先麒麟 V10 SP3）。
 
 **Spec:** `docs/superpowers/plans/2026-09-09-pi-web-overall-improvement.md`（本文同时作为设计基线）
 
 ## Global Constraints
 
 - 保留 Go 后端、Astro 前端、SQLite、单二进制发布和现有多用户 workspace/session ACL。
+- PTY 首期仅支持 Linux amd64/arm64，重点验证麒麟 V10 SP3；不实现 Windows/macOS PTY 适配。
 - 前端生产构建目标固定为 `chrome107`；不得引入 Chrome 107 不支持的 authored CSS/JS API。
 - 后端始终是文件、Shell、workspace、session 和资源执行的最终安全边界。
 - 生产代码必须先有失败测试；每个任务都要执行定向测试、全量测试和独立提交。
@@ -86,9 +87,9 @@ Per-session PiRuntime
 - Modify: `internal/piweb/account_middleware.go` — trust route 和执行前校验。
 - Modify: `internal/piweb/commands.go` — 资源发现与资源执行分离。
 - Modify: `cli.go`、`README.md` — localhost 默认值和远程访问警告。
-- Create: `internal/piweb/terminal_manager.go` — PTY registry、写入、resize、退出和 offset。
-- Create: `internal/piweb/terminal_process_unix.go` — Unix PTY adapter。
-- Create: `internal/piweb/terminal_process_windows.go` — Windows ConPTY/pipe adapter。
+- Create: `internal/piweb/terminal_manager.go` — Linux PTY registry、写入、resize、退出和 offset。
+- Create: `internal/piweb/terminal_process_linux.go` — Linux Unix98 PTY adapter。
+- Modify: `go.mod`、`go.sum` — 添加 `github.com/creack/pty` 直接依赖。
 - Modify: `internal/piweb/server.go` — terminal API。
 - Create: `src/components/TerminalPanel.tsx` — 交互式终端 Tab。
 - Modify: `src/lib/api.ts` — terminal client 和 SSE cursor。
@@ -688,8 +689,9 @@ git commit -m "feat: add session branches search and export" -m "Co-authored-by:
 
 **Files:**
 - Create: `internal/piweb/terminal_manager.go`
-- Create: `internal/piweb/terminal_process_unix.go`
-- Create: `internal/piweb/terminal_process_windows.go`
+- Create: `internal/piweb/terminal_process_linux.go`
+- Modify: `go.mod`
+- Modify: `go.sum`
 - Modify: `internal/piweb/server.go`
 - Create: `internal/piweb/terminal_manager_test.go`
 - Create: `src/components/TerminalPanel.tsx`
@@ -726,7 +728,8 @@ type TerminalManager interface {
 - API 支持 start、write、resize、events、stop；所有 route 校验 actor ACL。
 - 事件带 offset；慢客户端收到 gap 后请求当前 terminal snapshot。
 - 终端进程退出、HTTP shutdown、session logout 都必须释放资源。
-- Unix 和 Windows 使用不同 process adapter，不在公共文件中调用平台专属 syscall。
+- Linux adapter 使用 Unix98 PTY、`setsid`、controlling terminal 和 `TIOCSWINSZ`；不在公共文件中调用平台专属 syscall。
+- 首期不增加 Windows/macOS PTY 文件；非 Linux 构建保留现有一次性 Shell 能力或明确返回 unsupported。
 
 - [ ] **Step 1: 写失败测试**
 
@@ -741,7 +744,7 @@ bunx vitest run src/components/TerminalPanel.test.tsx
 
 - [ ] **Step 3: 实现 manager 和 API**
 
-先完成 Unix adapter 和 fake adapter 测试，再实现 Windows adapter；前端使用现有 SSE 风格 API，不引入新的 websocket 依赖。
+先完成 Linux adapter 和 fake adapter 测试；使用现有 SSE 风格 API，不引入新的 websocket 依赖。Linux adapter 使用 `github.com/creack/pty` 的 Unix98 实现完成，依赖编译进二进制，不要求目标机安装额外库。
 
 - [ ] **Step 4: 验证并提交**
 
@@ -749,8 +752,10 @@ bunx vitest run src/components/TerminalPanel.test.tsx
 go test -race ./internal/piweb -run 'TestTerminalManager' -count=1
 go test ./...
 bun run typecheck
-git add internal/piweb src/components/TerminalPanel.tsx src/components/TerminalPanel.test.tsx src/lib/api.ts
-git commit -m "feat: add reconnectable workspace terminals" -m "Co-authored-by: JuunAI <juunai.ai@gmail.com>"
+CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o /tmp/pi-web-linux-amd64 .
+CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -o /tmp/pi-web-linux-arm64 .
+git add go.mod go.sum internal/piweb src/components/TerminalPanel.tsx src/components/TerminalPanel.test.tsx src/lib/api.ts
+git commit -m "feat: add reconnectable linux terminals" -m "Co-authored-by: JuunAI <juunai.ai@gmail.com>"
 ```
 
 ### Task 10: 增加 Git worktree 和富文件工作台
@@ -1006,6 +1011,7 @@ git commit -m "test: add browser workflow coverage" -m "Co-authored-by: JuunAI <
 
 ### P2 发布条件
 
+- Linux PTY 在麒麟 V10 SP3 实机完成 start/write/resize/断线恢复/stop 验收；`/dev/ptmx` 和 `/dev/pts` 不可用时返回明确错误。
 - worktree、富文件 viewer、Models/Skills/Plugins/Subagents 控制面完成对应 API 和 UI 测试。
 - Playwright 覆盖账户隔离、流式恢复、文件工作区和输入框。
 - 覆盖率报告明确列出排除文件；不再把“排除核心文件后的 100%”作为全项目覆盖率表述。
@@ -1019,6 +1025,26 @@ git commit -m "test: add browser workflow coverage" -m "Co-authored-by: JuunAI <
 5. Task 11 依赖 Task 7 的 trust boundary 和 Task 3 的 runtime reload。
 6. Task 12、13 在功能阶段稳定后执行；CI 通过前不允许宣称完成。
 7. 每个 Task 单独 commit；合并前执行 `git status --short`，确认没有提交既有 `static/` 变更。
+
+## 麒麟 V10 SP3 PTY 验收
+
+在麒麟 V10 SP3 amd64/arm64 实机执行：
+
+```bash
+cat /etc/os-release
+uname -m
+command -v sh
+test -c /dev/ptmx
+test -d /dev/pts
+grep -q ' devpts ' /proc/mounts
+CGO_ENABLED=0 go build -o /tmp/pi-web .
+if ldd /tmp/pi-web 2>&1 | grep -q 'not a dynamic executable'; then :; else
+  echo "pi-web must not require dynamic runtime libraries"
+  exit 1
+fi
+```
+
+PTY 功能必须验证：交互输入、`stty size`、resize、Ctrl-C、长输出、进程退出、SSE 重连和服务 shutdown。目标机不安装 Node.js、npm、Bun、gcc 或额外 PTY 库。
 
 ## 最终验收命令
 
