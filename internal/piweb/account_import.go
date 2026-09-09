@@ -287,23 +287,34 @@ func (s *Server) saveImportedAccounts(rows []accountImportRow) (int, error) {
 		}
 		hashes[row.rowNumber] = hash
 	}
-	users := mapsCloneAccounts(s.accounts.Users)
-	knownPaths := make(map[string]bool)
-	for _, workspace := range s.store.AllWorkspaces() {
-		knownPaths[workspace.Path] = true
+	allWorkspacePaths := make([]string, 0)
+	for _, row := range rows {
+		allWorkspacePaths = append(allWorkspacePaths, row.workspacePaths...)
 	}
-	registeredPaths := make([]string, 0)
+	grants, registeredPaths, err := s.store.RegisterWorkspacePaths(allWorkspacePaths)
+	if err != nil {
+		return 0, fmt.Errorf("注册导入工作区：%w", err)
+	}
 	rollback := func() {
 		for _, path := range registeredPaths {
 			_ = s.store.RemoveWorkspaceRegistration(path)
 		}
 	}
+	users := mapsCloneAccounts(s.accounts.Users)
 	for _, row := range rows {
-		paths, err := s.accountPaths(nil, row.workspacePaths)
-		registeredPaths = append(registeredPaths, newWorkspacePaths(s.store, knownPaths)...)
-		if err != nil {
-			rollback()
-			return 0, fmt.Errorf("注册导入工作区：%w", err)
+		paths := make(map[string]string, len(row.workspacePaths))
+		for _, requestedPath := range row.workspacePaths {
+			realPath, err := filepath.EvalSymlinks(requestedPath)
+			if err != nil {
+				rollback()
+				return 0, fmt.Errorf("解析导入工作区：%w", err)
+			}
+			grant, ok := grants[realPath]
+			if !ok {
+				rollback()
+				return 0, errors.New("导入工作区未注册")
+			}
+			paths[grant.ID] = grant.Path
 		}
 		ids := make([]string, 0, len(paths))
 		for id := range paths {
@@ -323,18 +334,6 @@ func (s *Server) saveImportedAccounts(rows []accountImportRow) (int, error) {
 		return 0, err
 	}
 	return len(rows), nil
-}
-
-func newWorkspacePaths(store *Store, known map[string]bool) []string {
-	paths := make([]string, 0)
-	for _, workspace := range store.AllWorkspaces() {
-		if known[workspace.Path] {
-			continue
-		}
-		known[workspace.Path] = true
-		paths = append(paths, workspace.Path)
-	}
-	return paths
 }
 
 func validateImportWorkspacePaths(rows []accountImportRow) error {

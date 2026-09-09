@@ -1,5 +1,10 @@
 package piweb
 
+import (
+	"errors"
+	"path/filepath"
+)
+
 func (s *Store) Workspaces() []Workspace {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -79,27 +84,113 @@ func (s *Store) RemoveWorkspaceRegistration(path string) error {
 	}
 	clean = canonicalWorkspacePath(clean)
 	if s.dbPath != "" {
-		if err := deleteWebWorkspaceRegistration(s.dbPath, clean); err != nil {
+		deleted, err := deleteWebWorkspaceRegistration(s.dbPath, clean)
+		if err != nil || !deleted {
 			return err
 		}
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	s.removeWorkspaceLocked(clean)
+	return nil
+}
+
+func (s *Store) RegisterWorkspacePaths(paths []string) (map[string]workspaceGrant, []string, error) {
+	grants := make(map[string]workspaceGrant, len(paths))
+	entries := make([]struct{ clean, real string }, 0, len(paths))
+	seen := make(map[string]bool, len(paths))
+	for _, path := range paths {
+		clean, err := ValidateWorkspacePath(path)
+		if err != nil {
+			return nil, nil, err
+		}
+		clean = canonicalWorkspacePath(clean)
+		realPath, err := filepath.EvalSymlinks(clean)
+		if err != nil {
+			return nil, nil, err
+		}
+		if seen[realPath] {
+			continue
+		}
+		seen[realPath] = true
+		entries = append(entries, struct{ clean, real string }{clean: clean, real: realPath})
+	}
+	storedIDs := make(map[string]string, len(entries))
+	for _, entry := range entries {
+		storedID, err := loadWebWorkspaceID(s.dbPath, entry.clean)
+		if err != nil {
+			return nil, nil, err
+		}
+		storedIDs[entry.clean] = storedID
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	created := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		wasKnown := workspacePathKnown(s.workspaces, entry.clean)
+		workspace := s.addWorkspaceLocked(entry.clean, storedIDs[entry.clean])
+		if !wasKnown {
+			created = append(created, workspace.Path)
+		}
+		if err := saveWebWorkspaceRegistered(s.dbPath, webWorkspaceRecord{ID: workspace.ID, Path: workspace.Path}); err != nil {
+			rollbackErr := s.rollbackWorkspaceRegistrationsLocked(created)
+			return nil, nil, errors.Join(err, rollbackErr)
+		}
+		grants[entry.real] = workspaceGrant{ID: workspace.ID, Path: entry.real}
+	}
+	return grants, created, nil
+}
+
+func workspacePathKnown(workspaces []Workspace, path string) bool {
+	for _, workspace := range workspaces {
+		if workspace.Path == path {
+			return true
+		}
+	}
+	return false
+}
+
+func (s *Store) rollbackWorkspaceRegistrationsLocked(paths []string) error {
+	var rollbackErr error
+	for _, path := range paths {
+		if s.dbPath != "" {
+			deleted, err := deleteWebWorkspaceRegistration(s.dbPath, path)
+			if err != nil {
+				rollbackErr = errors.Join(rollbackErr, err)
+				continue
+			}
+			if !deleted {
+				continue
+			}
+		}
+		s.removeWorkspaceLocked(path)
+	}
+	return rollbackErr
+}
+
+func (s *Store) removeWorkspaceLocked(path string) {
 	index := -1
 	for i, workspace := range s.workspaces {
-		if workspace.Path == clean {
+		if workspace.Path == path {
 			index = i
 			break
 		}
 	}
 	if index < 0 {
-		return nil
+		return
 	}
 	workspaceID := s.workspaces[index].ID
+	for _, session := range s.workspaces[index].Sessions {
+		delete(s.sessionFiles, session.ID)
+		delete(s.sessionCWD, session.ID)
+		delete(s.conversations, session.ID)
+	}
 	s.workspaces = append(s.workspaces[:index], s.workspaces[index+1:]...)
 	delete(s.files, workspaceID)
 	delete(s.workspacePath, workspaceID)
 	delete(s.workspaceSessionDir, workspaceID)
+	delete(s.sessionDirModTime, workspaceID)
+	delete(s.refreshDisabledWorkspace, workspaceID)
 	recent := s.recentWorkspaceIDs[:0]
 	for _, id := range s.recentWorkspaceIDs {
 		if id != workspaceID {
@@ -107,7 +198,6 @@ func (s *Store) RemoveWorkspaceRegistration(path string) error {
 		}
 	}
 	s.recentWorkspaceIDs = recent
-	return nil
 }
 
 func (s *Store) EnsureWorkspace(workspaceID, path string) (Workspace, error) {
