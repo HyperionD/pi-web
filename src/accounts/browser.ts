@@ -40,3 +40,8 @@ export function showImportError(error: unknown, element: HTMLElement) {
   element.textContent = `导入失败：${element.textContent || "请求失败，请重试"}`;
   element.classList.add("is-error");
 }
+
+export function showOperationSuccess(message: string, element: HTMLElement) {
+  element.classList.remove("is-error");
+  element.textContent = message;
+}

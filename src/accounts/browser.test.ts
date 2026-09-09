@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AccountError, currentAccount, logout } from "./api";
-import { requireAccount, showAccountError, showImportError, signOut, syncAccountCache } from "./browser";
+import { requireAccount, showAccountError, showImportError, showOperationSuccess, signOut, syncAccountCache } from "./browser";
 
 vi.mock("./api", async (load) => ({ ...await load<typeof import("./api")>(),
   currentAccount: vi.fn(), logout: vi.fn() }));
@@ -69,5 +69,12 @@ describe("browser identity isolation", () => {
     showImportError(new Error('第 2 行：账号 "0012" 已存在'), element);
     expect(element.textContent).toBe('导入失败：第 2 行：账号 "0012" 已存在');
     expect(element.classList.contains("is-error")).toBe(true);
+  });
+  it("shows a successful batch action without an error state", () => {
+    const element = document.createElement("p");
+    element.classList.add("is-error");
+    showOperationSuccess("已为 2 个用户授权工作区。", element);
+    expect(element.textContent).toBe("已为 2 个用户授权工作区。");
+    expect(element.classList.contains("is-error")).toBe(false);
   });
 });

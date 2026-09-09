@@ -1,5 +1,5 @@
 import { batchAssignWorkspaces, createUser, deleteUser, importUsers, listFolders, listManagedWorkspaces, listUsers, updateUser, type Account, type ManagedWorkspace } from "./api";
-import { requireAccount, showAccountError, showImportError } from "./browser";
+import { requireAccount, showAccountError, showImportError, showOperationSuccess } from "./browser";
 
 const form = document.querySelector<HTMLFormElement>("[data-user-form]")!;
 const fields = document.querySelector<HTMLFieldSetElement>("[data-user-fields]")!;
@@ -180,12 +180,14 @@ batchForm.addEventListener("submit", async (event) => {
     await batchAssignWorkspaces([...selectedUsers], [], [batchWorkspacePath]);
     selectedUsers.clear();
     syncBatchControls();
+    let message = `已为 ${count} 个用户授权工作区。`;
     try {
       await Promise.all([refreshWorkspaceOptions(), refreshUsers()]);
-      batchStatus.textContent = `已为 ${count} 个用户授权工作区。`;
     } catch {
-      batchStatus.textContent = `已为 ${count} 个用户授权，但列表刷新失败，请手动刷新。`;
+      message = `已为 ${count} 个用户授权，但列表刷新失败，请手动刷新。`;
     }
+    batchDialog.close("saved");
+    showOperationSuccess(message, usersStatus);
   } catch (error) {
     showAccountError(error, batchStatus);
     batchStatus.textContent = `批量授权失败：${batchStatus.textContent}`;
