@@ -31,9 +31,11 @@ describe("browser compatibility", () => {
 
   it("does not use authored CSS features newer than the Chrome 107 baseline", () => {
     const styles = collectAuthoredCss(new URL(".", import.meta.url));
-    expect(styles).toContain("--app-viewport-height: 100vh");
     expect(styles).toContain(".account-nav");
     expect(styles).not.toContain("color-mix(");
+    expect(stripFeatureQueries(styles, /@supports\b[^\{]*\{/i)).toContain(
+      "--app-viewport-height: 100vh",
+    );
     expect(stripViewportFeatureQueries(styles)).not.toContain("100dvh");
   });
 });
@@ -57,7 +59,10 @@ function extractStyleBlocks(source: string): string[] {
 }
 
 function stripViewportFeatureQueries(css: string): string {
-  const featureQuery = /@supports\s*\(\s*height\s*:\s*100dvh\s*\)\s*\{/i;
+  return stripFeatureQueries(css, /@supports\s*\(\s*height\s*:\s*100dvh\s*\)\s*\{/i);
+}
+
+function stripFeatureQueries(css: string, featureQuery: RegExp): string {
   let cursor = 0;
   let stripped = "";
   while (true) {
