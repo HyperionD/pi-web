@@ -12,7 +12,7 @@ let editing: Account | null = null;
 let workspaces: ManagedWorkspace[] = [];
 let userPage = 1;
 let userTotal = 0;
-let userPageSize = 50;
+let userPageSize = 10;
 let searchTimer: number | undefined;
 const selectedUsers = new Set<string>();
 
