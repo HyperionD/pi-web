@@ -14,8 +14,12 @@ import (
 )
 
 const (
-	maxUserImportBytes = 5 << 20
-	maxUserImportRows  = 1000
+	maxUserImportBytes      = 5 << 20
+	maxUserImportRows       = 1000
+	maxUserImportCellBytes  = 4096
+	maxUserImportXMLBytes   = 16 << 20
+	maxUserImportUnzipBytes = 32 << 20
+	maxUserImportWorkspaces = 100
 )
 
 var userImportHeaders = []string{"账号", "用户名", "部门", "初始密码", "工作区路径", "禁用"}
@@ -29,6 +33,10 @@ type accountImportRow struct {
 	workspacePaths []string
 	disabled       bool
 }
+
+type accountImportValidationError struct{ message string }
+
+func (e *accountImportValidationError) Error() string { return e.message }
 
 func (s *Server) userImportTemplate(w http.ResponseWriter, _ *http.Request) {
 	file := excelize.NewFile()
@@ -60,7 +68,16 @@ func (s *Server) userImportTemplate(w http.ResponseWriter, _ *http.Request) {
 func (s *Server) importAccounts(w http.ResponseWriter, r *http.Request) {
 	r.Body = http.MaxBytesReader(w, r.Body, maxUserImportBytes+1)
 	if err := r.ParseMultipartForm(maxUserImportBytes); err != nil {
-		writeError(w, http.StatusRequestEntityTooLarge, errors.New("导入文件不能超过 5 MiB"))
+		status := http.StatusBadRequest
+		var maxError *http.MaxBytesError
+		if errors.As(err, &maxError) {
+			status = http.StatusRequestEntityTooLarge
+		}
+		message := errors.New("导入文件格式无效")
+		if status == http.StatusRequestEntityTooLarge {
+			message = errors.New("导入文件不能超过 5 MiB")
+		}
+		writeError(w, status, message)
 		return
 	}
 	file, header, err := r.FormFile("file")
@@ -80,14 +97,21 @@ func (s *Server) importAccounts(w http.ResponseWriter, r *http.Request) {
 	}
 	imported, err := s.saveImportedAccounts(rows)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, err)
+		status := http.StatusInternalServerError
+		var validationErr *accountImportValidationError
+		if errors.As(err, &validationErr) {
+			status = http.StatusBadRequest
+		}
+		writeError(w, status, err)
 		return
 	}
 	writeJSON(w, http.StatusCreated, map[string]int{"imported": imported})
 }
 
 func parseUserImportRows(reader io.Reader) ([]accountImportRow, error) {
-	file, err := excelize.OpenReader(reader)
+	file, err := excelize.OpenReader(reader, excelize.Options{
+		UnzipSizeLimit: maxUserImportUnzipBytes, UnzipXMLSizeLimit: maxUserImportXMLBytes,
+	})
 	if err != nil {
 		return nil, errors.New("无法读取 Excel 文件")
 	}
@@ -125,7 +149,7 @@ func parseUserImportRows(reader io.Reader) ([]accountImportRow, error) {
 }
 
 func validUserImportHeader(row []string) bool {
-	if len(row) < len(userImportHeaders) {
+	if len(row) != len(userImportHeaders) {
 		return false
 	}
 	for index, header := range userImportHeaders {
@@ -146,6 +170,11 @@ func emptyImportRow(row []string) bool {
 }
 
 func parseUserImportRow(row []string, rowNumber int) (accountImportRow, error) {
+	for _, value := range row {
+		if len(value) > maxUserImportCellBytes {
+			return accountImportRow{}, fmt.Errorf("第 %d 行：单元格内容过长", rowNumber)
+		}
+	}
 	account := strings.TrimSpace(importCell(row, 0))
 	username := strings.TrimSpace(importCell(row, 1))
 	department := strings.TrimSpace(importCell(row, 2))
@@ -153,11 +182,15 @@ func parseUserImportRow(row []string, rowNumber int) (accountImportRow, error) {
 	if account == "" || username == "" || password == "" {
 		return accountImportRow{}, fmt.Errorf("第 %d 行：账号、用户名、初始密码不能为空", rowNumber)
 	}
-	if !accountName.MatchString(account) {
-		return accountImportRow{}, fmt.Errorf("第 %d 行：账号格式无效", rowNumber)
+	if !accountName.MatchString(account) || strings.EqualFold(account, "admin") {
+		return accountImportRow{}, fmt.Errorf("第 %d 行：账号格式无效或为保留账号", rowNumber)
 	}
 	if err := validateAdminPassword(password); err != nil {
 		return accountImportRow{}, fmt.Errorf("第 %d 行：初始密码无效", rowNumber)
+	}
+	workspacePaths := splitImportPaths(importCell(row, 4))
+	if len(workspacePaths) > maxUserImportWorkspaces {
+		return accountImportRow{}, fmt.Errorf("第 %d 行：工作区不能超过 %d 个", rowNumber, maxUserImportWorkspaces)
 	}
 	disabled, err := parseImportDisabled(importCell(row, 5))
 	if err != nil {
@@ -165,7 +198,7 @@ func parseUserImportRow(row []string, rowNumber int) (accountImportRow, error) {
 	}
 	return accountImportRow{
 		rowNumber: rowNumber, account: account, username: username, department: department,
-		password: password, workspacePaths: splitImportPaths(importCell(row, 4)), disabled: disabled,
+		password: password, workspacePaths: workspacePaths, disabled: disabled,
 	}, nil
 }
 
@@ -204,6 +237,9 @@ func (s *Server) saveImportedAccounts(rows []accountImportRow) (int, error) {
 	if err := validateImportedAccounts(rows, s.accounts.Users); err != nil {
 		return 0, err
 	}
+	if err := validateImportWorkspacePaths(rows); err != nil {
+		return 0, err
+	}
 	hashes := make(map[int]string, len(rows))
 	for _, row := range rows {
 		hash, err := hashAdminPassword(row.password)
@@ -216,7 +252,7 @@ func (s *Server) saveImportedAccounts(rows []accountImportRow) (int, error) {
 	for _, row := range rows {
 		paths, err := s.accountPaths(nil, row.workspacePaths)
 		if err != nil {
-			return 0, fmt.Errorf("第 %d 行：工作区路径无效", row.rowNumber)
+			return 0, fmt.Errorf("注册导入工作区：%w", err)
 		}
 		ids := make([]string, 0, len(paths))
 		for id := range paths {
@@ -224,7 +260,10 @@ func (s *Server) saveImportedAccounts(rows []accountImportRow) (int, error) {
 		}
 		sort.Strings(ids)
 		users[row.account] = accountRecord{
-			Account:      Account{ID: accountID(), Account: row.account, Username: row.username, Department: row.department, Role: "user", Disabled: row.disabled, Workspaces: ids},
+			Account: Account{
+				ID: accountID(), Account: row.account, Username: row.username, Department: row.department,
+				Role: "user", Disabled: row.disabled, Workspaces: ids,
+			},
 			PasswordHash: hashes[row.rowNumber], Paths: paths,
 		}
 	}
@@ -232,6 +271,18 @@ func (s *Server) saveImportedAccounts(rows []accountImportRow) (int, error) {
 		return 0, err
 	}
 	return len(rows), nil
+}
+
+func validateImportWorkspacePaths(rows []accountImportRow) error {
+	policy := WorkspacePolicy{}
+	for _, row := range rows {
+		for _, path := range row.workspacePaths {
+			if err := policy.CheckExistingDirectory(path); err != nil {
+				return &accountImportValidationError{message: fmt.Sprintf("第 %d 行：工作区路径无效", row.rowNumber)}
+			}
+		}
+	}
+	return nil
 }
 
 func validateImportedAccounts(rows []accountImportRow, existing map[string]accountRecord) error {
@@ -243,9 +294,9 @@ func validateImportedAccounts(rows []accountImportRow, existing map[string]accou
 		key := strings.ToLower(row.account)
 		if previous, ok := seen[key]; ok {
 			if previous == 0 {
-				return fmt.Errorf("第 %d 行：账号 %q 已存在", row.rowNumber, row.account)
+				return &accountImportValidationError{message: fmt.Sprintf("第 %d 行：账号 %q 已存在", row.rowNumber, row.account)}
 			}
-			return fmt.Errorf("第 %d 行：账号 %q 与第 %d 行重复", row.rowNumber, row.account, previous)
+			return &accountImportValidationError{message: fmt.Sprintf("第 %d 行：账号 %q 与第 %d 行重复", row.rowNumber, row.account, previous)}
 		}
 		seen[key] = row.rowNumber
 	}

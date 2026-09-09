@@ -133,12 +133,19 @@ importInput.addEventListener("change", async () => {
   importInput.value = "";
   if (!file) return;
   usersStatus.textContent = "导入中…";
+  let result: { imported: number };
   try {
-    const result = await importUsers(file);
-    await refreshWorkspaceOptions();
-    await refreshUsers();
+    result = await importUsers(file);
+  } catch (error) {
+    showAccountError(error, usersStatus);
+    return;
+  }
+  try {
+    await Promise.all([refreshWorkspaceOptions(), refreshUsers()]);
     usersStatus.textContent = `成功导入 ${result.imported} 个用户。`;
-  } catch (error) { showAccountError(error, usersStatus); }
+  } catch {
+    usersStatus.textContent = `成功导入 ${result.imported} 个用户，但列表刷新失败，请手动刷新。`;
+  }
 });
 document.querySelector("[data-batch-assign]")!.addEventListener("click", async () => {
   const select = document.querySelector<HTMLSelectElement>("[data-batch-workspaces]")!;

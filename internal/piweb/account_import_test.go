@@ -57,6 +57,48 @@ func TestUserImportCreatesUsersAndWorkspaceGrants(t *testing.T) {
 	}
 }
 
+func TestUserImportRejectsExistingAccountWithoutCreatingOtherRows(t *testing.T) {
+	s, admin := accountServer(t)
+	created := accountRequest(s, "POST", "/api/admin/users", `{"username":"alice","password":"alice-password","workspaces":[]}`, admin)
+	if created.Code != http.StatusCreated {
+		t.Fatalf("create existing user: %d %s", created.Code, created.Body.String())
+	}
+	workbook := userImportWorkbook(t, [][]string{
+		{"账号", "用户名", "部门", "初始密码", "工作区路径", "禁用"},
+		{"bob", "Bob", "市场部", "bob-password", "", "否"},
+		{"ALICE", "Alice 2", "研发部", "alice-password", "", "否"},
+	})
+	response := postUserImport(t, s, admin, workbook)
+	if response.Code != http.StatusBadRequest || !bytes.Contains(response.Body.Bytes(), []byte("已存在")) {
+		t.Fatalf("existing account import status=%d body=%s", response.Code, response.Body.String())
+	}
+	if _, exists := s.accounts.Users["bob"]; exists {
+		t.Fatal("existing account import created another user")
+	}
+}
+
+func TestUserImportRejectsInvalidWorkspaceWithoutRegisteringEarlierRows(t *testing.T) {
+	s, admin := accountServer(t)
+	validPath := t.TempDir()
+	workbook := userImportWorkbook(t, [][]string{
+		{"账号", "用户名", "部门", "初始密码", "工作区路径", "禁用"},
+		{"alice", "Alice", "研发部", "alice-password", validPath, "否"},
+		{"bob", "Bob", "市场部", "bob-password", "/path/that/does/not/exist", "否"},
+	})
+	response := postUserImport(t, s, admin, workbook)
+	if response.Code != http.StatusBadRequest {
+		t.Fatalf("invalid workspace status=%d body=%s", response.Code, response.Body.String())
+	}
+	if _, exists := s.accounts.Users["alice"]; exists {
+		t.Fatal("invalid workspace import created an earlier user")
+	}
+	for _, workspace := range s.store.AllWorkspaces() {
+		if workspace.Path == validPath {
+			t.Fatal("invalid workspace import registered an earlier workspace")
+		}
+	}
+}
+
 func TestUserImportRejectsDuplicateRowsWithoutCreatingUsers(t *testing.T) {
 	s, admin := accountServer(t)
 	workbook := userImportWorkbook(t, [][]string{
