@@ -213,6 +213,251 @@ func TestClosingSubscriptionConcurrentlyWithPublishDoesNotPanic(t *testing.T) {
 	}
 }
 
+func TestBrokerForwarderKeepsInFlightEventBeforeNewDirectSend(t *testing.T) {
+	broker := NewBroker()
+	broker.buffer = 6
+	sendStarted := make(chan struct{})
+	releaseSend := make(chan struct{})
+	var sendOnce sync.Once
+	broker.sendHook = func() {
+		sendOnce.Do(func() {
+			close(sendStarted)
+			<-releaseSend
+		})
+	}
+	subscription := broker.SubscribeFrom("s1", 0)
+	defer subscription.Close()
+	first := broker.Publish("s1", "one", nil)
+	second := broker.Publish("s1", "two", nil)
+	third := broker.Publish("s1", "three", nil)
+	fourth := broker.Publish("s1", "four", nil)
+	fifth := broker.Publish("s1", "five", nil)
+	sixth := broker.Publish("s1", "six", nil)
+	seventh := broker.Publish("s1", "session.status", nil)
+	for _, want := range []uint64{first.ID, second.ID, third.ID, fourth.ID, fifth.ID, sixth.ID} {
+		if event := <-subscription.Events; event.ID != want {
+			t.Fatalf("expected buffered event before forwarder backlog: %#v", event)
+		}
+	}
+	<-sendStarted
+	eighth := broker.Publish("s1", "eight", nil)
+	close(releaseSend)
+	wantTypes := []string{"broker_gap", "session.status", "eight"}
+	for index, wantType := range wantTypes {
+		select {
+		case event := <-subscription.Events:
+			if event.Type != wantType {
+				t.Fatalf("event %d bypassed in-flight event: got=%#v want type=%s", index, event, wantType)
+			}
+			if index == 1 && event.ID != seventh.ID || index == 2 && event.ID != eighth.ID {
+				t.Fatalf("event %d had wrong ID: got=%d", index, event.ID)
+			}
+		case <-time.After(time.Second):
+			t.Fatalf("timed out waiting for event %d", index)
+		}
+	}
+}
+
+func TestBrokerCriticalBacklogIsBoundedAndGapIsVisible(t *testing.T) {
+	broker := NewBroker()
+	broker.buffer = 1
+	broker.maxBacklog = 3
+	sendStarted := make(chan struct{})
+	releaseSend := make(chan struct{})
+	var sendOnce sync.Once
+	broker.sendHook = func() {
+		sendOnce.Do(func() {
+			close(sendStarted)
+			<-releaseSend
+		})
+	}
+	subscription := broker.SubscribeFrom("s1", 0)
+	defer subscription.Close()
+	seed := broker.Publish("s1", "seed", nil)
+	broker.Publish("s1", "session.status", map[string]int{"index": 0})
+	<-sendStarted
+	var overflow Event
+	for index := 1; index < 4; index++ {
+		overflow = broker.Publish("s1", "session.status", map[string]int{"index": index})
+	}
+	broker.mu.RLock()
+	pending := 0
+	for subscriber := range broker.subscribers["s1"] {
+		pending = len(subscriber.events) + len(subscriber.queue)
+		if subscriber.sending {
+			pending++
+		}
+		break
+	}
+	broker.mu.RUnlock()
+	limit := broker.maxBacklog + broker.buffer + 1
+	if pending > limit {
+		t.Fatalf("critical backlog exceeded limit: pending=%d limit=%d", pending, limit)
+	}
+	if event := <-subscription.Events; event.ID != seed.ID {
+		t.Fatalf("unexpected seed event: %#v", event)
+	}
+	close(releaseSend)
+	var gap Event
+	deadline := time.After(time.Second)
+	for gap.Type == "" {
+		select {
+		case event := <-subscription.Events:
+			if event.Type == "broker_gap" {
+				payload, _ := event.Payload.(map[string]any)
+				if payload["latestEventId"] == overflow.ID {
+					gap = event
+				}
+			}
+		case <-deadline:
+			t.Fatalf("timed out waiting for bounded backlog recovery: gap=%#v overflow=%d", gap, overflow.ID)
+		}
+	}
+	payload, ok := gap.Payload.(map[string]any)
+	if !ok || payload["latestEventId"] != overflow.ID {
+		t.Fatalf("gap did not expose the bounded overflow: %#v overflow=%d", gap.Payload, overflow.ID)
+	}
+}
+
+func TestClosingSubscriptionDrainsQueuedAndInFlightEvents(t *testing.T) {
+	broker := NewBroker()
+	broker.buffer = 1
+	sendStarted := make(chan struct{})
+	releaseSend := make(chan struct{})
+	var sendOnce sync.Once
+	broker.sendHook = func() {
+		sendOnce.Do(func() {
+			close(sendStarted)
+			<-releaseSend
+		})
+	}
+	subscription := broker.SubscribeFrom("s1", 0)
+	first := broker.Publish("s1", "one", nil)
+	second := broker.Publish("s1", "session.status", nil)
+	if event := <-subscription.Events; event.ID != first.ID {
+		t.Fatalf("unexpected first event: %#v", event)
+	}
+	<-sendStarted
+	closeDone := make(chan struct{})
+	go func() {
+		subscription.Close()
+		close(closeDone)
+	}()
+	select {
+	case <-closeDone:
+	case <-time.After(time.Second):
+		t.Fatal("Close blocked on an in-flight send")
+	}
+	close(releaseSend)
+	select {
+	case event := <-subscription.Events:
+		if event.Type != "broker_gap" {
+			t.Fatalf("Close dropped the committed gap: %#v", event)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for committed gap after Close")
+	}
+	select {
+	case event := <-subscription.Events:
+		if event.ID != second.ID {
+			t.Fatalf("Close dropped committed event: %#v", event)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for committed event after Close")
+	}
+	select {
+	case _, ok := <-subscription.Events:
+		if ok {
+			t.Fatal("subscription remained open after draining committed events")
+		}
+	case <-time.After(time.Second):
+		t.Fatal("subscription channel did not close after draining")
+	}
+}
+
+func TestConcurrentPublishIDsFollowHistoryAndLiveOrder(t *testing.T) {
+	broker := NewBroker()
+	blockedAdmission := make(chan struct{})
+	secondPublished := make(chan struct{})
+	releaseBlocked := make(chan struct{})
+	releaseSecond := make(chan struct{})
+	broker.publishAdmissionHook = func(eventType string) {
+		if eventType != "blocked" {
+			return
+		}
+		close(blockedAdmission)
+		<-secondPublished
+		<-releaseBlocked
+	}
+	broker.publishHook = func() {
+		if len(broker.history["s1"]) == 0 || broker.history["s1"][len(broker.history["s1"])-1].Type != "second" {
+			return
+		}
+		close(secondPublished)
+		<-releaseSecond
+	}
+	subscription := broker.SubscribeFrom("s1", 0)
+	defer subscription.Close()
+	firstDone := make(chan Event, 1)
+	go func() { firstDone <- broker.Publish("s1", "blocked", nil) }()
+	<-blockedAdmission
+	secondDone := make(chan Event, 1)
+	go func() { secondDone <- broker.Publish("s1", "second", nil) }()
+	<-secondPublished
+	close(releaseBlocked)
+	close(releaseSecond)
+	second := <-secondDone
+	first := <-firstDone
+	history := broker.Replay("s1", 0)
+	if len(history) != 2 || history[0].ID != second.ID || history[1].ID != first.ID || history[0].ID >= history[1].ID {
+		t.Fatalf("history IDs do not follow lock order: history=%#v second=%#v first=%#v", history, second, first)
+	}
+	for index, want := range []uint64{second.ID, first.ID} {
+		select {
+		case event := <-subscription.Events:
+			if event.ID != want {
+				t.Fatalf("live ID %d out of order: got=%d want=%d", index, event.ID, want)
+			}
+		case <-time.After(time.Second):
+			t.Fatalf("timed out waiting for live event %d", index)
+		}
+	}
+}
+
+func TestHeartbeatDoesNotAdvanceLastEventIDCursor(t *testing.T) {
+	broker := NewBroker()
+	broker.heartbeat = 10 * time.Millisecond
+	first := broker.Publish("s1", "session.message", nil)
+	writer := newTestSSEWriter()
+	ctx, cancel := context.WithCancel(context.Background())
+	req := httptest.NewRequest(http.MethodGet, "/events?replay=false", nil).WithContext(ctx)
+	done := make(chan struct{})
+	go func() {
+		broker.ServeSession(writer, req, "s1")
+		close(done)
+	}()
+	deadline := time.Now().Add(time.Second)
+	for !strings.Contains(writer.String(), "event: heartbeat\n") && time.Now().Before(deadline) {
+		time.Sleep(time.Millisecond)
+	}
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("ServeSession did not stop after heartbeat test cancellation")
+	}
+	next := broker.Publish("s1", "session.status", nil)
+	if next.ID != first.ID+1 {
+		t.Fatalf("heartbeat advanced broker cursor: first=%d next=%d", first.ID, next.ID)
+	}
+	body := writer.String()
+	heartbeatStart := strings.Index(body, "event: heartbeat\n")
+	heartbeatEnd := strings.Index(body[heartbeatStart:], "\n\n")
+	if heartbeatStart < 0 || heartbeatEnd < 0 || strings.Contains(body[heartbeatStart:heartbeatStart+heartbeatEnd], "id:") {
+		t.Fatalf("heartbeat must not advertise a Last-Event-ID cursor: %q", body)
+	}
+}
+
 func TestClosingSubscriptionDeliversPublishThatWinsTheLock(t *testing.T) {
 	broker := NewBroker()
 	published := make(chan struct{})
