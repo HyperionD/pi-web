@@ -291,16 +291,12 @@ func (s *Server) saveImportedAccounts(rows []accountImportRow) (int, error) {
 	for _, row := range rows {
 		allWorkspacePaths = append(allWorkspacePaths, row.workspacePaths...)
 	}
-	grants, registeredPaths, err := s.store.RegisterWorkspacePaths(allWorkspacePaths)
+	grants, databasePaths, memoryPaths, err := s.store.RegisterWorkspacePaths(allWorkspacePaths)
 	if err != nil {
 		return 0, fmt.Errorf("注册导入工作区：%w", err)
 	}
 	rollback := func() error {
-		var rollbackErr error
-		for _, path := range registeredPaths {
-			rollbackErr = errors.Join(rollbackErr, s.store.RemoveWorkspaceRegistration(path))
-		}
-		return rollbackErr
+		return s.store.RollbackWorkspaceRegistrations(databasePaths, memoryPaths)
 	}
 	users := mapsCloneAccounts(s.accounts.Users)
 	for _, row := range rows {
