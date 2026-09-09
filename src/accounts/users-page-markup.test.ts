@@ -15,6 +15,13 @@ describe("users page layout", () => {
     expect(usersPage).toContain('<option value="10" selected>10 条</option>');
   });
 
+  it("provides a batch workspace authorization dialog", () => {
+    expect(usersPage).toContain('data-batch-open');
+    expect(usersPage).toContain('data-batch-dialog');
+    expect(usersPage).toContain('data-batch-open-directory');
+    expect(usersPage).toContain('data-batch-status');
+  });
+
   it("uses one background for the full account document", () => {
     expect(accountLayout).toContain('<html lang="zh-CN" class="account-document">');
     expect(accountStyles).toContain("html.account-document, body.account-page { background: var(--bg-1); }");

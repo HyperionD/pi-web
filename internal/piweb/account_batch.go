@@ -4,6 +4,7 @@ import (
 	"errors"
 	"maps"
 	"net/http"
+	"sort"
 )
 
 type batchWorkspaceRequest struct {
@@ -40,8 +41,27 @@ func (s *Server) batchAssignWorkspaces(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusNotFound, errAccountDenied)
 			return
 		}
-		record.Workspaces = ids
-		record.Paths = paths
+		workspaceSet := make(map[string]bool, len(record.Workspaces)+len(ids))
+		for _, id := range record.Workspaces {
+			workspaceSet[id] = true
+		}
+		for _, id := range ids {
+			workspaceSet[id] = true
+		}
+		mergedIDs := make([]string, 0, len(workspaceSet))
+		for id := range workspaceSet {
+			mergedIDs = append(mergedIDs, id)
+		}
+		sort.Strings(mergedIDs)
+		mergedPaths := maps.Clone(record.Paths)
+		if mergedPaths == nil {
+			mergedPaths = make(map[string]string, len(record.Paths)+len(paths))
+		}
+		for id, path := range paths {
+			mergedPaths[id] = path
+		}
+		record.Workspaces = mergedIDs
+		record.Paths = mergedPaths
 		users[username] = record
 	}
 	if err := s.accounts.save(users, s.accounts.Owners); err != nil {

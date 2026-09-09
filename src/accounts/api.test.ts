@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
-  AccountError, accountRequest, accountStatus, createUser, currentAccount, deleteUser, importUsers, listUsers,
+  AccountError, accountRequest, accountStatus, batchAssignWorkspaces, createUser, currentAccount, deleteUser, importUsers, listUsers,
   listManagedWorkspaces, login, logout, setup, updateUser,
 } from "./api";
 
@@ -25,6 +25,15 @@ describe("account API", () => {
     expect(JSON.parse(fetchMock.mock.calls[8][1].body)).toMatchObject({ department: "研发部" });
     expect(fetchMock.mock.calls[9][1].method).toBe("DELETE");
   });
+  it("sends a workspace path for batch authorization", async () => {
+    vi.stubGlobal("fetch", fetchMock.mockResolvedValue({ ok: true, json: async () => ({ updated: 2 }) }));
+    await batchAssignWorkspaces(["alice", "bob"], [], ["/workspaces/design"]);
+    expect(fetchMock.mock.calls[0][0]).toBe("/api/admin/users/batch-workspaces");
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual({
+      usernames: ["alice", "bob"], workspaces: [], workspacePaths: ["/workspaces/design"],
+    });
+  });
+
   it("uploads an xlsx user import as multipart form data", async () => {
     vi.stubGlobal("fetch", fetchMock.mockResolvedValue({ ok: true, json: async () => ({ imported: 2 }) }));
     const file = new File(["xlsx"], "users.xlsx", { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });

@@ -39,4 +39,5 @@ export async function importUsers(file: File): Promise<{ imported: number }> {
 export const updateUser = (name: string, value: AccountInput) =>
   accountRequest(`/api/admin/users/${encodeURIComponent(name)}`, "PATCH", value);
 export const deleteUser = (name: string) => accountRequest(`/api/admin/users/${encodeURIComponent(name)}`, "DELETE");
-export const batchAssignWorkspaces = (usernames: string[], workspaces: string[]) => accountRequest("/api/admin/users/batch-workspaces", "POST", { usernames, workspaces });
+export const batchAssignWorkspaces = (usernames: string[], workspaces: string[], workspacePaths: string[] = []) =>
+  accountRequest("/api/admin/users/batch-workspaces", "POST", { usernames, workspaces, workspacePaths });

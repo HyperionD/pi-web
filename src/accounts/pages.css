@@ -34,7 +34,12 @@ html.account-document, body.account-page { background: var(--bg-1); }
 .account-row-action { min-height: 32px !important; padding: 6px 10px !important; font-size: 12px !important; }
 .account-users-table td:last-child { text-align: right; }
 .account-users { display: none; }
-.account-user-dialog { width: min(560px, calc(100vw - 40px)); }
+.account-user-dialog, .account-batch-dialog { width: min(560px, calc(100vw - 40px)); }
+.account-batch-dialog form { display: grid; gap: 16px; }
+.account-batch-target { margin: 0; }
+.account-batch-selected-path { margin: 0; padding: 12px; border: 1px solid var(--border); border-radius: 6px; overflow-wrap: anywhere; background: var(--bg-1); color: var(--fg-1) !important; font-size: 12px; }
+[data-batch-status] { min-height: 1.25em; margin: 0; color: var(--fg-2); }
+[data-batch-status].is-error { color: var(--danger); font-weight: 600; }
 .account-user-dialog form { display: grid; gap: 20px; }
 .account-dialog-head { display: flex; align-items: start; justify-content: space-between; gap: 16px; }
 .account-dialog-head h2 { margin: 0; }

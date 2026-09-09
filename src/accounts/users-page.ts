@@ -6,6 +6,12 @@ const fields = document.querySelector<HTMLFieldSetElement>("[data-user-fields]")
 const errorMessage = document.querySelector<HTMLElement>("[data-account-error]")!;
 const status = document.querySelector<HTMLElement>("[data-user-status]")!;
 const usersStatus = document.querySelector<HTMLElement>("[data-users-status]")!;
+const batchDialog = document.querySelector<HTMLDialogElement>("[data-batch-dialog]")!;
+const batchForm = document.querySelector<HTMLFormElement>("[data-batch-form]")!;
+const batchStatus = document.querySelector<HTMLElement>("[data-batch-status]")!;
+const batchSubmit = document.querySelector<HTMLButtonElement>("[data-batch-submit]")!;
+const batchTargetCount = document.querySelector<HTMLElement>("[data-batch-target-count]")!;
+const batchSelectedPath = document.querySelector<HTMLElement>("[data-batch-selected-path]")!;
 const removeButton = document.querySelector<HTMLButtonElement>("[data-user-delete]")!;
 const dialog = document.querySelector<HTMLDialogElement>("[data-delete-dialog]")!;
 let editing: Account | null = null;
@@ -14,6 +20,7 @@ let userPage = 1;
 let userTotal = 0;
 let userPageSize = 10;
 let searchTimer: number | undefined;
+let batchWorkspacePath = "";
 const selectedUsers = new Set<string>();
 
 function selectUser(user: Account | null) {
@@ -60,14 +67,8 @@ async function refreshUsersSafely() {
   try { await refreshUsers(); } catch (error) { showAccountError(error, errorMessage); }
 }
 
-function renderWorkspaceOptions() {
-  const batchSelect = document.querySelector<HTMLSelectElement>("[data-batch-workspaces]")!;
-  batchSelect.replaceChildren(...workspaces.map((workspace) => new Option(`${workspace.name} · ${workspace.path}`, workspace.id)));
-}
-
 async function refreshWorkspaceOptions() {
   ({ workspaces } = await listManagedWorkspaces());
-  renderWorkspaceOptions();
 }
 
 async function refreshUsers() {
@@ -150,17 +151,59 @@ importInput.addEventListener("change", async () => {
     usersStatus.textContent = `成功导入 ${result.imported} 个用户，但列表刷新失败，请手动刷新。`;
   }
 });
-document.querySelector("[data-batch-assign]")!.addEventListener("click", async () => {
-  const select = document.querySelector<HTMLSelectElement>("[data-batch-workspaces]")!;
-  const workspaces = [...select.selectedOptions].map((option) => option.value);
-  if (!workspaces.length) { status.textContent = "请选择至少一个工作区。"; return; }
-  try { await batchAssignWorkspaces([...selectedUsers], workspaces); selectedUsers.clear(); await refreshUsers(); syncBatchControls(); status.textContent = "批量授权已保存。"; }
-  catch (error) { showAccountError(error, errorMessage); }
+document.querySelector("[data-batch-open]")!.addEventListener("click", () => {
+  batchWorkspacePath = "";
+  batchTargetCount.textContent = `${selectedUsers.size} 个用户`;
+  batchSelectedPath.textContent = "尚未选择工作区。";
+  batchStatus.classList.remove("is-error");
+  batchStatus.textContent = "";
+  batchDialog.showModal();
+});
+document.querySelectorAll("[data-batch-cancel]").forEach((button) => button.addEventListener("click", () => batchDialog.close("cancel")));
+batchForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  if (!batchWorkspacePath) {
+    batchStatus.classList.add("is-error");
+    batchStatus.textContent = "请先选择要授权的服务器文件夹。";
+    return;
+  }
+  if (!selectedUsers.size) {
+    batchStatus.classList.add("is-error");
+    batchStatus.textContent = "请先在用户列表中选择用户。";
+    return;
+  }
+  const count = selectedUsers.size;
+  batchSubmit.disabled = true;
+  batchStatus.classList.remove("is-error");
+  batchStatus.textContent = "授权保存中…";
+  try {
+    await batchAssignWorkspaces([...selectedUsers], [], [batchWorkspacePath]);
+    selectedUsers.clear();
+    syncBatchControls();
+    try {
+      await Promise.all([refreshWorkspaceOptions(), refreshUsers()]);
+      batchStatus.textContent = `已为 ${count} 个用户授权工作区。`;
+    } catch {
+      batchStatus.textContent = `已为 ${count} 个用户授权，但列表刷新失败，请手动刷新。`;
+    }
+  } catch (error) {
+    showAccountError(error, batchStatus);
+    batchStatus.textContent = `批量授权失败：${batchStatus.textContent}`;
+    batchStatus.classList.add("is-error");
+  } finally {
+    batchSubmit.disabled = false;
+  }
 });
 const directoryDialog = document.querySelector<HTMLDialogElement>("[data-directory-dialog]")!;
 const directoryCurrent = document.querySelector<HTMLElement>("[data-directory-current]")!;
 const directoryList = document.querySelector<HTMLElement>("[data-directory-list]")!;
 let selectedDirectory = "/";
+let directoryTarget: "user" | "batch" = "user";
+function openDirectoryPicker(target: "user" | "batch") {
+  directoryTarget = target;
+  directoryDialog.showModal();
+  void loadDirectory("/");
+}
 async function loadDirectory(path: string) {
   directoryCurrent.textContent = "加载目录中…";
   directoryList.replaceChildren();
@@ -181,10 +224,16 @@ async function loadDirectory(path: string) {
     }
   } catch (error) { directoryCurrent.textContent = "无法加载目录"; showAccountError(error, errorMessage); }
 }
-document.querySelector("[data-open-directory]")!.addEventListener("click", () => { directoryDialog.showModal(); void loadDirectory("/"); });
+document.querySelector("[data-open-directory]")!.addEventListener("click", () => openDirectoryPicker("user"));
+document.querySelector("[data-batch-open-directory]")!.addEventListener("click", () => openDirectoryPicker("batch"));
 document.querySelector("[data-directory-up]")!.addEventListener("click", () => void loadDirectory(selectedDirectory.replace(/\/[^/]*$/, "") || "/"));
 directoryDialog.addEventListener("close", () => {
   if (directoryDialog.returnValue !== "confirm") return;
+  if (directoryTarget === "batch") {
+    batchWorkspacePath = selectedDirectory;
+    batchSelectedPath.textContent = `已选择：${selectedDirectory}`;
+    return;
+  }
   (form.elements.namedItem("workspacePath") as HTMLInputElement).value = selectedDirectory;
   document.querySelector<HTMLElement>("[data-selected-directory]")!.textContent = `已选择：${selectedDirectory}`;
 });
