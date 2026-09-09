@@ -23,7 +23,17 @@ func (s *Server) batchAssignWorkspaces(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, errors.New("invalid batch size"))
 		return
 	}
-	paths, err := s.accountPaths(append([]string(nil), req.Workspaces...), req.WorkspacePaths)
+	s.accounts.mu.Lock()
+	for _, username := range req.Usernames {
+		record, ok := s.accounts.Users[username]
+		if !ok || record.Role == "admin" {
+			s.accounts.mu.Unlock()
+			writeError(w, http.StatusNotFound, errAccountDenied)
+			return
+		}
+	}
+	s.accounts.mu.Unlock()
+	paths, databasePaths, memoryPaths, err := s.accountPathsWithRegistrations(append([]string(nil), req.Workspaces...), req.WorkspacePaths)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err)
 		return
@@ -38,6 +48,7 @@ func (s *Server) batchAssignWorkspaces(w http.ResponseWriter, r *http.Request) {
 	for _, username := range req.Usernames {
 		record, ok := users[username]
 		if !ok || record.Role == "admin" {
+			_ = s.store.RollbackWorkspaceRegistrations(databasePaths, memoryPaths)
 			writeError(w, http.StatusNotFound, errAccountDenied)
 			return
 		}
@@ -65,6 +76,7 @@ func (s *Server) batchAssignWorkspaces(w http.ResponseWriter, r *http.Request) {
 		users[username] = record
 	}
 	if err := s.accounts.save(users, s.accounts.Owners); err != nil {
+		_ = s.store.RollbackWorkspaceRegistrations(databasePaths, memoryPaths)
 		writeError(w, http.StatusInternalServerError, err)
 		return
 	}

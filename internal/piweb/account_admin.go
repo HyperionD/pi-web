@@ -59,6 +59,11 @@ func (s *Server) listAccounts(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) accountPaths(ids, requestedPaths []string) (map[string]string, error) {
+	paths, _, _, err := s.accountPathsWithRegistrations(ids, requestedPaths)
+	return paths, err
+}
+
+func (s *Server) accountPathsWithRegistrations(ids, requestedPaths []string) (map[string]string, []string, []string, error) {
 	paths := make(map[string]string, len(ids))
 	policy := WorkspacePolicy{}
 	for _, requestedPath := range requestedPaths {
@@ -66,29 +71,50 @@ func (s *Server) accountPaths(ids, requestedPaths []string) (map[string]string, 
 			continue
 		}
 		if err := policy.CheckExistingDirectory(requestedPath); err != nil {
-			return nil, err
+			return nil, nil, nil, err
 		}
-		workspace, err := s.store.RegisterWorkspace(requestedPath)
+	}
+	grants, databasePaths, memoryPaths, err := s.store.RegisterWorkspacePaths(requestedPaths)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	rollback := func(cause error) (map[string]string, []string, []string, error) {
+		_ = s.store.RollbackWorkspaceRegistrations(databasePaths, memoryPaths)
+		return nil, nil, nil, cause
+	}
+	for _, requestedPath := range requestedPaths {
+		if requestedPath == "" {
+			continue
+		}
+		realPath, err := filepath.EvalSymlinks(requestedPath)
 		if err != nil {
-			return nil, err
+			return rollback(err)
 		}
-		ids = append(ids, workspace.ID)
+		grant, ok := grants[realPath]
+		if !ok {
+			return rollback(errors.New("workspace registration missing"))
+		}
+		ids = append(ids, grant.ID)
+		paths[grant.ID] = grant.Path
 	}
 	for _, id := range ids {
+		if _, ok := paths[id]; ok {
+			continue
+		}
 		path, err := s.store.WorkspacePath(id)
 		if err != nil {
-			return nil, err
+			return rollback(err)
 		}
 		if err := policy.CheckExistingDirectory(path); err != nil {
-			return nil, err
+			return rollback(err)
 		}
 		realPath, err := filepath.EvalSymlinks(path)
 		if err != nil {
-			return nil, err
+			return rollback(err)
 		}
 		paths[id] = realPath
 	}
-	return paths, nil
+	return paths, databasePaths, memoryPaths, nil
 }
 
 func (s *Server) readAccountWrite(w http.ResponseWriter, r *http.Request, create bool) (accountRecord, bool) {
