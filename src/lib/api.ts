@@ -385,11 +385,14 @@ export function steerSession(sessionId, text, attachments = []) {
   });
 }
 
-export function sessionEvents(sessionId: string, { onEvent, onOpen, onError, replay = true, after }: any = {}) {
+export function sessionEvents(sessionId: string, { onEvent, onOpen, onError, replay = true, after, snapshotAfter }: any = {}) {
   const params = new URLSearchParams();
-  if (!replay) params.set("replay", "false");
+  if (replay === "active") params.set("replay", "active");
+  else if (!replay) params.set("replay", "false");
   const cursor = normalizeEventCursor(after);
   if (cursor && cursor !== "0") params.set("after", cursor);
+  const snapshotCursor = normalizeEventCursor(snapshotAfter);
+  if (replay === "active" && snapshotCursor && snapshotCursor !== "0") params.set("snapshot", snapshotCursor);
   const query = params.toString() ? `?${params}` : "";
   const source = new EventSource(
     `${apiBase()}/api/sessions/${encodeURIComponent(sessionId)}/events${query}`,

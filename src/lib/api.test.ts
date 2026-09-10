@@ -268,6 +268,8 @@ describe("api adapter", () => {
     expect(onEvent).toHaveBeenCalledWith({ type: "session.message" });
     expect(onEvent).toHaveBeenCalledWith({ type: "session.message", id: "9007199254740993" });
 
+    const activeReplay = sessionEvents("s1", { replay: "active", after: "42", snapshotAfter: "99" });
+    expect(activeReplay.url).toBe("http://backend.test/api/sessions/s1/events?replay=active&after=42&snapshot=99");
     const noReplay = sessionEvents("s1", { replay: false });
     expect(noReplay.url).toBe("http://backend.test/api/sessions/s1/events?replay=false");
     const safeCursor = sessionEvents("s1", { replay: false, after: "9007199254740993" });

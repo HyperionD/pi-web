@@ -389,17 +389,23 @@ export const workspaceBootstrapMethods = {
     this.sessionHistoryCursor = page.cursor || "";
     this.sessionHistoryHasMore = !!page.hasMore;
     this.sessionHistoryLoading = false;
-    if (Object.prototype.hasOwnProperty.call(page, "latestEventId")) {
+    const hasSnapshotCursor = Object.prototype.hasOwnProperty.call(page, "latestEventId");
+    const activeRun = status === "running"
+      && page.activeRun === true
+      && Object.prototype.hasOwnProperty.call(page, "activeEventCursor");
+    const snapshotCursor = activeRun ? page.activeEventCursor : page.latestEventId;
+    if (hasSnapshotCursor) {
       this.sessionEventCursors ??= new Map();
       this.sessionEventCursors.delete(session.id);
-      this.setSessionEventCursor(session.id, page.latestEventId);
+      this.setSessionEventCursor(session.id, snapshotCursor);
     }
     this.renderMessages(messages);
     this.setMode(status || "idle");
-    if (Object.prototype.hasOwnProperty.call(page, "latestEventId")) {
+    if (hasSnapshotCursor) {
       this.connectEvents(session.id, {
-        replay: true,
-        after: normalizeEventCursor(page.latestEventId) || "0",
+        replay: activeRun ? "active" : true,
+        after: normalizeEventCursor(snapshotCursor) || "0",
+        ...(activeRun ? { snapshotAfter: normalizeEventCursor(page.latestEventId) || "0" } : {}),
         reloadOnOpen: false,
       });
     } else {

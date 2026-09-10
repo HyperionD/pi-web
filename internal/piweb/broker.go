@@ -17,6 +17,12 @@ const (
 	defaultOverflowDrainTimeout = time.Second
 )
 
+type SessionEventCursors struct {
+	LatestEventID    uint64
+	ActiveRunAfter   uint64
+	ActiveRunRunning bool
+}
+
 type Broker struct {
 	mu                   sync.RWMutex
 	publishBarrier       sync.RWMutex
@@ -30,6 +36,8 @@ type Broker struct {
 	history              map[string][]Event
 	historySize          int
 	running              map[string]bool
+	activeRunAfter       map[string]uint64
+	activeRunHistory     map[string][]Event
 	// Hooks are test barriers. publishAdmissionHook runs before mu is acquired;
 	// the others run at their corresponding point in the locked/send pipeline.
 	subscribeHook        func()
@@ -64,6 +72,8 @@ func NewBroker() *Broker {
 		subscribers:          map[string]map[*brokerSubscriber]struct{}{},
 		history:              map[string][]Event{},
 		running:              map[string]bool{},
+		activeRunAfter:       map[string]uint64{},
+		activeRunHistory:     map[string][]Event{},
 		buffer:               32,
 		heartbeat:            15 * time.Second,
 		historySize:          256,
@@ -78,6 +88,14 @@ func (b *Broker) Subscribe(sessionID string) (<-chan Event, func()) {
 }
 
 func (b *Broker) SubscribeFrom(sessionID string, after uint64) EventSubscription {
+	return b.subscribeFrom(sessionID, after, 0, false)
+}
+
+func (b *Broker) SubscribeFromActive(sessionID string, after, snapshotAfter uint64) EventSubscription {
+	return b.subscribeFrom(sessionID, after, snapshotAfter, true)
+}
+
+func (b *Broker) subscribeFrom(sessionID string, after, snapshotAfter uint64, active bool) EventSubscription {
 	b.mu.Lock()
 	if b.closed {
 		events := make(chan Event)
@@ -106,7 +124,11 @@ func (b *Broker) SubscribeFrom(sessionID string, after uint64) EventSubscription
 	}
 	b.subscribers[sessionID][subscriber] = struct{}{}
 	replay := b.replayLocked(sessionID, after)
-	if gap := b.replayGapLocked(sessionID, after); gap != nil {
+	activeHistoryAvailable := active && len(b.activeRunHistory[sessionID]) > 0
+	activeRunMatchesSnapshot := snapshotAfter == 0 || snapshotAfter >= b.activeRunAfter[sessionID]
+	if activeHistoryAvailable && activeRunMatchesSnapshot {
+		replay = replayActiveRunAfter(b.activeRunHistory[sessionID], after, snapshotAfter)
+	} else if gap := b.replayGapLocked(sessionID, after); gap != nil {
 		replay = []Event{*gap}
 	}
 	if b.subscribeHook != nil {
@@ -368,6 +390,10 @@ func (b *Broker) recordGapLocked(subscriber *brokerSubscriber, sessionID string,
 	b.signalSubscriberLocked(subscriber)
 }
 
+func isActiveSessionStatus(status string) bool {
+	return status == "running" || status == "thinking"
+}
+
 func isCriticalBrokerEvent(eventType string) bool {
 	switch eventType {
 	case "session.message", "session.status", "tool.started", "tool.finished", "error":
@@ -395,15 +421,25 @@ func (b *Broker) Publish(sessionID, eventType string, payload any) Event {
 		Payload:   RedactPayload(payload),
 		At:        time.Now().UTC(),
 	}
+	runWasActive := b.running[sessionID]
+	status := ""
 	if event.Type == "session.status" {
-		status := eventStatus(event)
-		if status == "running" {
+		status = eventStatus(event)
+		if isActiveSessionStatus(status) {
 			b.running[sessionID] = true
-		} else if status == "idle" || status == "cancelled" {
-			b.running[sessionID] = false
+			b.activeRunHistory[sessionID] = nil
 		}
 	}
 	b.appendHistoryLocked(sessionID, event)
+	if b.running[sessionID] || (runWasActive && (status == "idle" || status == "cancelled")) {
+		b.activeRunHistory[sessionID] = append(b.activeRunHistory[sessionID], event)
+	}
+	if isActiveSessionStatus(status) {
+		b.activeRunAfter[sessionID] = event.ID
+	}
+	if status == "idle" || status == "cancelled" {
+		b.running[sessionID] = false
+	}
 	if b.publishHook != nil {
 		b.publishHook()
 	}
@@ -456,6 +492,12 @@ func (b *Broker) IsRunning(sessionID string) bool {
 	return b.running[sessionID]
 }
 
+func (b *Broker) ActiveRunAfter(sessionID string) uint64 {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+	return b.activeRunAfter[sessionID]
+}
+
 func (b *Broker) LatestEventID(sessionID string) uint64 {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
@@ -472,15 +514,19 @@ func (b *Broker) latestEventIDLocked(sessionID string) uint64 {
 
 // WithSessionSnapshot blocks ordinary publishes while the caller reads the
 // durable session state and captures the matching Broker cursor.
-func (b *Broker) WithSessionSnapshot(sessionID string, read func() error) (uint64, error) {
+func (b *Broker) WithSessionSnapshot(sessionID string, read func() error) (SessionEventCursors, error) {
 	b.publishBarrier.Lock()
 	defer b.publishBarrier.Unlock()
 	if err := read(); err != nil {
-		return 0, err
+		return SessionEventCursors{}, err
 	}
 	b.mu.RLock()
 	defer b.mu.RUnlock()
-	return b.latestEventIDLocked(sessionID), nil
+	return SessionEventCursors{
+		LatestEventID:    b.latestEventIDLocked(sessionID),
+		ActiveRunAfter:   b.activeRunAfter[sessionID],
+		ActiveRunRunning: b.running[sessionID],
+	}, nil
 }
 
 func (b *Broker) Replay(sessionID string, after uint64) []Event {
@@ -490,13 +536,37 @@ func (b *Broker) Replay(sessionID string, after uint64) []Event {
 }
 
 func (b *Broker) replayLocked(sessionID string, after uint64) []Event {
+	return replayAfter(b.history[sessionID], after)
+}
+
+func replayAfter(events []Event, after uint64) []Event {
 	var replay []Event
-	for _, event := range b.history[sessionID] {
+	for _, event := range events {
 		if event.ID > after {
 			replay = append(replay, event)
 		}
 	}
 	return replay
+}
+
+func replayActiveRunAfter(events []Event, after, snapshotAfter uint64) []Event {
+	var replay []Event
+	for _, event := range events {
+		if event.ID <= after || (event.ID <= snapshotAfter && !isTransientRunEvent(event.Type)) {
+			continue
+		}
+		replay = append(replay, event)
+	}
+	return replay
+}
+
+func isTransientRunEvent(eventType string) bool {
+	switch eventType {
+	case "session.delta", "tool.started", "tool.output", "error":
+		return true
+	default:
+		return false
+	}
 }
 
 func eventStatus(event Event) string {
@@ -525,6 +595,11 @@ func (b *Broker) ServeSession(w http.ResponseWriter, r *http.Request, sessionID 
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
+	snapshotAfter, err := parseEventCursor(r.URL.Query().Get("snapshot"))
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
 	flusher, ok := w.(http.Flusher)
 	if !ok {
 		http.Error(w, "streaming unsupported", http.StatusInternalServerError)
@@ -536,7 +611,13 @@ func (b *Broker) ServeSession(w http.ResponseWriter, r *http.Request, sessionID 
 	w.Header().Set("X-Accel-Buffering", "no")
 	flusher.Flush()
 
-	subscription := b.SubscribeFrom(sessionID, after)
+	activeReplay := r.URL.Query().Get("replay") == "active"
+	var subscription EventSubscription
+	if activeReplay {
+		subscription = b.SubscribeFromActive(sessionID, after, snapshotAfter)
+	} else {
+		subscription = b.SubscribeFrom(sessionID, after)
+	}
 	defer subscription.Close()
 	if shouldReplayHistory(r, after) {
 		for _, event := range subscription.Replay {
@@ -584,6 +665,10 @@ func parseSessionEventCursor(r *http.Request) (uint64, error) {
 	if value == "" {
 		value = r.URL.Query().Get("after")
 	}
+	return parseEventCursor(value)
+}
+
+func parseEventCursor(value string) (uint64, error) {
 	if value == "" {
 		return 0, nil
 	}

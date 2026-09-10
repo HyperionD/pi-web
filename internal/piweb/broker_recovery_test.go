@@ -38,6 +38,34 @@ func TestBrokerRecoveryUsesLatestSessionEventIDAndAfter(t *testing.T) {
 	}
 }
 
+func TestActiveRunReplaySurvivesHistoryWindow(t *testing.T) {
+	broker := NewBroker()
+	broker.historySize = 1
+	running := broker.Publish("s1", "session.status", map[string]string{"status": "running"})
+	firstDelta := broker.Publish("s1", "session.delta", map[string]string{"kind": "pi", "delta": "first"})
+	durableTool := broker.Publish("s1", "tool.finished", Message{ID: "tool-1", Kind: "tool", Status: "ok"})
+	secondDelta := broker.Publish("s1", "session.delta", map[string]string{"kind": "pi", "delta": "second"})
+
+	if got := broker.ActiveRunAfter("s1"); got != running.ID {
+		t.Fatalf("active run cursor = %d, want %d", got, running.ID)
+	}
+	subscription := broker.SubscribeFromActive("s1", running.ID, durableTool.ID)
+	defer subscription.Close()
+	if len(subscription.Replay) != 2 || subscription.Replay[0].ID != firstDelta.ID || subscription.Replay[1].ID != secondDelta.ID {
+		t.Fatalf("active replay = %#v, want deltas %d and %d", subscription.Replay, firstDelta.ID, secondDelta.ID)
+	}
+}
+
+func TestThinkingStatusStartsActiveRunRecovery(t *testing.T) {
+	broker := NewBroker()
+	thinking := broker.Publish("s1", "session.status", map[string]string{"status": "thinking"})
+	broker.Publish("s1", "session.delta", map[string]string{"kind": "pi", "delta": "draft"})
+
+	if !broker.IsRunning("s1") || broker.ActiveRunAfter("s1") != thinking.ID {
+		t.Fatalf("thinking status did not start active recovery: running=%v after=%d", broker.IsRunning("s1"), broker.ActiveRunAfter("s1"))
+	}
+}
+
 func TestSubscribeFromReportsHistoryGapForSnapshotRecovery(t *testing.T) {
 	broker := NewBroker()
 	broker.historySize = 1
@@ -52,6 +80,30 @@ func TestSubscribeFromReportsHistoryGapForSnapshotRecovery(t *testing.T) {
 	payload := subscription.Replay[0].Payload.(map[string]any)
 	if payload["after"] != strconv.FormatUint(first.ID, 10) || payload["latestEventId"] != strconv.FormatUint(latest.ID, 10) {
 		t.Fatalf("history gap payload = %#v", payload)
+	}
+}
+
+func TestSessionSnapshotIncludesActiveRunCursor(t *testing.T) {
+	broker := NewBroker()
+	server := NewServer(Config{}, NewMockStore(), broker)
+	running := broker.Publish("8e7c-44ff", "session.status", map[string]string{"status": "running"})
+	broker.Publish("8e7c-44ff", "session.delta", map[string]string{"kind": "pi", "delta": "draft"})
+
+	request := httptest.NewRequest(http.MethodGet, "/api/sessions/8e7c-44ff", nil)
+	response := httptest.NewRecorder()
+	server.Handler().ServeHTTP(response, request)
+	if response.Code != http.StatusOK {
+		t.Fatalf("snapshot status = %d: %s", response.Code, response.Body.String())
+	}
+	var payload struct {
+		ActiveEventCursor string `json:"activeEventCursor"`
+		ActiveRun         bool   `json:"activeRun"`
+	}
+	if err := json.Unmarshal(response.Body.Bytes(), &payload); err != nil {
+		t.Fatal(err)
+	}
+	if payload.ActiveEventCursor != strconv.FormatUint(running.ID, 10) || !payload.ActiveRun {
+		t.Fatalf("active snapshot cursor = %q active=%v, want %d/true", payload.ActiveEventCursor, payload.ActiveRun, running.ID)
 	}
 }
 
@@ -114,6 +166,36 @@ func TestServeSessionRecoversFromAfterQuery(t *testing.T) {
 	thirdIndex := strings.Index(body, "id: "+strconv.FormatUint(third.ID, 10)+"\n")
 	if secondIndex < 0 || thirdIndex < 0 || secondIndex > thirdIndex {
 		t.Fatalf("after replay/live order is wrong: %q", body)
+	}
+}
+
+func TestServeSessionReplaysActiveRunAfterCursor(t *testing.T) {
+	broker := NewBroker()
+	broker.historySize = 1
+	running := broker.Publish("s1", "session.status", map[string]string{"status": "running"})
+	delta := broker.Publish("s1", "session.delta", map[string]string{"kind": "pi", "delta": "draft"})
+	writer := newTestSSEWriter()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	request := httptest.NewRequest(http.MethodGet, "/events?replay=active&after="+strconv.FormatUint(running.ID, 10)+"&snapshot="+strconv.FormatUint(running.ID, 10), nil).WithContext(ctx)
+	done := make(chan struct{})
+	go func() {
+		broker.ServeSession(writer, request, "s1")
+		close(done)
+	}()
+	select {
+	case <-writer.flushed:
+	case <-time.After(time.Second):
+		t.Fatal("ServeSession did not flush active replay")
+	}
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("ServeSession did not stop after cancellation")
+	}
+	if !strings.Contains(writer.String(), "id: "+strconv.FormatUint(delta.ID, 10)+"\n") {
+		t.Fatalf("active delta was not replayed: %q", writer.String())
 	}
 }
 

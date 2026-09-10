@@ -10,28 +10,30 @@ import (
 func (s *Server) session(w http.ResponseWriter, r *http.Request) {
 	sessionID := r.PathValue("sessionID")
 	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
-	session, page, latestEventID, err := s.sessionSnapshot(sessionID, limit, r.URL.Query().Get("before"))
+	session, page, cursors, err := s.sessionSnapshot(sessionID, limit, r.URL.Query().Get("before"))
 	if err != nil {
 		writeStoreError(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
-		"session":       session,
-		"messages":      page.Messages,
-		"cursor":        page.Cursor,
-		"hasMore":       page.HasMore,
-		"limit":         page.Limit,
-		"status":        s.sessionStatus(sessionID),
-		"latestEventId": strconv.FormatUint(latestEventID, 10),
+		"session":           session,
+		"messages":          page.Messages,
+		"cursor":            page.Cursor,
+		"hasMore":           page.HasMore,
+		"limit":             page.Limit,
+		"status":            s.sessionStatus(sessionID),
+		"latestEventId":     strconv.FormatUint(cursors.LatestEventID, 10),
+		"activeEventCursor": strconv.FormatUint(cursors.ActiveRunAfter, 10),
+		"activeRun":         cursors.ActiveRunRunning,
 	})
 }
 
-func (s *Server) sessionSnapshot(sessionID string, limit int, before string) (Session, SessionMessagePage, uint64, error) {
+func (s *Server) sessionSnapshot(sessionID string, limit int, before string) (Session, SessionMessagePage, SessionEventCursors, error) {
 	s.store.sessionMutationMu.Lock()
 	defer s.store.sessionMutationMu.Unlock()
 	var session Session
 	var page SessionMessagePage
-	latestEventID, err := s.broker.WithSessionSnapshot(sessionID, func() error {
+	cursors, err := s.broker.WithSessionSnapshot(sessionID, func() error {
 		if s.store.sessionSnapshotHook != nil {
 			s.store.sessionSnapshotHook()
 		}
@@ -40,9 +42,9 @@ func (s *Server) sessionSnapshot(sessionID string, limit int, before string) (Se
 		return readErr
 	})
 	if err != nil {
-		return Session{}, SessionMessagePage{}, 0, err
+		return Session{}, SessionMessagePage{}, SessionEventCursors{}, err
 	}
-	return session, page, latestEventID, nil
+	return session, page, cursors, nil
 }
 
 func (s *Server) sessionStatus(sessionID string) string {
