@@ -237,9 +237,18 @@ func TestSnapshotCursorSafelyBridgesPublishBeforeSubscribe(t *testing.T) {
 
 	subscribeStarted := make(chan struct{})
 	releaseSubscribe := make(chan struct{})
+	publishAdmitted := make(chan struct{})
+	releasePublishAdmission := make(chan struct{})
 	broker.subscribeHook = func() {
 		close(subscribeStarted)
 		<-releaseSubscribe
+	}
+	broker.publishAdmissionHook = func(eventType string) {
+		if eventType != "session.status" {
+			return
+		}
+		close(publishAdmitted)
+		<-releasePublishAdmission
 	}
 	writer := newTestSSEWriter()
 	ctx, cancel := context.WithCancel(context.Background())
@@ -255,12 +264,9 @@ func TestSnapshotCursorSafelyBridgesPublishBeforeSubscribe(t *testing.T) {
 	go func() {
 		publishDone <- broker.Publish("8e7c-44ff", "session.status", map[string]string{"status": "idle"})
 	}()
-	select {
-	case event := <-publishDone:
-		t.Fatalf("publish crossed subscribe boundary: %#v", event)
-	case <-time.After(20 * time.Millisecond):
-	}
+	<-publishAdmitted
 	close(releaseSubscribe)
+	close(releasePublishAdmission)
 	live := <-publishDone
 	select {
 	case <-writer.flushed:

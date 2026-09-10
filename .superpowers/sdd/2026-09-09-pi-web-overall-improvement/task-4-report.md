@@ -156,3 +156,10 @@
 
 - 按全局 ruling，`static/` 的 source/embedded mismatch 不修改、不提交；本轮交付仅包含 source 与测试变更，embedded 静态产物不会随本 commit 更新。
 - Astro build 仍有既有大 chunk warning；不影响 exit 0。
+
+## 修复轮次 4
+
+- 将 `TestSnapshotCursorSafelyBridgesPublishBeforeSubscribe` 中残留的固定 `20ms` sleep 替换为 `publishAdmissionHook` 与 Subscribe barrier 的确定性同步。
+- 保留 synthetic gap `lastEventId`、subscriber cursor、SSE parse 及既有 Task 2/3、ACL、Chrome 107、escaping；未修改 `static/`。
+- `go test -race ./internal/piweb -run '^TestSnapshotCursorSafelyBridgesPublishBeforeSubscribe$' -count=100`：PASS。
+- `go test -race ./internal/piweb -run 'TestBroker|TestSessionSnapshot' -count=10`、`go test ./...`、`bunx vitest run`、`bun run lint`、`bun run typecheck`、`bun run build`、`git diff --check`：PASS；build 仅有既有 chunk size warning。
