@@ -5,12 +5,14 @@ export default [
   {
     ignores: [
       ".astro/**",
+      ".worktrees/**",
       ".pi/**",
       "bin/**",
       "coverage/**",
       "dist/**",
       "node_modules/**",
       "static/**",
+      "storybook-server/**",
       "storybook-static/**",
     ],
   },

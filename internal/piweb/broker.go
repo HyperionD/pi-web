@@ -29,6 +29,7 @@ type Broker struct {
 	closed               bool
 	history              map[string][]Event
 	historySize          int
+	running              map[string]bool
 	// Hooks are test barriers. publishAdmissionHook runs before mu is acquired;
 	// the others run at their corresponding point in the locked/send pipeline.
 	subscribeHook        func()
@@ -62,6 +63,7 @@ func NewBroker() *Broker {
 	return &Broker{
 		subscribers:          map[string]map[*brokerSubscriber]struct{}{},
 		history:              map[string][]Event{},
+		running:              map[string]bool{},
 		buffer:               32,
 		heartbeat:            15 * time.Second,
 		historySize:          256,
@@ -393,6 +395,14 @@ func (b *Broker) Publish(sessionID, eventType string, payload any) Event {
 		Payload:   RedactPayload(payload),
 		At:        time.Now().UTC(),
 	}
+	if event.Type == "session.status" {
+		status := eventStatus(event)
+		if status == "running" {
+			b.running[sessionID] = true
+		} else if status == "idle" || status == "cancelled" {
+			b.running[sessionID] = false
+		}
+	}
 	b.appendHistoryLocked(sessionID, event)
 	if b.publishHook != nil {
 		b.publishHook()
@@ -440,6 +450,12 @@ func (b *Broker) appendHistoryLocked(sessionID string, event Event) {
 	}
 }
 
+func (b *Broker) IsRunning(sessionID string) bool {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+	return b.running[sessionID]
+}
+
 func (b *Broker) LatestEventID(sessionID string) uint64 {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
@@ -481,6 +497,18 @@ func (b *Broker) replayLocked(sessionID string, after uint64) []Event {
 		}
 	}
 	return replay
+}
+
+func eventStatus(event Event) string {
+	switch payload := event.Payload.(type) {
+	case map[string]string:
+		return payload["status"]
+	case map[string]any:
+		status, _ := payload["status"].(string)
+		return status
+	default:
+		return ""
+	}
 }
 
 func (b *Broker) replayGapLocked(sessionID string, after uint64) *Event {

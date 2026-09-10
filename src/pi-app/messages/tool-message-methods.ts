@@ -184,6 +184,7 @@ export const toolMessageMethods = {
 
   appendToolOutput(payload) {
     const card = latestToolCard(this, payload?.tool, payload?.id);
+    if (card && card.dataset.status !== "running") return;
     const body = card?.querySelector(".tc-body");
     if (!body) return;
     body.__pendingToolOutput = body.__pendingToolOutput || [];

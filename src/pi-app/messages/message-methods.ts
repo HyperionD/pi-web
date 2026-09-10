@@ -41,6 +41,18 @@ export const messageMethods = {
 
   appendMessage(message) {
     if (!this.termInner || !message) return;
+    if (message.kind === "tool" && message.id) {
+      const existingTool = [...this.termInner.querySelectorAll(".tool-card")]
+        .find((card) => card.dataset.toolCallId === message.id);
+      const existingToolItem = this.transcriptItems?.find(
+        (item) => item.message?.kind === "tool" && item.message.id === message.id,
+      );
+      if (existingTool || existingToolItem) {
+        if (message.status === "running" || !existingTool) return;
+        this.finishTool(message);
+        return;
+      }
+    }
     if (this.isDuplicateMessage(message)) {
       if (message.kind === "pi") this.clearStreamingState("pi");
       for (const streamingRow of this.streamingRowsForKind(message.kind)) this.removeStreamingNode(streamingRow);

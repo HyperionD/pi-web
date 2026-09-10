@@ -49,7 +49,7 @@ func (s *Server) sessionStatus(sessionID string) string {
 	if s.runner.IsCompacting(sessionID) {
 		return "compacting"
 	}
-	if s.runner.IsRunning(sessionID) {
+	if s.runner.IsRunning(sessionID) || s.broker.IsRunning(sessionID) {
 		return "running"
 	}
 	return "idle"
