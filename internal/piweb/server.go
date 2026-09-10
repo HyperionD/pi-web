@@ -19,6 +19,67 @@ type Config struct {
 	StaticFiles       fs.FS
 }
 
+type serverLifecycle struct {
+	mu     sync.Mutex
+	state  uint8
+	active int
+	zero   chan struct{}
+}
+
+const (
+	serverAccepting uint8 = iota
+	serverClosing
+	serverClosed
+)
+
+func newServerLifecycle() *serverLifecycle {
+	zero := make(chan struct{})
+	close(zero)
+	return &serverLifecycle{zero: zero}
+}
+
+func (lifecycle *serverLifecycle) enter() bool {
+	lifecycle.mu.Lock()
+	defer lifecycle.mu.Unlock()
+	if lifecycle.state != serverAccepting {
+		return false
+	}
+	if lifecycle.active == 0 {
+		lifecycle.zero = make(chan struct{})
+	}
+	lifecycle.active++
+	return true
+}
+
+func (lifecycle *serverLifecycle) leave() {
+	lifecycle.mu.Lock()
+	defer lifecycle.mu.Unlock()
+	lifecycle.active--
+	if lifecycle.active == 0 {
+		close(lifecycle.zero)
+		if lifecycle.state == serverClosing {
+			lifecycle.state = serverClosed
+		}
+	}
+}
+
+func (lifecycle *serverLifecycle) beginShutdown(ctx context.Context) error {
+	lifecycle.mu.Lock()
+	if lifecycle.state != serverAccepting {
+		lifecycle.mu.Unlock()
+		return nil
+	}
+	lifecycle.state = serverClosing
+	zero := lifecycle.zero
+	lifecycle.mu.Unlock()
+	select {
+	case <-zero:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
 type Server struct {
 	store                   *Store
 	broker                  *Broker
@@ -28,8 +89,7 @@ type Server struct {
 	config                  Config
 	ctx                     context.Context
 	cancel                  context.CancelFunc
-	shutdownMu              sync.RWMutex
-	shuttingDown            bool
+	lifecycle               *serverLifecycle
 	accounts                *accountStore
 	workspaceAccess         *WorkspaceAccess
 	adminPasswordConfigured bool
@@ -70,6 +130,7 @@ func NewServerWithRuntimeManager(config Config, store *Store, broker *Broker, ma
 		config:                  config,
 		ctx:                     ctx,
 		cancel:                  cancel,
+		lifecycle:               newServerLifecycle(),
 		adminPasswordConfigured: adminPasswordConfigured,
 		adminPasswordCheckError: adminPasswordCheckError,
 	}
@@ -91,12 +152,11 @@ func (s *Server) Handler() http.Handler {
 
 func (s *Server) withShutdownGuard(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		s.shutdownMu.RLock()
-		defer s.shutdownMu.RUnlock()
-		if s.shuttingDown {
+		if !s.lifecycle.enter() {
 			writeError(w, http.StatusServiceUnavailable, errors.New("server is shutting down"))
 			return
 		}
+		defer s.lifecycle.leave()
 		next.ServeHTTP(w, r)
 	})
 }
@@ -162,19 +222,32 @@ func (s *Server) context() context.Context {
 }
 
 func (s *Server) Shutdown(ctx context.Context) error {
-	s.shutdownMu.Lock()
-	if s.shuttingDown {
-		s.shutdownMu.Unlock()
-		return nil
-	}
-	s.shuttingDown = true
+	lifecycleErr := s.lifecycle.beginShutdown(ctx)
 	s.cancel()
-	s.shutdownMu.Unlock()
+	runtimeCtx, runtimeCancel := independentShutdownContext(ctx)
+	defer runtimeCancel()
+	brokerCtx, brokerCancel := independentShutdownContext(ctx)
+	defer brokerCancel()
+	storeCtx, storeCancel := independentShutdownContext(ctx)
+	defer storeCancel()
 	return errors.Join(
-		s.runtimeManager.Shutdown(ctx),
-		s.broker.Shutdown(ctx),
-		s.store.Shutdown(ctx),
+		lifecycleErr,
+		s.runtimeManager.Shutdown(runtimeCtx),
+		s.broker.Shutdown(brokerCtx),
+		s.store.Shutdown(storeCtx),
 	)
+}
+
+func independentShutdownContext(parent context.Context) (context.Context, context.CancelFunc) {
+	if err := parent.Err(); err != nil {
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+		return ctx, func() {}
+	}
+	if deadline, ok := parent.Deadline(); ok {
+		return context.WithDeadline(context.Background(), deadline)
+	}
+	return context.WithTimeout(context.Background(), 5*time.Second)
 }
 
 func (s *Server) workspacePolicy() (WorkspacePolicy, error) {

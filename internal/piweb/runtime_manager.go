@@ -66,6 +66,7 @@ type RuntimeManager struct {
 	mu        sync.Mutex
 	sessions  map[string]*runtimeEntry
 	starting  map[string]*runtimeStartup
+	closing   map[string]*runtimeClosing
 	tombstone map[string]struct{}
 	ctx       context.Context
 	cancel    context.CancelFunc
@@ -81,20 +82,28 @@ type runtimeStartup struct {
 	discard bool
 }
 
+type runtimeClosing struct {
+	done    chan struct{}
+	entry   *runtimeEntry
+	err     error
+	started bool
+}
+
 type runtimeEntry struct {
-	manager    *RuntimeManager
-	runtime    PiRuntime
-	lastUsed   time.Time
-	events     chan PiEvent
-	eventsOnce sync.Once
-	stopOnce   sync.Once
-	stop       chan struct{}
-	mu         sync.Mutex
-	active     int
-	activity   map[string]int
-	closed     bool
-	closeDone  chan struct{}
-	closeErr   error
+	manager             *RuntimeManager
+	runtime             PiRuntime
+	lastUsed            time.Time
+	events              chan PiEvent
+	eventsOnce          sync.Once
+	stopOnce            sync.Once
+	stop                chan struct{}
+	mu                  sync.Mutex
+	active              int
+	activity            map[string]int
+	dropUntilAgentStart bool
+	closed              bool
+	closeDone           chan struct{}
+	closeErr            error
 }
 
 func NewRuntimeManager(store *Store, factories ...RuntimeProcessFactory) *RuntimeManager {
@@ -129,7 +138,7 @@ func NewRuntimeManagerWithOptions(store *Store, options RuntimeManagerOptions) *
 	ctx, cancel := context.WithCancel(context.Background())
 	manager := &RuntimeManager{
 		store: store, factory: factory, now: now, idle: idle, cleanup: cleanup,
-		sessions: map[string]*runtimeEntry{}, starting: map[string]*runtimeStartup{}, tombstone: map[string]struct{}{},
+		sessions: map[string]*runtimeEntry{}, starting: map[string]*runtimeStartup{}, closing: map[string]*runtimeClosing{}, tombstone: map[string]struct{}{},
 		ctx: ctx, cancel: cancel, stop: make(chan struct{}),
 	}
 	go manager.evictLoop()
@@ -140,35 +149,44 @@ func (m *RuntimeManager) Ensure(ctx context.Context, sessionID string) (PiRuntim
 	if sessionID == "" {
 		return nil, fmt.Errorf("session ID is required")
 	}
-	m.mu.Lock()
-	if m.stopped {
+	for {
+		m.mu.Lock()
+		if m.stopped {
+			m.mu.Unlock()
+			return nil, errRuntimeManagerClosed
+		}
+		if _, closed := m.tombstone[sessionID]; closed {
+			m.mu.Unlock()
+			return nil, errRuntimeSessionClosed
+		}
+		if closing := m.closing[sessionID]; closing != nil {
+			m.mu.Unlock()
+			if err := waitRuntimeClosing(ctx, closing); err != nil {
+				return nil, err
+			}
+			continue
+		}
+		sessionFile, cwd, ok := m.store.SessionRuntime(sessionID)
+		if !ok {
+			m.mu.Unlock()
+			return nil, ErrNotFound
+		}
+		if entry := m.sessions[sessionID]; entry != nil && entry.IsRunning() {
+			entry.touch(m.now())
+			m.mu.Unlock()
+			return entry, nil
+		}
+		if startup := m.starting[sessionID]; startup != nil {
+			m.mu.Unlock()
+			return waitRuntimeStartup(ctx, startup)
+		}
+		startup := &runtimeStartup{done: make(chan struct{})}
+		m.starting[sessionID] = startup
+		startCtx := m.ctx
 		m.mu.Unlock()
-		return nil, errRuntimeManagerClosed
-	}
-	if _, closed := m.tombstone[sessionID]; closed {
-		m.mu.Unlock()
-		return nil, errRuntimeSessionClosed
-	}
-	sessionFile, cwd, ok := m.store.SessionRuntime(sessionID)
-	if !ok {
-		m.mu.Unlock()
-		return nil, ErrNotFound
-	}
-	if entry := m.sessions[sessionID]; entry != nil && entry.IsRunning() {
-		entry.touch(m.now())
-		m.mu.Unlock()
-		return entry, nil
-	}
-	if startup := m.starting[sessionID]; startup != nil {
-		m.mu.Unlock()
+		go m.startRuntime(sessionID, sessionFile, cwd, startup, startCtx)
 		return waitRuntimeStartup(ctx, startup)
 	}
-	startup := &runtimeStartup{done: make(chan struct{})}
-	m.starting[sessionID] = startup
-	startCtx := m.ctx
-	m.mu.Unlock()
-	go m.startRuntime(sessionID, sessionFile, cwd, startup, startCtx)
-	return waitRuntimeStartup(ctx, startup)
 }
 
 func (m *RuntimeManager) startRuntime(sessionID, sessionFile, cwd string, startup *runtimeStartup, ctx context.Context) {
@@ -216,9 +234,13 @@ func (m *RuntimeManager) CloseSession(ctx context.Context, sessionID string) err
 	entry := m.sessions[sessionID]
 	delete(m.sessions, sessionID)
 	startup := m.starting[sessionID]
+	closing := m.closing[sessionID]
 	m.tombstone[sessionID] = struct{}{}
 	if startup != nil {
 		startup.discard = true
+	}
+	if entry != nil {
+		closing = m.registerClosingLocked(sessionID, entry)
 	}
 	m.mu.Unlock()
 	if startup != nil {
@@ -227,10 +249,22 @@ func (m *RuntimeManager) CloseSession(ctx context.Context, sessionID string) err
 		}
 		return nil
 	}
-	if entry == nil {
+	if closing == nil {
 		return nil
 	}
-	return entry.Close(ctx)
+	return m.closeRegistered(ctx, sessionID, closing)
+}
+
+// RollbackSessionClose releases a deletion tombstone when the backing store
+// could not delete the session. The closed runtime will be recreated lazily.
+func (m *RuntimeManager) RollbackSessionClose(sessionID string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.stopped {
+		return errRuntimeManagerClosed
+	}
+	delete(m.tombstone, sessionID)
+	return nil
 }
 
 func (m *RuntimeManager) Shutdown(ctx context.Context) error {
@@ -242,9 +276,15 @@ func (m *RuntimeManager) Shutdown(ctx context.Context) error {
 	m.stopped = true
 	m.cancel()
 	close(m.stop)
-	entries := make([]*runtimeEntry, 0, len(m.sessions))
-	for _, entry := range m.sessions {
-		entries = append(entries, entry)
+	entries := make([]struct {
+		sessionID string
+		closing   *runtimeClosing
+	}, 0, len(m.sessions))
+	for sessionID, entry := range m.sessions {
+		entries = append(entries, struct {
+			sessionID string
+			closing   *runtimeClosing
+		}{sessionID: sessionID, closing: m.registerClosingLocked(sessionID, entry)})
 	}
 	m.sessions = map[string]*runtimeEntry{}
 	startups := make([]*runtimeStartup, 0, len(m.starting))
@@ -262,8 +302,8 @@ func (m *RuntimeManager) Shutdown(ctx context.Context) error {
 			result = errors.Join(result, ctx.Err())
 		}
 	}
-	for _, entry := range entries {
-		result = errors.Join(result, entry.Close(ctx))
+	for _, item := range entries {
+		result = errors.Join(result, m.closeRegistered(ctx, item.sessionID, item.closing))
 	}
 	return result
 }
@@ -283,18 +323,61 @@ func (m *RuntimeManager) evictLoop() {
 
 func (m *RuntimeManager) evictIdle() {
 	cutoff := m.now().Add(-m.idle)
-	var idle []*runtimeEntry
+	type idleRuntime struct {
+		sessionID string
+		closing   *runtimeClosing
+	}
+	var idle []idleRuntime
 	m.mu.Lock()
 	for sessionID, entry := range m.sessions {
 		if entry.idleBefore(cutoff) {
 			delete(m.sessions, sessionID)
-			idle = append(idle, entry)
+			idle = append(idle, idleRuntime{sessionID: sessionID, closing: m.registerClosingLocked(sessionID, entry)})
 		}
 	}
 	m.mu.Unlock()
-	for _, entry := range idle {
+	for _, item := range idle {
 		closeCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		_ = entry.Close(closeCtx)
+		_ = m.closeRegistered(closeCtx, item.sessionID, item.closing)
 		cancel()
 	}
+}
+
+func (m *RuntimeManager) registerClosingLocked(sessionID string, entry *runtimeEntry) *runtimeClosing {
+	if closing := m.closing[sessionID]; closing != nil {
+		return closing
+	}
+	closing := &runtimeClosing{done: make(chan struct{}), entry: entry}
+	m.closing[sessionID] = closing
+	return closing
+}
+
+func waitRuntimeClosing(ctx context.Context, closing *runtimeClosing) error {
+	select {
+	case <-closing.done:
+		return closing.err
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+func (m *RuntimeManager) closeRegistered(ctx context.Context, sessionID string, closing *runtimeClosing) error {
+	m.mu.Lock()
+	isOwner := !closing.started
+	if isOwner {
+		closing.started = true
+	}
+	m.mu.Unlock()
+	if isOwner {
+		err := closing.entry.Close(ctx)
+		m.mu.Lock()
+		closing.err = err
+		if m.closing[sessionID] == closing {
+			delete(m.closing, sessionID)
+		}
+		close(closing.done)
+		m.mu.Unlock()
+		return err
+	}
+	return waitRuntimeClosing(ctx, closing)
 }

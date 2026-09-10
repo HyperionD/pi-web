@@ -50,10 +50,12 @@ func (s *Server) renameSession(w http.ResponseWriter, r *http.Request) {
 func (s *Server) deleteSession(w http.ResponseWriter, r *http.Request) {
 	sessionID := r.PathValue("sessionID")
 	if err := s.runtimeManager.CloseSession(s.context(), sessionID); err != nil {
+		_ = s.runtimeManager.RollbackSessionClose(sessionID)
 		writeError(w, http.StatusInternalServerError, err)
 		return
 	}
 	if err := s.store.DeleteSession(sessionID); err != nil {
+		_ = s.runtimeManager.RollbackSessionClose(sessionID)
 		writeStoreError(w, err)
 		return
 	}

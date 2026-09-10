@@ -212,6 +212,10 @@ func (run *activePiRun) beginCancel() bool {
 	return true
 }
 
+type staleEventDiscarder interface {
+	discardStaleEvents()
+}
+
 func drainRuntimeEvents(runtime PiRuntime) {
 	for {
 		select {
@@ -347,7 +351,6 @@ func (r *Runner) Cancel(sessionID string) bool {
 	if !ok {
 		return false
 	}
-	run.cancel()
 	if run.runtime != nil {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		_, abortErr := run.runtime.Send(ctx, RPCCommand{Type: "abort"})
@@ -365,8 +368,12 @@ func (r *Runner) Cancel(sessionID string) bool {
 		}
 	}
 	if run.runtime != nil {
+		if discarder, ok := run.runtime.(staleEventDiscarder); ok {
+			discarder.discardStaleEvents()
+		}
 		drainRuntimeEvents(run.runtime)
 	}
+	run.cancel()
 	r.finishRun(sessionID, run)
 	return true
 }

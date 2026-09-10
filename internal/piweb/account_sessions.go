@@ -16,12 +16,18 @@ func (s *Server) deleteAccountSessions(w http.ResponseWriter, r *http.Request) {
 		closeErr = errors.Join(closeErr, s.runtimeManager.CloseSession(s.context(), session.ID))
 	}
 	if closeErr != nil {
+		for _, session := range sessions {
+			_ = s.runtimeManager.RollbackSessionClose(session.ID)
+		}
 		writeError(w, http.StatusInternalServerError, closeErr)
 		return
 	}
 	deleted := 0
 	for _, session := range sessions {
 		if err := s.store.DeleteSession(session.ID); err != nil {
+			for _, rollback := range sessions[deleted:] {
+				_ = s.runtimeManager.RollbackSessionClose(rollback.ID)
+			}
 			writeStoreError(w, err)
 			return
 		}

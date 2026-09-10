@@ -11,11 +11,12 @@ import (
 )
 
 type fakePiRuntime struct {
-	mu       sync.Mutex
-	sends    []RPCCommand
-	closeErr error
-	closed   int
-	events   chan PiEvent
+	mu        sync.Mutex
+	sends     []RPCCommand
+	closeErr  error
+	closeHook func()
+	closed    int
+	events    chan PiEvent
 }
 
 func newFakePiRuntime() *fakePiRuntime {
@@ -33,9 +34,14 @@ func (r *fakePiRuntime) Events() <-chan PiEvent { return r.events }
 func (r *fakePiRuntime) IsRunning() bool        { return true }
 func (r *fakePiRuntime) Close(context.Context) error {
 	r.mu.Lock()
-	defer r.mu.Unlock()
 	r.closed++
-	return r.closeErr
+	hook := r.closeHook
+	err := r.closeErr
+	r.mu.Unlock()
+	if hook != nil {
+		hook()
+	}
+	return err
 }
 
 func runtimeTestStore() *Store {
@@ -179,6 +185,87 @@ func TestRuntimeManagerActivityPreventsIdleEviction(t *testing.T) {
 	runtime.mu.Unlock()
 	if closed != 0 {
 		t.Fatal("active runtime was evicted")
+	}
+}
+
+func TestRuntimeManagerEnsureWaitsForClosingEviction(t *testing.T) {
+	store := runtimeTestStore()
+	clock := time.Date(2026, 9, 9, 0, 0, 0, 0, time.UTC)
+	first := newFakePiRuntime()
+	closeStarted := make(chan struct{})
+	releaseClose := make(chan struct{})
+	first.closeHook = func() {
+		close(closeStarted)
+		<-releaseClose
+	}
+	var created atomic.Int32
+	manager := NewRuntimeManagerWithOptions(store, RuntimeManagerOptions{
+		Factory: func(context.Context, string, string) (PiRuntime, error) {
+			created.Add(1)
+			if created.Load() == 1 {
+				return first, nil
+			}
+			return newFakePiRuntime(), nil
+		},
+		IdleTimeout: time.Minute, CleanupInterval: time.Hour,
+		Now: func() time.Time { return clock },
+	})
+	defer manager.Shutdown(context.Background())
+	if _, err := manager.Ensure(context.Background(), "runtime-session"); err != nil {
+		t.Fatal(err)
+	}
+	clock = clock.Add(2 * time.Minute)
+	evictionDone := make(chan struct{})
+	go func() {
+		manager.evictIdle()
+		close(evictionDone)
+	}()
+	<-closeStarted
+	ensureDone := make(chan error, 1)
+	go func() {
+		_, err := manager.Ensure(context.Background(), "runtime-session")
+		ensureDone <- err
+	}()
+	select {
+	case err := <-ensureDone:
+		t.Fatalf("Ensure returned while runtime was closing: %v", err)
+	case <-time.After(30 * time.Millisecond):
+	}
+	if created.Load() != 1 {
+		t.Fatalf("factory called %d times while closing, want one", created.Load())
+	}
+	close(releaseClose)
+	if err := <-ensureDone; err != nil {
+		t.Fatal(err)
+	}
+	<-evictionDone
+	if created.Load() != 2 {
+		t.Fatalf("factory called %d times after close, want two", created.Load())
+	}
+}
+
+func TestRuntimeManagerRollbackSessionCloseAllowsEnsure(t *testing.T) {
+	store := runtimeTestStore()
+	var created atomic.Int32
+	manager := NewRuntimeManagerWithFactory(store, func(context.Context, string, string) (PiRuntime, error) {
+		created.Add(1)
+		return newFakePiRuntime(), nil
+	})
+	defer manager.Shutdown(context.Background())
+	if _, err := manager.Ensure(context.Background(), "runtime-session"); err != nil {
+		t.Fatal(err)
+	}
+	if err := manager.CloseSession(context.Background(), "runtime-session"); err != nil {
+		t.Fatal(err)
+	}
+	if err := manager.RollbackSessionClose("runtime-session"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := manager.Ensure(context.Background(), "runtime-session"); err != nil {
+		t.Fatal(err)
+	}
+	if created.Load() != 2 {
+		t.Fatalf("factory called %d times, want two", created.Load())
 	}
 }
 

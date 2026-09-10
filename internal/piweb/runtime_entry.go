@@ -41,12 +41,34 @@ func (entry *runtimeEntry) forwardEvents() {
 			if !ok {
 				return
 			}
+			if !entry.acceptEvent(event) {
+				continue
+			}
 			entry.recordEvent(event)
 			entry.enqueueEvent(event)
 		case <-entry.stop:
 			return
 		}
 	}
+}
+
+func (entry *runtimeEntry) discardStaleEvents() {
+	entry.mu.Lock()
+	entry.dropUntilAgentStart = true
+	entry.mu.Unlock()
+}
+
+func (entry *runtimeEntry) acceptEvent(event PiEvent) bool {
+	entry.mu.Lock()
+	defer entry.mu.Unlock()
+	if !entry.dropUntilAgentStart {
+		return true
+	}
+	if event.Type != "agent_start" {
+		return false
+	}
+	entry.dropUntilAgentStart = false
+	return true
 }
 
 func (entry *runtimeEntry) enqueueEvent(event PiEvent) {

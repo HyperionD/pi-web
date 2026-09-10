@@ -60,3 +60,21 @@
 验证：`go test -race ./internal/piweb -run 'Test(RuntimeManager|Runner)' -count=1`、`go test ./...`、`go test -race ./internal/piweb -count=1`、`git diff --check` 均通过。
 
 Concerns：Store 当前仍无持久 handle，`Store.Shutdown` 为明确的 no-op 契约；Cancel 使用 Pi RPC `abort`，若 abort 失败会关闭该 session runtime 后由下一次 Ensure 重建。
+
+## 修复轮次 1：本次补充执行记录
+
+状态：已完成代码补强，保持 Linux single binary、ACL、Task2 Broker、mock/fallback API；未修改 `static/` 或前端。
+
+- RuntimeManager 使用 per-session `closing` registry；eviction、CloseSession、Shutdown 共用单一 close promise，Ensure 等待关闭完成后才允许新实例；删除失败通过 `RollbackSessionClose` 清除 tombstone。
+- Server 生命周期改为 accepting/closing/closed gate，活动请求计数替代跨 handler 的长持有 `RLock`；Shutdown 先拒绝新请求，再使用独立 runtime/broker/store contexts。
+- process runtime 的 stdin write 支持 context 取消；事件通道背压会显式 poison runtime；Cancel 等待 agent settled，再隔离并清理 stale/queued 事件。
+- 新增 closing eviction、tombstone rollback、可取消 stdin、背压 poison、settled/stale Cancel、shutdown gate、独立 cleanup context、删除失败回归测试。
+
+TDD：新增测试先运行并因缺失 `RollbackSessionClose` 契约失败；实现后定向测试转绿。最终验证：
+
+- `go test -race ./internal/piweb -run 'Test(RuntimeManager|Runner)' -count=1`：PASS。
+- `go test ./...`：PASS。
+- `go test -race ./internal/piweb -count=1`：PASS，无 race detector 报告。
+- `git diff --check`：PASS。
+
+补充 concerns：stale event 丢弃窗口以 Pi 的下一次 `agent_start` 作为新 run 边界；若未来 Pi 协议省略该事件，需要改用协议级 run ID。可取消写入对遵循 `io.WriteCloser.Close` 语义的 OS pipe 生效；不遵循 Close 解阻塞语义的第三方 writer 可能留下写 goroutine，但不会继续污染 runtime 状态。

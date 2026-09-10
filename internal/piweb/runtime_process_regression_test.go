@@ -2,6 +2,7 @@ package piweb
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -96,6 +97,42 @@ func TestProcessRuntimeEventBackpressureDoesNotBlockReader(t *testing.T) {
 	}
 }
 
+func TestProcessRuntimeCancelsBlockedStdinWrite(t *testing.T) {
+	stdin := newBlockingWriteCloser()
+	runtime := &processPiRuntime{
+		stdin: stdin, events: make(chan PiEvent, 1), done: make(chan struct{}),
+		pending: map[string]chan runtimeResponse{}, running: true,
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+	_, err := runtime.Send(ctx, RPCCommand{ID: "blocked", Type: "prompt"})
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("blocked write error = %v, want deadline exceeded", err)
+	}
+	select {
+	case <-stdin.closed:
+	case <-time.After(time.Second):
+		t.Fatal("canceled write did not close stdin")
+	}
+}
+
+func TestProcessRuntimePoisonsOnEventBackpressure(t *testing.T) {
+	runtime := &processPiRuntime{
+		events: make(chan PiEvent, 1), done: make(chan struct{}),
+		pending: map[string]chan runtimeResponse{}, running: true,
+	}
+	runtime.events <- PiEvent{Type: "already-buffered"}
+	if err := runtime.handleLine([]byte(`{"type":"message_update"}`)); err != nil {
+		t.Fatal(err)
+	}
+	if runtime.IsRunning() {
+		t.Fatal("runtime remained usable after event backpressure")
+	}
+	if _, err := runtime.Send(context.Background(), RPCCommand{Type: "prompt"}); err == nil {
+		t.Fatal("poisoned runtime accepted a new command")
+	}
+}
+
 func TestProcessRuntimeReturnsRPCFailureResponse(t *testing.T) {
 	root := t.TempDir()
 	writeFakePi(t, root, `#!/bin/sh
@@ -111,6 +148,28 @@ printf '%s\n' '{"id":"request-1","type":"response","command":"prompt","success":
 	if err != nil || response.Success || response.Error != "quota exceeded" {
 		t.Fatalf("response=%+v err=%v", response, err)
 	}
+}
+
+type blockingWriteCloser struct {
+	closed chan struct{}
+}
+
+func newBlockingWriteCloser() *blockingWriteCloser {
+	return &blockingWriteCloser{closed: make(chan struct{})}
+}
+
+func (w *blockingWriteCloser) Write([]byte) (int, error) {
+	<-w.closed
+	return 0, errors.New("stdin closed")
+}
+
+func (w *blockingWriteCloser) Close() error {
+	select {
+	case <-w.closed:
+	default:
+		close(w.closed)
+	}
+	return nil
 }
 
 func TestProcessRuntimeJoinsStderrBeforeClose(t *testing.T) {

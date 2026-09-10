@@ -93,13 +93,15 @@ func runServerWithDependencies(options serverOptions, deps serverDependencies) e
 	case <-stop:
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	serverShutdownErr := server.Shutdown(ctx)
+	serverCtx, serverCancel := context.WithTimeout(context.Background(), 5*time.Second)
+	serverShutdownErr := server.Shutdown(serverCtx)
+	serverCancel()
 	if serverShutdownErr != nil {
 		slog.Error("runtime shutdown failed", "error", serverShutdownErr)
 	}
-	httpShutdownErr := deps.shutdown(httpServer, ctx)
+	httpCtx, httpCancel := context.WithTimeout(context.Background(), 5*time.Second)
+	httpShutdownErr := deps.shutdown(httpServer, httpCtx)
+	httpCancel()
 	if httpShutdownErr != nil {
 		slog.Error("shutdown failed", "error", httpShutdownErr)
 	}

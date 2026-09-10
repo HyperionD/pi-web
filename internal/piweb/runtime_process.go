@@ -18,15 +18,17 @@ type processPiRuntime struct {
 	stdin  io.WriteCloser
 	events chan PiEvent
 
-	writeMu  sync.Mutex
-	mu       sync.Mutex
-	pending  map[string]chan runtimeResponse
-	running  bool
-	closed   bool
-	lastUse  time.Time
-	activity map[string]int
-	seq      atomic.Uint64
-	done     chan struct{}
+	writeMu    sync.Mutex
+	writeReady chan struct{}
+	stdinOnce  sync.Once
+	mu         sync.Mutex
+	pending    map[string]chan runtimeResponse
+	running    bool
+	closed     bool
+	lastUse    time.Time
+	activity   map[string]int
+	seq        atomic.Uint64
+	done       chan struct{}
 
 	stdoutDone chan struct{}
 	stderrDone chan struct{}
@@ -130,7 +132,7 @@ func (runtime *processPiRuntime) enqueueEvent(event PiEvent) {
 	default:
 	}
 	if event.Type != "agent_end" && event.Type != "error" {
-		runtime.failPending(errors.New("pi event channel is full"))
+		runtime.poison(errors.New("pi event channel is full"))
 		return
 	}
 	select {
@@ -140,7 +142,7 @@ func (runtime *processPiRuntime) enqueueEvent(event PiEvent) {
 	select {
 	case runtime.events <- event:
 	default:
-		runtime.failPending(fmt.Errorf("pi event channel is full while reporting %s", event.Type))
+		runtime.poison(fmt.Errorf("pi event channel is full while reporting %s", event.Type))
 	}
 }
 
@@ -156,23 +158,22 @@ func (runtime *processPiRuntime) deliverResponse(response RPCResponse) bool {
 	return true
 }
 
-func (runtime *processPiRuntime) failPending(err error) {
+func (runtime *processPiRuntime) protocolFailure(err error) {
+	runtime.poison(err)
+}
+
+func (runtime *processPiRuntime) poison(err error) {
 	runtime.mu.Lock()
+	runtime.closed = true
 	pending := runtime.pending
 	runtime.pending = map[string]chan runtimeResponse{}
 	runtime.mu.Unlock()
 	for _, waiter := range pending {
 		waiter <- runtimeResponse{err: err}
 	}
-}
-
-func (runtime *processPiRuntime) protocolFailure(err error) {
-	runtime.mu.Lock()
-	pending := runtime.pending
-	runtime.pending = map[string]chan runtimeResponse{}
-	runtime.mu.Unlock()
-	for _, waiter := range pending {
-		waiter <- runtimeResponse{err: err}
+	runtime.closeStdin()
+	if runtime.cmd != nil {
+		terminateCommandProcessGroup(runtime.cmd)
 	}
 }
 
@@ -198,11 +199,13 @@ func (runtime *processPiRuntime) Send(ctx context.Context, command RPCCommand) (
 	runtime.lastUse = time.Now()
 	runtime.mu.Unlock()
 
-	runtime.writeMu.Lock()
-	_, writeErr := runtime.stdin.Write(append(line, '\n'))
-	runtime.writeMu.Unlock()
-	if writeErr != nil {
+	if writeErr := runtime.writeContext(ctx, append(line, '\n')); writeErr != nil {
 		runtime.removePending(command.ID)
+		if ctx.Err() != nil {
+			runtime.poison(ctx.Err())
+		} else {
+			runtime.poison(writeErr)
+		}
 		return RPCResponse{}, writeErr
 	}
 	for {
@@ -248,6 +251,46 @@ func (runtime *processPiRuntime) removePending(id string) {
 	runtime.mu.Lock()
 	delete(runtime.pending, id)
 	runtime.mu.Unlock()
+}
+
+func (runtime *processPiRuntime) writeContext(ctx context.Context, data []byte) error {
+	if runtime.stdin == nil {
+		return errors.New("runtime stdin is unavailable")
+	}
+	runtime.mu.Lock()
+	if runtime.writeReady == nil {
+		runtime.writeReady = make(chan struct{}, 1)
+		runtime.writeReady <- struct{}{}
+	}
+	ready := runtime.writeReady
+	runtime.mu.Unlock()
+	select {
+	case <-ready:
+	case <-ctx.Done():
+		runtime.closeStdin()
+		return ctx.Err()
+	}
+	defer func() { ready <- struct{}{} }()
+	writeDone := make(chan error, 1)
+	go func() {
+		_, err := runtime.stdin.Write(data)
+		writeDone <- err
+	}()
+	select {
+	case err := <-writeDone:
+		return err
+	case <-ctx.Done():
+		runtime.closeStdin()
+		return ctx.Err()
+	}
+}
+
+func (runtime *processPiRuntime) closeStdin() {
+	runtime.stdinOnce.Do(func() {
+		if runtime.stdin != nil {
+			_ = runtime.stdin.Close()
+		}
+	})
 }
 
 func (runtime *processPiRuntime) waitForProcess() {
@@ -318,13 +361,15 @@ func (runtime *processPiRuntime) Close(ctx context.Context) error {
 	}
 	runtime.closed = true
 	runtime.mu.Unlock()
-	_ = runtime.stdin.Close()
+	runtime.closeStdin()
 	select {
 	case <-runtime.done:
 		return nil
 	case <-ctx.Done():
-		terminateCommandProcessGroup(runtime.cmd)
-		forceTerminateCommandProcessGroup(runtime.cmd)
+		if runtime.cmd != nil {
+			terminateCommandProcessGroup(runtime.cmd)
+			forceTerminateCommandProcessGroup(runtime.cmd)
+		}
 		<-runtime.done
 		return ctx.Err()
 	}
