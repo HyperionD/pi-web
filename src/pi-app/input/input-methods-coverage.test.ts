@@ -214,6 +214,36 @@ describe("pi-app input methods coverage", () => {
     await Promise.all([firstSubmit, secondSubmit]);
   });
 
+  it("allows M007 prompts in another session while the first submit is pending", async () => {
+    const app = await connectPiApp();
+    app.apiConnected = true;
+    app.dataset.activeWorkspaceId = "w1";
+    app.dataset.activeSessionId = "s1";
+    globalThis.EventSource = undefined;
+    let resolveFirst;
+    globalThis.fetch = vi.fn(async (url) => {
+      if (String(url).includes("/sessions/s1/prompt")) {
+        return new Promise((resolve) => { resolveFirst = resolve; });
+      }
+      return ok({ accepted: true });
+    });
+
+    app.prompt.value = "first session";
+    const firstSubmit = app.submitPrompt();
+    await Promise.resolve();
+
+    app.dataset.activeSessionId = "s2";
+    app.resetActiveSessionState();
+    app.prompt.value = "second session";
+    await app.submitPrompt();
+
+    expect(globalThis.fetch.mock.calls.map(([url]) => String(url))).toContain(
+      "http://backend.test/api/sessions/s2/prompt",
+    );
+    resolveFirst(ok({ accepted: true }));
+    await firstSubmit;
+  });
+
   it("does not submit a prompt that only has a real non-sendable attachment chip", async () => {
     const app = await connectPiApp();
     app.apiConnected = true;

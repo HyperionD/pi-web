@@ -13,8 +13,11 @@ export const inputMethods = {
       await this.submitSteeringPrompt(text);
       return;
     }
-    if (this.promptSubmitting) return;
-    this.promptSubmitting = true;
+    const submissionKey = this.dataset.activeSessionId
+      || `workspace:${this.dataset.activeWorkspaceId || ""}`;
+    this.promptSubmittingKeys ??= new Set();
+    if (this.promptSubmittingKeys.has(submissionKey)) return;
+    this.promptSubmittingKeys.add(submissionKey);
     try {
       const workspaceId = this.dataset.activeWorkspaceId;
       let sessionId = this.dataset.activeSessionId;
@@ -81,7 +84,7 @@ export const inputMethods = {
         }
       }
     } finally {
-      this.promptSubmitting = false;
+      this.promptSubmittingKeys.delete(submissionKey);
     }
   },
 
