@@ -21,8 +21,10 @@ type processPiRuntime struct {
 	writeMu    sync.Mutex
 	writeReady chan struct{}
 	stdinOnce  sync.Once
+	poisonOnce sync.Once
 	mu         sync.Mutex
 	pending    map[string]chan runtimeResponse
+	poisonErr  error
 	running    bool
 	closed     bool
 	lastUse    time.Time
@@ -136,19 +138,10 @@ func (runtime *processPiRuntime) enqueueEvent(event PiEvent) {
 		return
 	default:
 	}
-	if event.Type != "agent_end" && event.Type != "error" {
-		runtime.poison(errors.New("pi event channel is full"))
-		return
-	}
-	select {
-	case <-runtime.events:
-	default:
-	}
-	select {
-	case runtime.events <- event:
-	default:
-		runtime.poison(fmt.Errorf("pi event channel is full while reporting %s", event.Type))
-	}
+	// Never evict an older event to make room: that silently changes the
+	// protocol stream and can lose agent_end. Closing the runtime makes the
+	// overflow observable to waiters and the event consumer as a terminal error.
+	runtime.poison(fmt.Errorf("pi event channel is full while reporting %s", event.Type))
 }
 
 func (runtime *processPiRuntime) deliverResponse(response RPCResponse) bool {
@@ -168,18 +161,21 @@ func (runtime *processPiRuntime) protocolFailure(err error) {
 }
 
 func (runtime *processPiRuntime) poison(err error) {
-	runtime.mu.Lock()
-	runtime.closed = true
-	pending := runtime.pending
-	runtime.pending = map[string]chan runtimeResponse{}
-	runtime.mu.Unlock()
-	for _, waiter := range pending {
-		waiter <- runtimeResponse{err: err}
-	}
-	runtime.closeStdin()
-	if runtime.cmd != nil {
-		terminateCommandProcessGroup(runtime.cmd)
-	}
+	runtime.poisonOnce.Do(func() {
+		runtime.mu.Lock()
+		runtime.closed = true
+		runtime.poisonErr = err
+		pending := runtime.pending
+		runtime.pending = map[string]chan runtimeResponse{}
+		runtime.mu.Unlock()
+		for _, waiter := range pending {
+			waiter <- runtimeResponse{err: err}
+		}
+		runtime.closeStdin()
+		if runtime.cmd != nil {
+			terminateCommandProcessGroup(runtime.cmd)
+		}
+	})
 }
 
 func (runtime *processPiRuntime) Send(ctx context.Context, command RPCCommand) (RPCResponse, error) {

@@ -26,30 +26,57 @@ func (r *Runner) Compact(parent context.Context, broker *Broker, store *Store, s
 	if err != nil {
 		return CompactionResult{}, err
 	}
+	_, eventCancel := context.WithCancel(parent)
+	commandCtx, commandCancel := context.WithTimeout(parent, 5*time.Minute)
+	run := &activePiRun{
+		cancel: eventCancel, commandCancel: commandCancel, commandContext: commandCtx,
+		compacting: true, done: make(chan struct{}), eventsDone: make(chan struct{}),
+		runtimeReady: make(chan struct{}), settled: make(chan struct{}),
+	}
+	if err := r.claimRun(sessionID, run); err != nil {
+		eventCancel()
+		commandCancel()
+		return CompactionResult{}, err
+	}
 	runtime, err := manager.Ensure(parent, sessionID)
 	if err != nil {
+		r.forgetRun(sessionID, run)
+		eventCancel()
+		commandCancel()
 		return CompactionResult{}, err
 	}
-	ctx, cancel := context.WithTimeout(parent, 5*time.Minute)
-	defer cancel()
-	run := &activePiRun{cancel: cancel, runtime: runtime, compacting: true}
-	if err := r.claimRun(sessionID, run); err != nil {
-		return CompactionResult{}, err
+	if !run.attachRuntime(runtime) {
+		_ = manager.Retire(context.Background(), sessionID, runtime)
+		r.forgetRun(sessionID, run)
+		eventCancel()
+		commandCancel()
+		return CompactionResult{}, errSessionBusy
 	}
-	defer r.forgetRun(sessionID, run)
+	defer func() {
+		eventCancel()
+		commandCancel()
+		r.finishRun(sessionID, run)
+	}()
 	broker.Publish(sessionID, "session.status", map[string]string{"status": "compacting"})
-	payload, _ := json.Marshal(map[string]string{"type": "compact"})
-	response, err := runtime.Send(ctx, RPCCommand{Type: "compact", Payload: payload})
-	if err != nil && ctx.Err() != nil {
-		abortAndCloseRuntime(runtime)
-	}
+	response, err := run.sendRPCContext(commandCtx, RPCCommand{Type: "compact"})
 	if err == nil && !response.Success {
 		err = errors.New(response.Error)
 		if response.Error == "" {
 			err = errors.New("pi compact failed")
 		}
 	}
+	if run.isCancelling() {
+		if err == nil {
+			err = context.Canceled
+		}
+		return CompactionResult{}, err
+	}
 	if err != nil {
+		if commandCtx.Err() != nil {
+			run.beginCancel()
+			r.cancelRunRuntime(sessionID, run, manager)
+			return CompactionResult{}, err
+		}
 		broker.Publish(sessionID, "error", map[string]string{"error": err.Error()})
 		broker.Publish(sessionID, "session.status", map[string]string{"status": "idle"})
 		return CompactionResult{}, err
@@ -57,15 +84,27 @@ func (r *Runner) Compact(parent context.Context, broker *Broker, store *Store, s
 	var result CompactionResult
 	if err := json.Unmarshal(response.Data, &result); err != nil {
 		err = fmt.Errorf("decode pi compact response: %w", err)
+		if run.isCancelling() {
+			return CompactionResult{}, err
+		}
 		broker.Publish(sessionID, "error", map[string]string{"error": err.Error()})
 		broker.Publish(sessionID, "session.status", map[string]string{"status": "idle"})
 		return CompactionResult{}, err
 	}
+	if run.isCancelling() {
+		return CompactionResult{}, context.Canceled
+	}
 	message := Message{Kind: "pi", Text: fmt.Sprintf("context summarized · %d tokens before compaction", result.TokensBefore)}
 	if err := store.AppendMessage(sessionID, message); err != nil {
+		if run.isCancelling() {
+			return CompactionResult{}, err
+		}
 		broker.Publish(sessionID, "error", map[string]string{"error": err.Error()})
 		broker.Publish(sessionID, "session.status", map[string]string{"status": "idle"})
 		return CompactionResult{}, err
+	}
+	if run.isCancelling() {
+		return CompactionResult{}, context.Canceled
 	}
 	broker.Publish(sessionID, "session.message", message)
 	broker.Publish(sessionID, "session.status", map[string]string{

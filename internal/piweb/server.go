@@ -63,21 +63,26 @@ func (lifecycle *serverLifecycle) leave() {
 	}
 }
 
-func (lifecycle *serverLifecycle) beginShutdown(ctx context.Context) error {
+func (lifecycle *serverLifecycle) startShutdown() <-chan struct{} {
 	lifecycle.mu.Lock()
-	if lifecycle.state != serverAccepting {
-		lifecycle.mu.Unlock()
-		return nil
+	defer lifecycle.mu.Unlock()
+	if lifecycle.state == serverAccepting {
+		lifecycle.state = serverClosing
 	}
-	lifecycle.state = serverClosing
-	zero := lifecycle.zero
-	lifecycle.mu.Unlock()
+	return lifecycle.zero
+}
+
+func (lifecycle *serverLifecycle) waitForZero(ctx context.Context, zero <-chan struct{}) error {
 	select {
 	case <-zero:
 		return nil
 	case <-ctx.Done():
 		return ctx.Err()
 	}
+}
+
+func (lifecycle *serverLifecycle) beginShutdown(ctx context.Context) error {
+	return lifecycle.waitForZero(ctx, lifecycle.startShutdown())
 }
 
 type Server struct {
@@ -222,7 +227,7 @@ func (s *Server) context() context.Context {
 }
 
 func (s *Server) Shutdown(ctx context.Context) error {
-	lifecycleErr := s.lifecycle.beginShutdown(ctx)
+	zero := s.lifecycle.startShutdown()
 	s.cancel()
 	runtimeCtx, runtimeCancel := independentShutdownContext(ctx)
 	defer runtimeCancel()
@@ -230,10 +235,16 @@ func (s *Server) Shutdown(ctx context.Context) error {
 	defer brokerCancel()
 	storeCtx, storeCancel := independentShutdownContext(ctx)
 	defer storeCancel()
+
+	// Closing subscriptions first lets long-lived SSE handlers leave before we
+	// wait for the request count. Runtime and store cleanup follows admission
+	// shutdown, so no new handler can recreate a resource while it closes.
+	brokerErr := s.broker.Shutdown(brokerCtx)
+	lifecycleErr := s.lifecycle.waitForZero(ctx, zero)
 	return errors.Join(
 		lifecycleErr,
+		brokerErr,
 		s.runtimeManager.Shutdown(runtimeCtx),
-		s.broker.Shutdown(brokerCtx),
 		s.store.Shutdown(storeCtx),
 	)
 }

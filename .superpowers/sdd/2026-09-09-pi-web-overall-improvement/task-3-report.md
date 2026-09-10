@@ -99,3 +99,21 @@ TDD：新增测试先运行并因缺失 `RollbackSessionClose` 契约失败；�
 - `git diff --check`：PASS。
 
 Concerns：取消流程对 session runtime 采用关闭并在下一代 prompt 重建，以提供强事件隔离；正常完成 prompt 仍复用原 runtime。未修改 `static/` 或前端。
+
+## 修复轮次 2（最终复审）
+
+状态：已完成并通过独立并发回归验证。
+
+- `Server.Shutdown` 先切换 admission gate、关闭 broker 使 SSE 退出，再等待 active handlers，最后完成 runtime/store cleanup；manager shutdown 同时收集 `sessions` 与 `closing` promises。
+- Prompt/Compact 在 claim 后再 Ensure，并以 runtime-ready 协调 closing runtime；Cancel 使用独立 abort/settle deadline，取消 command context，关闭并 retire runtime，缺失 `agent_end` 不再永久 busy。
+- Compact 纳入 settled/cancel lifecycle；commandMu 使 Steer 的检查与发送、Cancel/Abort 串行，旧 compact 不再发布取消后的 error/idle 状态。
+- runtime/process 与 entry 背压不驱逐旧事件；以 poison、waiter 唤醒和 channel close 显式终止，保留 protocol EOF/error 语义。补充真实 SSE shutdown、Cancel timeout/new prompt、Compact Cancel、closing shutdown、entry waiter/channel、Steer/Cancel 并发测试；generation 测试改为 channel 重叠，不使用固定 Sleep。
+
+验证：
+
+- `go test -race ./internal/piweb -run 'Test(RuntimeManager|Runner)' -count=1`：PASS。
+- `go test ./...`：PASS。
+- `go test -race ./internal/piweb`：PASS，无 race detector 报告。
+- `git diff --check`：PASS。
+
+Concerns：`Store.Shutdown` 仍是明确 no-op（Store 每次操作独立打开 SQLite）；取消 deadline 常量为 abort 5 秒、settle 1 秒，真实 process close 仍有 5 秒强制终止兜底。未修改 HTTP API/ACL、Task2 Broker 协议、Linux single binary、fallback/mock 或 `static/`。

@@ -297,6 +297,19 @@ func (m *RuntimeManager) FinalizeSessionClose(sessionID string, token uint64) er
 	return m.RollbackSessionCloseToken(sessionID, token)
 }
 
+func (m *RuntimeManager) Retire(ctx context.Context, sessionID string, runtime PiRuntime) error {
+	m.mu.Lock()
+	entry := m.sessions[sessionID]
+	if entry == nil || (runtime != nil && entry != runtime) {
+		m.mu.Unlock()
+		return nil
+	}
+	delete(m.sessions, sessionID)
+	closing := m.registerClosingLocked(sessionID, entry)
+	m.mu.Unlock()
+	return m.closeRegistered(ctx, sessionID, closing)
+}
+
 func (m *RuntimeManager) Shutdown(ctx context.Context) error {
 	m.mu.Lock()
 	if m.stopped {
@@ -309,14 +322,27 @@ func (m *RuntimeManager) Shutdown(ctx context.Context) error {
 	entries := make([]struct {
 		sessionID string
 		closing   *runtimeClosing
-	}, 0, len(m.sessions))
+	}, 0, len(m.sessions)+len(m.closing))
+	seen := make(map[*runtimeClosing]struct{}, len(m.sessions)+len(m.closing))
 	for sessionID, entry := range m.sessions {
+		closing := m.registerClosingLocked(sessionID, entry)
 		entries = append(entries, struct {
 			sessionID string
 			closing   *runtimeClosing
-		}{sessionID: sessionID, closing: m.registerClosingLocked(sessionID, entry)})
+		}{sessionID: sessionID, closing: closing})
+		seen[closing] = struct{}{}
 	}
 	m.sessions = map[string]*runtimeEntry{}
+	for sessionID, closing := range m.closing {
+		if _, ok := seen[closing]; ok {
+			continue
+		}
+		entries = append(entries, struct {
+			sessionID string
+			closing   *runtimeClosing
+		}{sessionID: sessionID, closing: closing})
+		seen[closing] = struct{}{}
+	}
 	startups := make([]*runtimeStartup, 0, len(m.starting))
 	for _, startup := range m.starting {
 		startup.discard = true

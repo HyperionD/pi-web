@@ -121,9 +121,31 @@ func TestRuntimeEntryBackpressurePoisonsEntry(t *testing.T) {
 	runtime := newFakePiRuntime()
 	entry := &runtimeEntry{runtime: runtime, manager: &RuntimeManager{now: time.Now}, events: make(chan PiEvent, 1), stop: make(chan struct{}), activity: map[string]int{}, closeDone: make(chan struct{})}
 	entry.events <- PiEvent{Type: "already-buffered"}
+	entry.Events()
 	entry.enqueueEvent(PiEvent{Type: "message_update", Raw: json.RawMessage(`{"type":"message_update"}`)})
 	if entry.IsRunning() {
 		t.Fatal("entry remained usable after event backpressure")
+	}
+	select {
+	case <-entry.closeDone:
+	case <-time.After(time.Second):
+		t.Fatal("entry close waiter was not released after backpressure")
+	}
+	select {
+	case _, ok := <-entry.Events():
+		if !ok {
+			t.Fatal("poisoned entry dropped the buffered event")
+		}
+	case <-time.After(time.Second):
+		t.Fatal("poisoned entry did not expose the buffered event")
+	}
+	select {
+	case _, ok := <-entry.Events():
+		if ok {
+			t.Fatal("poisoned entry event channel remained open")
+		}
+	case <-time.After(time.Second):
+		t.Fatal("poisoned entry event channel did not close")
 	}
 }
 
@@ -157,6 +179,12 @@ func TestProcessRuntimePoisonsOnEventBackpressure(t *testing.T) {
 	}
 	if runtime.IsRunning() {
 		t.Fatal("runtime remained usable after event backpressure")
+	}
+	runtime.mu.Lock()
+	poisonErr := runtime.poisonErr
+	runtime.mu.Unlock()
+	if poisonErr == nil || !strings.Contains(poisonErr.Error(), "event channel is full") {
+		t.Fatalf("backpressure poison was not observable: %v", poisonErr)
 	}
 	if _, err := runtime.Send(context.Background(), RPCCommand{Type: "prompt"}); err == nil {
 		t.Fatal("poisoned runtime accepted a new command")
