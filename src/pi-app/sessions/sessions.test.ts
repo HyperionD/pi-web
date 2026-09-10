@@ -200,6 +200,26 @@ describe("pi-app sessions", () => {
     expect(connected).toEqual({ sessionId: "s1", options: { replay: false } });
   });
 
+  it("replays the active stream when refreshing a running session", async () => {
+    globalThis.PI_WEB_API_BASE = "http://backend.test";
+    globalThis.fetch = vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      statusText: "OK",
+      json: async () => ({
+        session: { id: "s1", title: "demo", workspaceId: "w1" },
+        messages: [{ kind: "user", text: "hello" }],
+        status: "running",
+      }),
+    }));
+    const app = await connectPiApp();
+    app.connectEvents = vi.fn();
+
+    await app.loadSession("s1");
+
+    expect(app.connectEvents).toHaveBeenCalledWith("s1", { replay: "active" });
+  });
+
   it("loads older session messages from the stored cursor", async () => {
     globalThis.PI_WEB_API_BASE = "http://backend.test";
     globalThis.fetch = vi.fn(async () => ({

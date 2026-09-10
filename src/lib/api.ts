@@ -381,7 +381,7 @@ export function steerSession(sessionId, text, attachments = []) {
 }
 
 export function sessionEvents(sessionId: string, { onEvent, onOpen, onError, replay = true }: any = {}) {
-  const replayQuery = replay ? "" : "?replay=false";
+  const replayQuery = replay === false ? "?replay=false" : replay === "active" ? "?replay=active" : "";
   const source = new EventSource(
     `${apiBase()}/api/sessions/${encodeURIComponent(sessionId)}/events${replayQuery}`,
   );

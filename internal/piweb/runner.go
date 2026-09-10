@@ -92,16 +92,16 @@ func (r *Runner) StartPiPrompt(
 		return err
 	}
 
+	user := Message{Kind: "user", Text: displayText, Attachments: images}
+	_ = store.AppendMessage(sessionID, user)
+	broker.Publish(sessionID, "session.message", user)
+	broker.Publish(sessionID, "session.status", map[string]string{"status": "running"})
+
 	go func() {
 		defer func() {
 			r.forgetRun(sessionID, activeRun)
 			cancel()
 		}()
-		user := Message{Kind: "user", Text: displayText, Attachments: images}
-		_ = store.AppendMessage(sessionID, user)
-		broker.Publish(sessionID, "session.message", user)
-		broker.Publish(sessionID, "session.status", map[string]string{"status": "running"})
-
 		go func() {
 			<-ctx.Done()
 			terminateCommandProcessGroup(cmd)

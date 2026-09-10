@@ -458,6 +458,10 @@ func TestCoverageBrokerSettingsSessionsAndHelpers(t *testing.T) {
 	if messages := fast.Replay(session.ID, 0); len(messages) == 0 {
 		t.Fatal("expected mock events")
 	}
+	active := fast.ReplayActiveRun(session.ID)
+	if len(active) == 0 || active[0].Type != "session.status" || eventStatus(active[0]) != "running" {
+		t.Fatalf("expected mock run to be replayable while active: %#v", active)
+	}
 
 	home := t.TempDir()
 	t.Setenv("HOME", home)

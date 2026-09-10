@@ -265,5 +265,7 @@ describe("api adapter", () => {
 
     const noReplay = sessionEvents("s1", { replay: false });
     expect(noReplay.url).toBe("http://backend.test/api/sessions/s1/events?replay=false");
+    const activeReplay = sessionEvents("s1", { replay: "active" });
+    expect(activeReplay.url).toBe("http://backend.test/api/sessions/s1/events?replay=active");
   });
 });

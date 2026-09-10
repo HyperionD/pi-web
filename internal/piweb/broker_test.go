@@ -34,6 +34,57 @@ func TestBrokerReplayAndRedaction(t *testing.T) {
 	}
 }
 
+func TestBrokerActiveRunReplay(t *testing.T) {
+	broker := NewBroker()
+	broker.Publish("s1", "session.message", Message{Kind: "pi", Text: "previous"})
+	broker.Publish("s1", "session.status", map[string]string{"status": "idle"})
+	broker.Publish("s1", "session.status", map[string]string{"status": "running"})
+	current := broker.Publish("s1", "session.delta", map[string]string{"kind": "pi", "delta": "current"})
+
+	for index := 0; index < broker.historySize+1; index++ {
+		broker.Publish("s1", "session.delta", map[string]string{"kind": "pi", "delta": "more"})
+	}
+
+	replay := broker.ReplayActiveRun("s1")
+	if len(replay) != broker.historySize+3 || replay[0].Type != "session.status" || replay[1].ID != current.ID {
+		t.Fatalf("expected complete current run events, got %d events: %#v", len(replay), replay[:min(len(replay), 2)])
+	}
+}
+
+func TestBrokerActiveReplaySkipsCompletedRun(t *testing.T) {
+	broker := NewBroker()
+	broker.Publish("s1", "session.status", map[string]string{"status": "running"})
+	broker.Publish("s1", "session.status", map[string]string{"status": "idle"})
+
+	_, unsubscribe, replay := broker.subscribeWithReplay("s1", 0, true, true)
+	defer unsubscribe()
+	if len(replay) != 0 {
+		t.Fatalf("expected no completed run replay, got %#v", replay)
+	}
+}
+
+func TestBrokerActiveReplaySubscribesBeforeReplaying(t *testing.T) {
+	broker := NewBroker()
+	broker.Publish("s1", "session.status", map[string]string{"status": "running"})
+	first := broker.Publish("s1", "session.delta", map[string]string{"kind": "pi", "delta": "first"})
+
+	events, unsubscribe, replay := broker.subscribeWithReplay("s1", 0, true, true)
+	defer unsubscribe()
+	second := broker.Publish("s1", "session.delta", map[string]string{"kind": "pi", "delta": "second"})
+
+	if len(replay) != 2 || replay[1].ID != first.ID {
+		t.Fatalf("unexpected replay: %#v", replay)
+	}
+	select {
+	case event := <-events:
+		if event.ID != second.ID {
+			t.Fatalf("expected new event after replay, got %#v", event)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for event after replay")
+	}
+}
+
 func TestShouldReplayHistory(t *testing.T) {
 	withoutReplay := httptest.NewRequest("GET", "/events?replay=false", nil)
 	if shouldReplayHistory(withoutReplay, 0) {

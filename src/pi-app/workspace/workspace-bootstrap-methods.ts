@@ -387,7 +387,7 @@ export const workspaceBootstrapMethods = {
     this.sessionHistoryLoading = false;
     this.renderMessages(messages);
     this.setMode(status || "idle");
-    this.connectEvents(session.id, { replay: false });
+    this.connectEvents(session.id, { replay: status === "running" ? "active" : false });
   },
 
   async loadOlderSessionMessages() {

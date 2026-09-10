@@ -209,6 +209,43 @@ describe("pi-app messages", () => {
     expect(app.querySelector(".msg.loading")).toBeNull();
   });
 
+  it("does not duplicate persisted tools during active stream replay", async () => {
+    const app = await connectPiApp();
+    app.renderMessages([{
+      kind: "tool",
+      id: "call-1",
+      tool: "read",
+      status: "ok",
+      body: "done",
+    }]);
+
+    app.applyEvent({
+      type: "tool.started",
+      payload: { id: "call-1", kind: "tool", tool: "read", status: "running" },
+    });
+
+    expect(app.querySelectorAll(".tool-card[data-tool-call-id='call-1']")).toHaveLength(1);
+  });
+
+  it("deduplicates replayed tools that are outside the virtualized DOM", async () => {
+    const app = await connectPiApp();
+    app.renderMessages([{
+      kind: "tool",
+      id: "call-2",
+      tool: "read",
+      status: "ok",
+      body: "done",
+    }]);
+    app.termInner.replaceChildren();
+
+    app.applyEvent({
+      type: "tool.started",
+      payload: { id: "call-2", kind: "tool", tool: "read", status: "running" },
+    });
+
+    expect(app.transcriptItems).toHaveLength(1);
+  });
+
   it("renders lucide-style tool icons while unknown tools keep the dot", async () => {
     const app = await connectPiApp();
     app.renderMessages([]);

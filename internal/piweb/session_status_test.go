@@ -38,6 +38,22 @@ func TestWorkspaceEndpointMarksRunningSessionsLive(t *testing.T) {
 	t.Fatal("expected openclaw workspace")
 }
 
+func TestSessionEndpointReportsMockRunningStatus(t *testing.T) {
+	broker := NewBroker()
+	server := NewServer(Config{}, NewMockStore(), broker)
+	broker.Publish("8e7c-44ff", "session.status", map[string]string{"status": "running"})
+
+	req := httptest.NewRequest(http.MethodGet, "/api/sessions/8e7c-44ff", nil)
+	res := httptest.NewRecorder()
+	server.Handler().ServeHTTP(res, req)
+	if res.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", res.Code, res.Body.String())
+	}
+	if !strings.Contains(res.Body.String(), `"status":"running"`) {
+		t.Fatalf("expected mock running status: %s", res.Body.String())
+	}
+}
+
 func TestSessionEndpointReportsRunningStatus(t *testing.T) {
 	server := NewServer(Config{}, NewMockStore(), NewBroker())
 	server.runner.mu.Lock()
