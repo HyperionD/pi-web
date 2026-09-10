@@ -6,6 +6,7 @@ import {
   getWorkspaces,
 } from "../../lib/api";
 import { clearStoredActiveSession, readStoredActiveSession, storeActiveSession } from "../sessions/session-storage";
+import { normalizeEventCursor } from "../sessions/session-recovery";
 import { isForbiddenWorkspaceError, requestErrorMessage } from "./workspace-methods";
 
 const SESSION_MESSAGE_PAGE_SIZE = 120;
@@ -395,7 +396,15 @@ export const workspaceBootstrapMethods = {
     }
     this.renderMessages(messages);
     this.setMode(status || "idle");
-    this.connectEvents(session.id, { replay: false });
+    if (Object.prototype.hasOwnProperty.call(page, "latestEventId")) {
+      this.connectEvents(session.id, {
+        replay: true,
+        after: normalizeEventCursor(page.latestEventId) || "0",
+        reloadOnOpen: false,
+      });
+    } else {
+      this.connectEvents(session.id, { replay: false });
+    }
   },
 
   async loadOlderSessionMessages() {

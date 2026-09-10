@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strconv"
 	"strings"
 
 	aguievents "github.com/ag-ui-protocol/ag-ui/sdks/community/go/pkg/core/events"
@@ -13,7 +14,10 @@ import (
 	aguisse "github.com/ag-ui-protocol/ag-ui/sdks/community/go/pkg/encoding/sse"
 )
 
-const aguiToolOutputEventName = "piweb.tool-output"
+const (
+	aguiToolOutputEventName   = "piweb.tool-output"
+	aguiBrokerCursorEventName = "piweb.broker-cursor"
+)
 
 type aguiForwardedProps struct {
 	Text        string             `json:"text"`
@@ -139,6 +143,11 @@ func newAguiStreamState(threadID, runID, fallback string) *aguiStreamState {
 }
 
 func (s *aguiStreamState) consume(event Event, stream *aguiEventStream) bool {
+	if event.ID > 0 {
+		stream.write(aguievents.NewCustomEvent(aguiBrokerCursorEventName, aguievents.WithValue(map[string]string{
+			"eventId": strconv.FormatUint(event.ID, 10),
+		})))
+	}
 	switch event.Type {
 	case "session.delta":
 		payload, ok := event.Payload.(map[string]string)

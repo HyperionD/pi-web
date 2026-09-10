@@ -79,3 +79,46 @@
 - `bun run typecheck`：PASS
 - `bun run build`：PASS；仅既有 chunk size warning
 - `git diff --check`：PASS
+
+## 修复复审轮次 2
+
+### 根因与修复
+
+- Snapshot 读取现在持有 Broker `publishBarrier` 写锁，并与 Store `sessionMutationMu` 共同覆盖 durable session read 与 latest event cursor；普通 `Broker.Publish` 不能在 snapshot 内容之后抢先推进 cursor。
+- Snapshot 后的首次/resync SSE 使用 `after=latestEventId` 且 `replay=true`；SubscribeFrom 的原子注册与重叠 replay 边界覆盖 snapshot 返回到 Subscribe 前发生的事件，不再使用 `replay=false` 丢事件。
+- AG-UI 每消费一个 Broker event，后端发送 `piweb.broker-cursor` custom event，前端以十进制 string 更新 `sessionEventCursors`；完成、fallback、断线重连统一 replay 当前 cursor 之后的事件。
+- 前端优先使用真实 SSE `lastEventId` 覆盖 envelope cursor；cursor 接受范围限制为 `0..18446744073709551615`，不将大于 `2^53` 的值转换为 number。
+- 完善真实并发 snapshot→subscribe、普通 Publish、AG-UI cursor、真实 SSE envelope、旧 generation callback 与 uint64 边界回归测试；补齐 shutdown 后监听 goroutine join，消除全量 race 中暴露的依赖测试竞争。
+
+### TDD 红绿证据
+
+- RED：`TestSessionSnapshotDoesNotAdvanceCursorAcrossOrdinaryPublish` 首先确认普通 Publish 可在 snapshot hook 期间抢先完成；AG-UI cursor、snapshot replay、SSE `lastEventId`、旧 AG-UI generation 与 uint64 边界测试先因契约/行为缺失失败。
+- GREEN：加入 publish barrier、snapshot-after replay、AG-UI cursor custom event、SSE ID 解析与 generation-safe cursor callback 后，定向 Go/Vitest 全部通过。
+
+### 文件变更
+
+- `internal/piweb/broker.go`、`server_session_handlers.go`：snapshot publish barrier 与 cursor 原子读取。
+- `internal/piweb/agui.go`、`agui_test.go`：AG-UI Broker cursor custom event。
+- `internal/piweb/broker_recovery_test.go`：snapshot/subscribe 并发和普通 Publish 并发恢复测试。
+- `src/lib/api.ts`、`src/lib/api.test.ts`、`src/lib/agui-api.test.ts`：AG-UI cursor 与真实 SSE ID 解析。
+- `src/pi-app/index.ts`、`src/pi-app/input/input-methods.ts`、`src/pi-app/workspace/workspace-bootstrap-methods.ts`：cursor 同步及安全 replay reconnect。
+- `src/pi-app/sessions/session-recovery.ts`、`session-recovery.test.ts`：uint64 cursor 校验、generation 与恢复测试。
+- `server.go`：shutdown 等待 listen goroutine 完成，避免测试/生命周期 race。
+
+### 验证
+
+- `go test ./...`：PASS
+- `go test -race ./...`：PASS
+- `go test -race ./internal/piweb -run 'Test(BrokerRecovery|SessionSnapshot|ServeSession|AguiStream)' -count=10`：PASS
+- `bunx vitest run`：PASS，43 files / 498 tests
+- `bunx vitest run src/pi-app/sessions/session-recovery.test.ts src/pi-app/input/input-methods-coverage.test.ts src/lib/agui-api.test.ts src/lib/api.test.ts`：PASS，4 files / 48 tests
+- `bun run lint`：PASS
+- `bun run typecheck`：PASS
+- `bun run build`：PASS；仅既有 chunk size warning
+- `git diff --check`：PASS
+
+### Concerns
+
+- Astro build 仍有既有 chunk size warning；不影响 exit 0。
+- Broker snapshot barrier 是全局 publish barrier，会让 snapshot read 短暂串行化所有 session publish；这是为保证 cursor/content 一致性的最小安全边界。
+- `replay=false` 仍保留给明确的 live-only background watcher；snapshot、resync、AG-UI reconnect 均不再使用它。

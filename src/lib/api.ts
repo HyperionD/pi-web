@@ -336,6 +336,10 @@ export async function runAguiSessionPrompt(sessionId, text, attachments = [], su
           subscriber.onToolArgs?.({ id: event.toolCallId, name, chunk });
         },
         onCustomEvent: ({ event }: any) => {
+          if (event.name === "piweb.broker-cursor") {
+            subscriber.onBrokerEventCursor?.(event.value?.eventId);
+            return;
+          }
           if (event.name !== "piweb.tool-output") return;
           const toolCallId = event.value?.toolCallId;
           const mode = event.value?.mode;
@@ -408,7 +412,10 @@ export function sessionEvents(sessionId: string, { onEvent, onOpen, onError, rep
   for (const type of types) {
     source.addEventListener(type, (message) => {
       try {
-        onEvent?.(JSON.parse(message.data));
+        const event = JSON.parse(message.data);
+        const sseCursor = normalizeEventCursor(message.lastEventId);
+        if (sseCursor) event.id = sseCursor;
+        onEvent?.(event);
       } catch (error) {
         onError?.(error);
       }

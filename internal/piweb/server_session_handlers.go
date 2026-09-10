@@ -29,14 +29,20 @@ func (s *Server) session(w http.ResponseWriter, r *http.Request) {
 func (s *Server) sessionSnapshot(sessionID string, limit int, before string) (Session, SessionMessagePage, uint64, error) {
 	s.store.sessionMutationMu.Lock()
 	defer s.store.sessionMutationMu.Unlock()
-	if s.store.sessionSnapshotHook != nil {
-		s.store.sessionSnapshotHook()
-	}
-	session, page, err := s.store.SessionPage(sessionID, limit, before)
+	var session Session
+	var page SessionMessagePage
+	latestEventID, err := s.broker.WithSessionSnapshot(sessionID, func() error {
+		if s.store.sessionSnapshotHook != nil {
+			s.store.sessionSnapshotHook()
+		}
+		var readErr error
+		session, page, readErr = s.store.SessionPage(sessionID, limit, before)
+		return readErr
+	})
 	if err != nil {
 		return Session{}, SessionMessagePage{}, 0, err
 	}
-	return session, page, s.broker.LatestEventID(sessionID), nil
+	return session, page, latestEventID, nil
 }
 
 func (s *Server) sessionStatus(sessionID string) string {

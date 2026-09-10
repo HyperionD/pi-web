@@ -18,6 +18,7 @@ const (
 
 type Broker struct {
 	mu                   sync.RWMutex
+	publishBarrier       sync.RWMutex
 	subscribers          map[string]map[*brokerSubscriber]struct{}
 	nextID               uint64
 	buffer               int
@@ -369,6 +370,8 @@ func (b *Broker) Publish(sessionID, eventType string, payload any) Event {
 	if b.publishAdmissionHook != nil {
 		b.publishAdmissionHook(eventType)
 	}
+	b.publishBarrier.RLock()
+	defer b.publishBarrier.RUnlock()
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	if b.closed {
@@ -431,11 +434,28 @@ func (b *Broker) appendHistoryLocked(sessionID string, event Event) {
 func (b *Broker) LatestEventID(sessionID string) uint64 {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
+	return b.latestEventIDLocked(sessionID)
+}
+
+func (b *Broker) latestEventIDLocked(sessionID string) uint64 {
 	history := b.history[sessionID]
 	if len(history) == 0 {
 		return 0
 	}
 	return history[len(history)-1].ID
+}
+
+// WithSessionSnapshot blocks ordinary publishes while the caller reads the
+// durable session state and captures the matching Broker cursor.
+func (b *Broker) WithSessionSnapshot(sessionID string, read func() error) (uint64, error) {
+	b.publishBarrier.Lock()
+	defer b.publishBarrier.Unlock()
+	if err := read(); err != nil {
+		return 0, err
+	}
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+	return b.latestEventIDLocked(sessionID), nil
 }
 
 func (b *Broker) Replay(sessionID string, after uint64) []Event {

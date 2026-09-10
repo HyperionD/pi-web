@@ -1,5 +1,7 @@
 export type SessionEventCursor = string;
 
+const MAX_EVENT_CURSOR = "18446744073709551615";
+
 export type SessionEventEnvelope = {
   id: SessionEventCursor | number;
   type: string;
@@ -14,6 +16,8 @@ export function normalizeEventCursor(value: unknown): SessionEventCursor | undef
   }
   if (typeof value !== "string" || !/^\d+$/.test(value)) return undefined;
   const normalized = value.replace(/^0+(?=\d)/, "");
+  if (normalized.length > MAX_EVENT_CURSOR.length
+    || (normalized.length === MAX_EVENT_CURSOR.length && normalized > MAX_EVENT_CURSOR)) return undefined;
   return normalized;
 }
 

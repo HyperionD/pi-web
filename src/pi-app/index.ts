@@ -280,6 +280,10 @@ class PiApp extends HTMLElement {
         this.confirmConnection();
         this.setMode("running");
       },
+      onBrokerEventCursor: (cursor) => {
+        if (!isCurrentToken()) return;
+        this.setSessionEventCursor(sessionId, cursor);
+      },
       onTextDelta: (delta) => {
         if (!isCurrentRun() || !delta) return;
         textBuffer += delta;

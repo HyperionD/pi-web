@@ -117,7 +117,7 @@ func TestServeSessionRecoversFromAfterQuery(t *testing.T) {
 	}
 }
 
-func TestSessionSnapshotDoesNotAdvanceCursorAcrossAppendPublish(t *testing.T) {
+func TestSessionSnapshotDoesNotAdvanceCursorAcrossOrdinaryPublish(t *testing.T) {
 	store := NewMockStore()
 	broker := NewBroker()
 	snapshotStarted := make(chan struct{})
@@ -136,13 +136,13 @@ func TestSessionSnapshotDoesNotAdvanceCursorAcrossAppendPublish(t *testing.T) {
 	}()
 	<-snapshotStarted
 
-	appendDone := make(chan error, 1)
+	publishDone := make(chan Event, 1)
 	go func() {
-		appendDone <- appendMessageAndPublish(store, broker, "8e7c-44ff", Message{Kind: "pi", Text: "concurrent"})
+		publishDone <- broker.Publish("8e7c-44ff", "session.status", map[string]string{"status": "running"})
 	}()
 	select {
-	case err := <-appendDone:
-		t.Fatalf("append/publish crossed snapshot boundary: %v", err)
+	case event := <-publishDone:
+		t.Fatalf("ordinary publish crossed snapshot boundary: %#v", event)
 	case <-time.After(20 * time.Millisecond):
 	}
 	close(releaseSnapshot)
@@ -159,11 +159,67 @@ func TestSessionSnapshotDoesNotAdvanceCursorAcrossAppendPublish(t *testing.T) {
 	if payload.LatestEventID != "0" {
 		t.Fatalf("snapshot cursor advanced before concurrent publish: %q", payload.LatestEventID)
 	}
-	if err := <-appendDone; err != nil {
+	published := <-publishDone
+	if events := broker.Replay("8e7c-44ff", 0); len(events) != 1 || events[0].ID != published.ID {
+		t.Fatalf("concurrent event was not published after snapshot: %#v", events)
+	}
+}
+
+func TestSnapshotCursorSafelyBridgesPublishBeforeSubscribe(t *testing.T) {
+	store := NewMockStore()
+	broker := NewBroker()
+	server := NewServer(Config{}, store, broker)
+	first := broker.Publish("8e7c-44ff", "session.message", map[string]string{"text": "first"})
+	snapshotRequest := httptest.NewRequest(http.MethodGet, "/api/sessions/8e7c-44ff", nil)
+	snapshotResponse := httptest.NewRecorder()
+	server.Handler().ServeHTTP(snapshotResponse, snapshotRequest)
+	var snapshot struct {
+		LatestEventID string `json:"latestEventId"`
+	}
+	if err := json.Unmarshal(snapshotResponse.Body.Bytes(), &snapshot); err != nil {
 		t.Fatal(err)
 	}
-	if events := broker.Replay("8e7c-44ff", 0); len(events) != 1 || events[0].ID == 0 {
-		t.Fatalf("concurrent event was not published after snapshot: %#v", events)
+	if snapshot.LatestEventID != strconv.FormatUint(first.ID, 10) {
+		t.Fatalf("snapshot cursor = %q, want %d", snapshot.LatestEventID, first.ID)
+	}
+
+	subscribeStarted := make(chan struct{})
+	releaseSubscribe := make(chan struct{})
+	broker.subscribeHook = func() {
+		close(subscribeStarted)
+		<-releaseSubscribe
+	}
+	writer := newTestSSEWriter()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	request := httptest.NewRequest(http.MethodGet, "/events?after="+snapshot.LatestEventID, nil).WithContext(ctx)
+	done := make(chan struct{})
+	go func() {
+		broker.ServeSession(writer, request, "8e7c-44ff")
+		close(done)
+	}()
+	<-subscribeStarted
+	publishDone := make(chan Event, 1)
+	go func() {
+		publishDone <- broker.Publish("8e7c-44ff", "session.status", map[string]string{"status": "idle"})
+	}()
+	select {
+	case event := <-publishDone:
+		t.Fatalf("publish crossed subscribe boundary: %#v", event)
+	case <-time.After(20 * time.Millisecond):
+	}
+	close(releaseSubscribe)
+	live := <-publishDone
+	select {
+	case <-writer.flushed:
+	case <-time.After(time.Second):
+		t.Fatal("SSE did not flush event published before subscribe completed")
+	}
+	cancel()
+	<-done
+	envelopes := parseSSEEnvelopes(writer.String())
+	if len(envelopes) != 1 || envelopes[0].ID != strconv.FormatUint(live.ID, 10) {
+		t.Fatalf("snapshot-to-subscribe event was lost: %#v body=%q", envelopes, writer.String())
 	}
 }
 

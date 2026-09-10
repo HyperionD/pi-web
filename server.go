@@ -105,7 +105,11 @@ func runServerWithDependencies(options serverOptions, deps serverDependencies) e
 	if httpShutdownErr != nil {
 		slog.Error("shutdown failed", "error", httpShutdownErr)
 	}
-	if err := errors.Join(serverShutdownErr, httpShutdownErr); err != nil {
+	listenErr := <-serverErrors
+	if listenErr != nil {
+		slog.Error("listen goroutine failed during shutdown", "error", listenErr)
+	}
+	if err := errors.Join(serverShutdownErr, httpShutdownErr, listenErr); err != nil {
 		return err
 	}
 	slog.Info("pi web backend stopped")

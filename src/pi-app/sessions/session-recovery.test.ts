@@ -62,6 +62,19 @@ describe("session recovery", () => {
     expect(app.loadSession).toHaveBeenCalledTimes(1);
   });
 
+  it("connects after the snapshot cursor with replay enabled", async () => {
+    const app = await connectPiApp();
+    app.dataset.activeSessionId = "s1";
+    app.connectEvents = vi.fn();
+    app.applyLoadedSession({ id: "s1" }, [], "idle", { latestEventId: "42" });
+
+    expect(app.connectEvents).toHaveBeenCalledWith("s1", {
+      replay: true,
+      after: "42",
+      reloadOnOpen: false,
+    });
+  });
+
   it("keeps a string cursor and reconnects after the snapshot cursor", async () => {
     const sources = [];
     globalThis.EventSource = class {
@@ -84,5 +97,48 @@ describe("session recovery", () => {
     });
     expect(app.sessionEventCursors.get("s1")).toBe("9007199254740994");
     expect(app.isDuplicateSessionEvent({ id: "9007199254740993", sessionId: "s1" })).toBe(true);
+  });
+
+  it("ignores stale AG-UI cursor callbacks after a new run generation", async () => {
+    const app = await connectPiApp();
+    app.dataset.activeSessionId = "s1";
+    const stale = app.aguiSubscriber("s1");
+    const current = app.aguiSubscriber("s1");
+
+    stale.onBrokerEventCursor?.("17");
+    current.onBrokerEventCursor?.("19");
+
+    expect(app.sessionEventCursors.get("s1")).toBe("19");
+  });
+
+  it("uses the consumed AG-UI cursor for a replaying disconnect reconnect", async () => {
+    const sources = [];
+    globalThis.EventSource = class {
+      constructor(url) {
+        this.url = url;
+        this.close = vi.fn();
+        this.listeners = {};
+        sources.push(this);
+      }
+      addEventListener(type, listener) {
+        this.listeners[type] = listener;
+      }
+    };
+    const app = await connectPiApp();
+    app.dataset.activeSessionId = "s1";
+    const agui = app.aguiSubscriber("s1");
+    agui.onRunStarted();
+    agui.onBrokerEventCursor("9007199254740993");
+    app.connectEvents("s1", { replay: true });
+
+    expect(app.sessionEventCursors.get("s1")).toBe("9007199254740993");
+    expect(sources[0].url).toContain("after=9007199254740993");
+    expect(sources[0].url).not.toContain("replay=false");
+  });
+
+  it("rejects a cursor beyond uint64 even when represented as a string", async () => {
+    const app = await connectPiApp();
+    app.setSessionEventCursor("s1", "18446744073709551616");
+    expect(app.sessionEventCursors.get("s1")).toBeUndefined();
   });
 });
