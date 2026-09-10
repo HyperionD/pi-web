@@ -479,7 +479,8 @@ func TestSessionCompactEndpointUsesPiRPC(t *testing.T) {
 	root := t.TempDir()
 	writeFakePi(t, root, `#!/bin/sh
 read request
-printf '%s\n' '{"type":"response","command":"compact","success":true,"data":{"tokensBefore":99,"estimatedTokensAfter":22}}'
+id=$(printf '%s' "$request" | sed 's/.*"id":"\([^"]*\)".*/\1/')
+printf '%s\n' "{\"id\":\"$id\",\"type\":\"response\",\"command\":\"compact\",\"success\":true,\"data\":{\"tokensBefore\":99,\"estimatedTokensAfter\":22}}"
 `)
 	store := NewMockStore()
 	workspace, err := store.OpenWorkspace(root)

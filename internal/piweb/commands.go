@@ -50,8 +50,14 @@ func ListPiCommands(ctx context.Context, cwd string) ([]SlashCommand, error) {
 	}
 	stderr, _ := cmd.StderrPipe()
 	var stderrBuf bytes.Buffer
+	stderrDone := make(chan struct{})
 	if stderr != nil {
-		go func() { _, _ = stderrBuf.ReadFrom(stderr) }()
+		go func() {
+			defer close(stderrDone)
+			_, _ = stderrBuf.ReadFrom(stderr)
+		}()
+	} else {
+		close(stderrDone)
 	}
 	if err := cmd.Start(); err != nil {
 		return nil, err
@@ -83,6 +89,7 @@ func ListPiCommands(ctx context.Context, cwd string) ([]SlashCommand, error) {
 	if ctx.Err() != nil {
 		return nil, ctx.Err()
 	}
+	<-stderrDone
 	if output := strings.TrimSpace(stderrBuf.String()); output != "" {
 		return nil, fmt.Errorf("pi get_commands failed: %s", output)
 	}

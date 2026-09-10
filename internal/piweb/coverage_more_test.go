@@ -1019,7 +1019,7 @@ while IFS= read -r line; do
   case "$line" in
     *get_commands*) echo '{"id":"commands","type":"response","command":"get_commands","success":true,"data":{"commands":[{"name":" review ","description":" desc ","source":"prompt","sourceInfo":{"path":"/p","scope":"user"}},{"name":"","description":"skip"}]}}' ;;
     *get_state*) echo '{"id":"state","type":"response","command":"get_state","success":true,"data":{"model":{"name":"GPT-Test","id":"id","provider":"provider"}}}' ;;
-    *) echo '{"type":"message_update","assistantMessageEvent":{"type":"text_delta","delta":"hi"}}'; echo '{"type":"message_end","message":{"role":"assistant","content":[{"type":"text","text":"hi"}]}}'; echo '{"type":"agent_end"}'; exit 0 ;;
+    *) id=$(printf '%s' "$line" | sed 's/.*"id":"\([^"]*\)".*/\1/'); printf '%s\n' "{\"id\":\"$id\",\"type\":\"response\",\"command\":\"prompt\",\"success\":true,\"data\":{}}"; echo '{"type":"message_update","assistantMessageEvent":{"type":"text_delta","delta":"hi"}}'; echo '{"type":"message_end","message":{"role":"assistant","content":[{"type":"text","text":"hi"}]}}'; echo '{"type":"agent_end"}'; exit 0 ;;
   esac
 done
 `

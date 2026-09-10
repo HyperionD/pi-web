@@ -10,19 +10,39 @@ import (
 func (s *Server) session(w http.ResponseWriter, r *http.Request) {
 	sessionID := r.PathValue("sessionID")
 	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
-	session, page, err := s.store.SessionPage(sessionID, limit, r.URL.Query().Get("before"))
+	session, page, latestEventID, err := s.sessionSnapshot(sessionID, limit, r.URL.Query().Get("before"))
 	if err != nil {
 		writeStoreError(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
-		"session":  session,
-		"messages": page.Messages,
-		"cursor":   page.Cursor,
-		"hasMore":  page.HasMore,
-		"limit":    page.Limit,
-		"status":   s.sessionStatus(sessionID),
+		"session":       session,
+		"messages":      page.Messages,
+		"cursor":        page.Cursor,
+		"hasMore":       page.HasMore,
+		"limit":         page.Limit,
+		"status":        s.sessionStatus(sessionID),
+		"latestEventId": strconv.FormatUint(latestEventID, 10),
 	})
+}
+
+func (s *Server) sessionSnapshot(sessionID string, limit int, before string) (Session, SessionMessagePage, uint64, error) {
+	s.store.sessionMutationMu.Lock()
+	defer s.store.sessionMutationMu.Unlock()
+	var session Session
+	var page SessionMessagePage
+	latestEventID, err := s.broker.WithSessionSnapshot(sessionID, func() error {
+		if s.store.sessionSnapshotHook != nil {
+			s.store.sessionSnapshotHook()
+		}
+		var readErr error
+		session, page, readErr = s.store.SessionPage(sessionID, limit, before)
+		return readErr
+	})
+	if err != nil {
+		return Session{}, SessionMessagePage{}, 0, err
+	}
+	return session, page, latestEventID, nil
 }
 
 func (s *Server) sessionStatus(sessionID string) string {
@@ -48,10 +68,19 @@ func (s *Server) renameSession(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"session": session})
 }
 func (s *Server) deleteSession(w http.ResponseWriter, r *http.Request) {
-	if err := s.store.DeleteSession(r.PathValue("sessionID")); err != nil {
+	sessionID := r.PathValue("sessionID")
+	token, err := s.runtimeManager.CloseSessionToken(s.context(), sessionID)
+	if err != nil {
+		_ = s.runtimeManager.RollbackSessionCloseToken(sessionID, token)
+		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
+	if err := s.store.DeleteSession(sessionID); err != nil {
+		_ = s.runtimeManager.RollbackSessionCloseToken(sessionID, token)
 		writeStoreError(w, err)
 		return
 	}
+	_ = s.runtimeManager.FinalizeSessionClose(sessionID, token)
 	writeJSON(w, http.StatusOK, map[string]any{"deleted": true})
 }
 func (s *Server) prompt(w http.ResponseWriter, r *http.Request) {
@@ -137,14 +166,13 @@ func (s *Server) steerSession(w http.ResponseWriter, r *http.Request) {
 	}
 	displayText := promptDisplayText(req.Text, req.Attachments)
 	if s.config.EnablePiExecution {
-		if err := s.runner.Steer(sessionID, promptText, imageAttachments); err != nil {
+		if err := s.runner.SteerContext(r.Context(), sessionID, promptText, imageAttachments); err != nil {
 			writeError(w, http.StatusConflict, err)
 			return
 		}
 	}
 	user := Message{Kind: "user", Text: displayText, Attachments: imageAttachments}
-	_ = s.store.AppendMessage(sessionID, user)
-	s.broker.Publish(sessionID, "session.message", user)
+	_ = appendMessageAndPublish(s.store, s.broker, sessionID, user)
 	writeJSON(w, http.StatusAccepted, map[string]any{"accepted": true, "realPi": s.config.EnablePiExecution})
 }
 func (s *Server) cancelSession(w http.ResponseWriter, r *http.Request) {

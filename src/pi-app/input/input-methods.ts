@@ -53,7 +53,6 @@ export const inputMethods = {
       if (waitForServerEcho) {
         this.invalidateEventStream();
         this.setMode("running");
-        let replayEventsOnReconnect = true;
         const aguiSubscriber = this.aguiSubscriber(sessionId);
         const aguiRunToken = this.aguiRunToken;
         try {
@@ -63,7 +62,6 @@ export const inputMethods = {
             attachments,
             aguiSubscriber,
           );
-          replayEventsOnReconnect = !completedInAguiStream;
           if (completedInAguiStream && this.dataset.activeSessionId === sessionId
             && this.aguiRunToken === aguiRunToken) {
             this.setMode("idle");
@@ -79,7 +77,7 @@ export const inputMethods = {
           if (this.dataset.activeSessionId === sessionId
             && this.aguiRunToken === aguiRunToken
             && typeof EventSource !== "undefined") {
-            this.connectEvents(sessionId, { replay: replayEventsOnReconnect });
+            this.connectEvents(sessionId, { replay: true });
           }
         }
       }
@@ -362,7 +360,7 @@ export const inputMethods = {
       if (this.dataset.activeSessionId === sessionId
         && this.aguiRunToken === aguiRunToken
         && typeof EventSource !== "undefined") {
-        this.connectEvents(this.dataset.activeSessionId, { replay: false });
+        this.connectEvents(this.dataset.activeSessionId, { replay: true });
       }
     }
   },

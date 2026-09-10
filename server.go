@@ -93,10 +93,23 @@ func runServerWithDependencies(options serverOptions, deps serverDependencies) e
 	case <-stop:
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	if err := deps.shutdown(httpServer, ctx); err != nil {
-		slog.Error("shutdown failed", "error", err)
+	serverCtx, serverCancel := context.WithTimeout(context.Background(), 5*time.Second)
+	serverShutdownErr := server.Shutdown(serverCtx)
+	serverCancel()
+	if serverShutdownErr != nil {
+		slog.Error("runtime shutdown failed", "error", serverShutdownErr)
+	}
+	httpCtx, httpCancel := context.WithTimeout(context.Background(), 5*time.Second)
+	httpShutdownErr := deps.shutdown(httpServer, httpCtx)
+	httpCancel()
+	if httpShutdownErr != nil {
+		slog.Error("shutdown failed", "error", httpShutdownErr)
+	}
+	listenErr := <-serverErrors
+	if listenErr != nil {
+		slog.Error("listen goroutine failed during shutdown", "error", listenErr)
+	}
+	if err := errors.Join(serverShutdownErr, httpShutdownErr, listenErr); err != nil {
 		return err
 	}
 	slog.Info("pi web backend stopped")

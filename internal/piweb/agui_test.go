@@ -33,6 +33,8 @@ func TestAguiSessionRunStreamsProtocolEvents(t *testing.T) {
 	got := res.Body.String()
 	for _, want := range []string{
 		`"type":"RUN_STARTED"`,
+		`"name":"piweb.broker-cursor"`,
+		`"eventId":"`,
 		`"type":"TEXT_MESSAGE_START"`,
 		`"type":"TEXT_MESSAGE_CONTENT"`,
 		`Mock backend received your prompt`,
@@ -112,6 +114,34 @@ func TestAguiStreamPreservesWhitespaceOnlyTextDeltas(t *testing.T) {
 	}
 	if !strings.Contains(got, `"delta":"Checks:\n"`) {
 		t.Fatalf("missing line-break delta in SSE body:\n%s", got)
+	}
+}
+
+func TestAguiStreamForwardsConsumedBrokerCursor(t *testing.T) {
+	res := httptest.NewRecorder()
+	stream := newAguiEventStream(res, t.Context())
+	state := newAguiStreamState("thread", "run", "session")
+
+	state.consume(Event{ID: 9007199254740993, Type: "session.status", SessionID: "session", Payload: map[string]string{"status": "running"}}, stream)
+	got := res.Body.String()
+	if !strings.Contains(got, `"name":"piweb.broker-cursor"`) || !strings.Contains(got, `"eventId":"9007199254740993"`) {
+		t.Fatalf("consumed Broker cursor was not forwarded as a string custom event:\n%s", got)
+	}
+}
+
+func TestAguiStreamStopsWithRunErrorOnBrokerGap(t *testing.T) {
+	res := httptest.NewRecorder()
+	stream := newAguiEventStream(res, t.Context())
+	state := newAguiStreamState("thread", "run", "session")
+
+	if !state.consume(Event{Type: "broker_gap", SessionID: "session", Payload: map[string]any{
+		"sessionId": "session", "after": uint64(3), "latestEventId": uint64(8),
+	}}, stream) {
+		t.Fatal("broker gap must terminate an AG-UI stream")
+	}
+	if !strings.Contains(res.Body.String(), `"type":"RUN_ERROR"`) ||
+		!strings.Contains(res.Body.String(), "broker gap") {
+		t.Fatalf("expected observable AG-UI run error:\n%s", res.Body.String())
 	}
 }
 

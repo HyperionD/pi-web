@@ -1,10 +1,47 @@
 package piweb
 
 import (
+	"context"
 	"encoding/json"
 	"strings"
 	"testing"
+	"time"
 )
+
+func TestRunnerSendsSecondPromptToExistingRuntime(t *testing.T) {
+	store := runtimeTestStore()
+	runtime := newFakePiRuntime()
+	runtimeFactory := func(context.Context, string, string) (PiRuntime, error) { return runtime, nil }
+	manager := NewRuntimeManagerWithFactory(store, runtimeFactory)
+	defer manager.Shutdown(context.Background())
+	runner := NewRunnerWithRuntimeManager(manager)
+	broker := NewBroker()
+
+	for index := 0; index < 2; index++ {
+		if err := runner.StartPiPrompt(context.Background(), broker, store, "runtime-session", "prompt", nil, "prompt"); err != nil {
+			t.Fatalf("prompt %d: %v", index+1, err)
+		}
+		runtime.events <- PiEvent{Type: "agent_end", Raw: json.RawMessage(`{"type":"agent_end"}`)}
+		deadline := time.After(time.Second)
+		for runner.IsRunning("runtime-session") {
+			select {
+			case <-deadline:
+				t.Fatal("prompt did not finish")
+			default:
+				time.Sleep(time.Millisecond)
+			}
+		}
+	}
+	runtime.mu.Lock()
+	sends := append([]RPCCommand(nil), runtime.sends...)
+	runtime.mu.Unlock()
+	if len(sends) != 2 || sends[0].Type != "prompt" || sends[1].Type != "prompt" {
+		t.Fatalf("unexpected runtime commands: %+v", sends)
+	}
+	if sends[0].ID == "" || sends[0].ID == sends[1].ID {
+		t.Fatalf("prompt commands need unique IDs: %+v", sends)
+	}
+}
 
 func TestHandlePiJSONEventPublishesAssistantErrorMessage(t *testing.T) {
 	broker := NewBroker()

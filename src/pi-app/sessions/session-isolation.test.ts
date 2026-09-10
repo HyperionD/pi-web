@@ -136,6 +136,31 @@ describe("pi-app session isolation", () => {
     expect(app.connectEvents).toHaveBeenCalledWith("s2", { replay: false });
   });
 
+  it("drops a session load that predates a new prompt generation", async () => {
+    let resolveLoad;
+    globalThis.fetch = vi.fn(() => new Promise((resolve) => {
+      resolveLoad = resolve;
+    }));
+    const app = await connectedApp();
+    app.dataset.activeSessionId = "s1";
+    const oldLoad = app.loadSession("s1");
+    app.invalidateEventStream();
+    app.termInner.replaceChildren();
+    app.termInner.textContent = "new prompt";
+    resolveLoad({
+      ok: true,
+      status: 200,
+      statusText: "OK",
+      json: async () => ({
+        session: { id: "s1", title: "old", workspaceId: "w1" },
+        messages: [{ kind: "pi", text: "stale response" }],
+      }),
+    });
+    await oldLoad;
+
+    expect(app.termInner.textContent).toBe("new prompt");
+  });
+
   it("ignores stale older-page responses after a session switch", async () => {
     globalThis.PI_WEB_API_BASE = "http://backend.test";
     let resolveOlder;

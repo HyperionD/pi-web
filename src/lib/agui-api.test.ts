@@ -14,6 +14,21 @@ vi.mock("@ag-ui/client", () => ({
 import { runAguiSessionPrompt } from "./api";
 
 describe("AG-UI API adapter", () => {
+  it("forwards the consumed Broker cursor from AG-UI custom events", async () => {
+    runAgent.mockImplementation(async (_run, handlers) => {
+      handlers.onCustomEvent({
+        event: { name: "piweb.broker-cursor", value: { eventId: "9007199254740993" } },
+      });
+    });
+    const subscriber = { onBrokerEventCursor: vi.fn() };
+
+    vi.stubGlobal("EventSource", class {});
+    globalThis.PI_WEB_API_BASE = "http://backend.test";
+    await runAguiSessionPrompt("session", "prompt", [], subscriber);
+
+    expect(subscriber.onBrokerEventCursor).toHaveBeenCalledWith("9007199254740993");
+  });
+
   it("preserves append semantics from AG-UI tool metadata", async () => {
     runAgent.mockImplementation(async (_run, handlers) => {
       handlers.onCustomEvent({

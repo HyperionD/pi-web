@@ -1,5 +1,6 @@
 import { HttpAgent } from "@ag-ui/client";
 import { downloadWorkspaceFile, uploadWorkspaceFile } from "./file-transfer";
+import { normalizeEventCursor } from "../pi-app/sessions/session-recovery";
 
 const DEV_API_BASE = "http://127.0.0.1:8732";
 const DEV_PORTS = new Set(["4321", "6006"]);
@@ -335,6 +336,10 @@ export async function runAguiSessionPrompt(sessionId, text, attachments = [], su
           subscriber.onToolArgs?.({ id: event.toolCallId, name, chunk });
         },
         onCustomEvent: ({ event }: any) => {
+          if (event.name === "piweb.broker-cursor") {
+            subscriber.onBrokerEventCursor?.(event.value?.eventId);
+            return;
+          }
           if (event.name !== "piweb.tool-output") return;
           const toolCallId = event.value?.toolCallId;
           const mode = event.value?.mode;
@@ -380,10 +385,14 @@ export function steerSession(sessionId, text, attachments = []) {
   });
 }
 
-export function sessionEvents(sessionId: string, { onEvent, onOpen, onError, replay = true }: any = {}) {
-  const replayQuery = replay ? "" : "?replay=false";
+export function sessionEvents(sessionId: string, { onEvent, onOpen, onError, replay = true, after }: any = {}) {
+  const params = new URLSearchParams();
+  if (!replay) params.set("replay", "false");
+  const cursor = normalizeEventCursor(after);
+  if (cursor && cursor !== "0") params.set("after", cursor);
+  const query = params.toString() ? `?${params}` : "";
   const source = new EventSource(
-    `${apiBase()}/api/sessions/${encodeURIComponent(sessionId)}/events${replayQuery}`,
+    `${apiBase()}/api/sessions/${encodeURIComponent(sessionId)}/events${query}`,
   );
   source.onopen = () => onOpen?.();
   source.onerror = (event) => onError?.(event);
@@ -397,12 +406,21 @@ export function sessionEvents(sessionId: string, { onEvent, onOpen, onError, rep
     "tool.finished",
     "workspace.files.changed",
     "error",
+    "broker_gap",
     "heartbeat",
   ];
   for (const type of types) {
     source.addEventListener(type, (message) => {
       try {
-        onEvent?.(JSON.parse(message.data));
+        const event = JSON.parse(message.data);
+        if (type === "broker_gap" || event.type === "broker_gap") {
+          // EventSource inherits lastEventId for id-less SSE blocks; gaps must stay synthetic.
+          event.id = 0;
+        } else {
+          const sseCursor = normalizeEventCursor(message.lastEventId);
+          if (sseCursor) event.id = sseCursor;
+        }
+        onEvent?.(event);
       } catch (error) {
         onError?.(error);
       }

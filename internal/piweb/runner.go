@@ -5,9 +5,9 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
-	"os/exec"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -32,20 +32,83 @@ const fallbackChoiceSystemPrompt = `Pi Web UI fallback choice protocol:
 - Keep id stable, short, and unique. Use at most 8 options. Use inert plain text only.`
 
 type Runner struct {
-	mu      sync.Mutex
-	running map[string]*activePiRun
+	mu             sync.Mutex
+	running        map[string]*activePiRun
+	manager        *RuntimeManager
+	nextGeneration atomic.Uint64
+
+	cancelBeforeClaimHook func()
+	steerBeforeSendHook   func()
+	compactCompleteHook   func()
+}
+
+type commandGate struct {
+	once  sync.Once
+	ready chan struct{}
+}
+
+func (gate *commandGate) init() {
+	gate.once.Do(func() {
+		gate.ready = make(chan struct{}, 1)
+		gate.ready <- struct{}{}
+	})
+}
+
+func (gate *commandGate) acquire(ctx context.Context) bool {
+	gate.init()
+	select {
+	case <-gate.ready:
+		return true
+	case <-ctx.Done():
+		return false
+	}
+}
+
+func (gate *commandGate) tryAcquire() bool {
+	gate.init()
+	select {
+	case <-gate.ready:
+		return true
+	default:
+		return false
+	}
+}
+
+func (gate *commandGate) release() {
+	gate.ready <- struct{}{}
 }
 
 type activePiRun struct {
-	cancel     context.CancelFunc
-	stdin      io.WriteCloser
-	compacting bool
-	mu         sync.Mutex
+	cancel         context.CancelFunc
+	commandCancel  context.CancelFunc
+	commandContext context.Context
+	stdin          io.WriteCloser
+	runtime        PiRuntime
+	ownership      runtimeOwnership
+	generation     uint64
+	compacting     bool
+	eventsDone     chan struct{}
+	runtimeReady   chan struct{}
+	settled        chan struct{}
+	settledOnce    sync.Once
+	runtimeOnce    sync.Once
+	commandMu      commandGate
+	mu             sync.Mutex
+	commandKind    string
+	steerPending   int
+	cancelling     bool
 }
 
 func NewRunner() *Runner {
 	return &Runner{running: map[string]*activePiRun{}}
 }
+
+func NewRunnerWithRuntimeManager(manager *RuntimeManager) *Runner {
+	runner := NewRunner()
+	runner.manager = manager
+	return runner
+}
+
 func (r *Runner) StartPiPrompt(
 	parent context.Context,
 	broker *Broker,
@@ -55,107 +118,174 @@ func (r *Runner) StartPiPrompt(
 	images []PromptAttachment,
 	displayText string,
 ) error {
-	sessionFile, cwd, ok := store.SessionRuntime(sessionID)
-	if !ok {
-		return ErrNotFound
-	}
-	ctx, cancel := context.WithCancel(parent)
-	cmd := exec.CommandContext(ctx, "pi", piRPCArgs(sessionFile)...)
-	cmd.Dir = cwd
-	configureCommandProcessGroup(cmd)
-	stdin, err := cmd.StdinPipe()
+	manager, err := r.runtimeManager(store)
 	if err != nil {
-		cancel()
 		return err
 	}
-	stdout, err := cmd.StdoutPipe()
-	if err != nil {
-		cancel()
-		return err
+	eventCtx, eventCancel := context.WithCancel(parent)
+	commandCtx, commandCancel := context.WithCancel(parent)
+	activeRun := &activePiRun{
+		cancel: eventCancel, commandCancel: commandCancel, commandContext: commandCtx,
+		eventsDone: make(chan struct{}), runtimeReady: make(chan struct{}), settled: make(chan struct{}),
 	}
-	stderr, _ := cmd.StderrPipe()
-
-	activeRun := &activePiRun{cancel: cancel, stdin: stdin}
 	if err := r.claimRun(sessionID, activeRun); err != nil {
-		cancel()
+		eventCancel()
+		commandCancel()
 		return err
 	}
-
-	if err := cmd.Start(); err != nil {
-		r.forgetRun(sessionID, activeRun)
-		cancel()
+	runtime, ownership, err := manager.EnsureOwned(parent, sessionID, activeRun.generation)
+	if err != nil {
+		r.discardRun(sessionID, activeRun)
+		eventCancel()
+		commandCancel()
 		return err
 	}
-	if err := activeRun.send(rpcPromptCommand(text, images, "")); err != nil {
-		r.forgetRun(sessionID, activeRun)
-		cancel()
+	if !activeRun.attachRuntime(runtime, ownership) {
+		_ = manager.RetireOwned(context.Background(), ownership)
+		r.discardRun(sessionID, activeRun)
+		eventCancel()
+		commandCancel()
+		return errSessionBusy
+	}
+	ctx := eventCtx
+
+	user := Message{Kind: "user", Text: displayText, Attachments: images}
+	if err := appendMessageAndPublish(store, broker, sessionID, user); err != nil {
+		r.discardRun(sessionID, activeRun)
+		eventCancel()
+		commandCancel()
 		return err
 	}
-
-	go func() {
-		defer func() {
-			r.forgetRun(sessionID, activeRun)
-			cancel()
-		}()
-		user := Message{Kind: "user", Text: displayText, Attachments: images}
-		_ = store.AppendMessage(sessionID, user)
-		broker.Publish(sessionID, "session.message", user)
-		broker.Publish(sessionID, "session.status", map[string]string{"status": "running"})
-
-		go func() {
-			<-ctx.Done()
-			terminateCommandProcessGroup(cmd)
-		}()
-
-		state := &jsonStreamState{}
-		stdoutDone := make(chan struct{})
-		agentDone := make(chan struct{})
-		var doneOnce sync.Once
-		go streamPipe(stdout, func(line string) {
-			if isPiRPCAgentEnd(line) {
-				doneOnce.Do(func() { close(agentDone) })
-			}
-			if !handlePiJSONEvent(line, broker, store, sessionID, state) && !isPiTerminalNotification(line) {
-				broker.Publish(sessionID, "tool.output", map[string]string{"tool": "pi", "chunk": line})
-			}
-		}, stdoutDone)
-		go streamPipe(stderr, func(line string) {
-			if !isPiTerminalNotification(line) {
-				broker.Publish(sessionID, "tool.output", map[string]string{"tool": "pi", "chunk": line})
-			}
-		}, nil)
-
-		select {
-		case <-agentDone:
-			_ = stdin.Close()
-		case <-ctx.Done():
-		case <-stdoutDone:
-		}
-		err := cmd.Wait()
-		if ctx.Err() != nil {
-			return
-		}
-		if err != nil {
-			broker.Publish(sessionID, "error", map[string]string{"error": err.Error()})
-			broker.Publish(sessionID, "session.status", map[string]string{"status": "idle"})
-			return
-		}
-		broker.Publish(sessionID, "session.status", map[string]string{
-			"status":     "idle",
-			"finishedAt": time.Now().UTC().Format(time.RFC3339),
-		})
-	}()
+	broker.Publish(sessionID, "session.status", map[string]string{"status": "running"})
+	go r.consumeRuntimeEvents(ctx, broker, store, sessionID, runtime, activeRun)
+	if err := activeRun.sendContext(ctx, rpcPromptCommand(text, images, "")); err != nil {
+		r.finishPrompt(sessionID, activeRun, broker, err)
+		return err
+	}
 	return nil
 }
 
+func (r *Runner) runtimeManager(store *Store) (*RuntimeManager, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.manager == nil {
+		r.manager = NewRuntimeManager(store)
+	}
+	return r.manager, nil
+}
+
+func (r *Runner) consumeRuntimeEvents(ctx context.Context, broker *Broker, store *Store, sessionID string, runtime PiRuntime, run *activePiRun) {
+	if run.eventsDone != nil {
+		defer close(run.eventsDone)
+	}
+	state := &jsonStreamState{}
+	for {
+		select {
+		case <-ctx.Done():
+			r.finishPrompt(sessionID, run, broker, ctx.Err())
+			return
+		case event, ok := <-runtime.Events():
+			if !ok {
+				r.finishPrompt(sessionID, run, broker, errors.New("pi runtime exited"))
+				return
+			}
+			line := string(event.Raw)
+			if !handlePiJSONEvent(line, broker, store, sessionID, state) && !isPiTerminalNotification(line) {
+				broker.Publish(sessionID, "tool.output", map[string]string{"tool": "pi", "chunk": line})
+			}
+			if event.Type == "agent_end" {
+				r.finishPrompt(sessionID, run, broker, nil)
+				return
+			}
+		}
+	}
+}
+
+func (r *Runner) finishPrompt(sessionID string, run *activePiRun, broker *Broker, runErr error) {
+	run.markSettled()
+	if run.isCancelling() {
+		return
+	}
+	// Cleanup must not inherit the command context: parent cancellation is the
+	// reason this path runs, and the gate still has to release the run claim.
+	if !run.commandMu.acquire(context.Background()) {
+		return
+	}
+	defer run.commandMu.release()
+	r.mu.Lock()
+	if r.running[sessionID] != run {
+		r.mu.Unlock()
+		return
+	}
+	run.mu.Lock()
+	if run.cancelling {
+		run.mu.Unlock()
+		r.mu.Unlock()
+		return
+	}
+	run.mu.Unlock()
+	delete(r.running, sessionID)
+	r.mu.Unlock()
+	run.cancel()
+	if run.commandCancel != nil {
+		run.commandCancel()
+	}
+	if runErr != nil {
+		broker.Publish(sessionID, "error", map[string]string{"error": runErr.Error()})
+	}
+	broker.Publish(sessionID, "session.status", map[string]string{
+		"status": "idle", "finishedAt": time.Now().UTC().Format(time.RFC3339),
+	})
+}
+
 func (r *Runner) Steer(sessionID string, text string, images []PromptAttachment) error {
+	return r.SteerContext(context.Background(), sessionID, text, images)
+}
+
+func (r *Runner) SteerContext(ctx context.Context, sessionID string, text string, images []PromptAttachment) error {
 	r.mu.Lock()
 	run, ok := r.running[sessionID]
+	hook := r.steerBeforeSendHook
 	r.mu.Unlock()
-	if !ok || run.compacting {
+	if !ok {
 		return errors.New("session is not running")
 	}
-	return run.send(rpcPromptCommand(text, images, "steer"))
+	if hook != nil {
+		hook()
+	}
+	run.adjustSteerPending(1)
+	defer run.adjustSteerPending(-1)
+	if !run.commandMu.acquire(ctx) {
+		return ctx.Err()
+	}
+	defer run.commandMu.release()
+	run.setCommandKind("steer")
+	defer run.setCommandKind("")
+	r.mu.Lock()
+	current := r.running[sessionID] == run
+	r.mu.Unlock()
+	if !current || run.isCompacting() || run.isCancelling() {
+		return errors.New("session is not running")
+	}
+	command := rpcPromptCommand(text, images, "steer")
+	if run.getRuntime() == nil {
+		return run.sendFallbackUnlocked(command)
+	}
+	payload, err := json.Marshal(command)
+	if err != nil {
+		return err
+	}
+	response, err := run.sendRPCUnlocked(ctx, RPCCommand{Type: "prompt", Payload: payload})
+	if err != nil {
+		return err
+	}
+	if !response.Success {
+		if response.Error == "" {
+			response.Error = "pi RPC command failed"
+		}
+		return errors.New(response.Error)
+	}
+	return nil
 }
 
 func (r *Runner) IsRunning(sessionID string) bool {
@@ -167,9 +297,9 @@ func (r *Runner) IsRunning(sessionID string) bool {
 
 func (r *Runner) IsCompacting(sessionID string) bool {
 	r.mu.Lock()
-	defer r.mu.Unlock()
 	run, ok := r.running[sessionID]
-	return ok && run.compacting
+	r.mu.Unlock()
+	return ok && run.isCompacting()
 }
 
 func (r *Runner) forgetRun(sessionID string, run *activePiRun) {
@@ -178,6 +308,147 @@ func (r *Runner) forgetRun(sessionID string, run *activePiRun) {
 		delete(r.running, sessionID)
 	}
 	r.mu.Unlock()
+}
+
+func (r *Runner) discardRun(sessionID string, run *activePiRun) {
+	r.mu.Lock()
+	if r.running[sessionID] == run {
+		run.mu.Lock()
+		cancelling := run.cancelling
+		run.mu.Unlock()
+		if !cancelling {
+			delete(r.running, sessionID)
+		}
+	}
+	r.mu.Unlock()
+}
+
+func (r *Runner) finishRun(sessionID string, run *activePiRun) {
+	run.markSettled()
+	if !run.commandMu.acquire(context.Background()) {
+		return
+	}
+	defer run.commandMu.release()
+	r.mu.Lock()
+	if r.running[sessionID] == run {
+		run.mu.Lock()
+		cancelling := run.cancelling
+		run.mu.Unlock()
+		if !cancelling {
+			delete(r.running, sessionID)
+		}
+	}
+	r.mu.Unlock()
+}
+
+func (r *Runner) releaseRun(sessionID string, run *activePiRun) {
+	r.mu.Lock()
+	if r.running[sessionID] == run {
+		delete(r.running, sessionID)
+	}
+	r.mu.Unlock()
+}
+
+func (r *Runner) claimCancellation(sessionID string, expected *activePiRun, useHook bool) (*activePiRun, bool) {
+	r.mu.Lock()
+	run, ok := r.running[sessionID]
+	if expected != nil && run != expected {
+		r.mu.Unlock()
+		return nil, false
+	}
+	if useHook && r.cancelBeforeClaimHook != nil {
+		hook := r.cancelBeforeClaimHook
+		r.mu.Unlock()
+		hook()
+		r.mu.Lock()
+		if r.running[sessionID] != run {
+			r.mu.Unlock()
+			return nil, false
+		}
+		ok = true
+	}
+	if !ok || run == nil || !run.beginCancel() {
+		r.mu.Unlock()
+		return nil, false
+	}
+	r.mu.Unlock()
+	return run, true
+}
+
+func (run *activePiRun) attachRuntime(runtime PiRuntime, ownership runtimeOwnership) bool {
+	run.mu.Lock()
+	defer run.mu.Unlock()
+	if run.cancelling {
+		run.runtimeOnce.Do(func() { close(run.runtimeReady) })
+		return false
+	}
+	run.runtime = runtime
+	run.ownership = ownership
+	run.runtimeOnce.Do(func() { close(run.runtimeReady) })
+	return true
+}
+
+func (run *activePiRun) getRuntime() PiRuntime {
+	run.mu.Lock()
+	defer run.mu.Unlock()
+	return run.runtime
+}
+
+func (run *activePiRun) isCompacting() bool {
+	run.mu.Lock()
+	defer run.mu.Unlock()
+	return run.compacting
+}
+
+func (run *activePiRun) markSettled() {
+	if run.settled != nil {
+		run.settledOnce.Do(func() { close(run.settled) })
+	}
+}
+
+func (run *activePiRun) beginCancel() bool {
+	run.mu.Lock()
+	defer run.mu.Unlock()
+	if run.cancelling {
+		return false
+	}
+	run.cancelling = true
+	if run.commandCancel != nil {
+		run.commandCancel()
+	}
+	return true
+}
+
+func (run *activePiRun) isSteering() bool {
+	run.mu.Lock()
+	defer run.mu.Unlock()
+	return run.steerPending > 0 || run.commandKind == "steer"
+}
+
+func (run *activePiRun) adjustSteerPending(delta int) {
+	run.mu.Lock()
+	run.steerPending += delta
+	run.mu.Unlock()
+}
+
+func (run *activePiRun) setCommandKind(kind string) {
+	run.mu.Lock()
+	run.commandKind = kind
+	run.mu.Unlock()
+}
+
+func (run *activePiRun) waitCommand(timeout time.Duration) {
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+	if run.commandMu.acquire(ctx) {
+		run.commandMu.release()
+	}
+}
+
+func (run *activePiRun) isCancelling() bool {
+	run.mu.Lock()
+	defer run.mu.Unlock()
+	return run.cancelling
 }
 
 func piRPCArgs(sessionFile string) []string {
@@ -225,15 +496,94 @@ func rpcImages(images []PromptAttachment) []rpcImage {
 }
 
 func (r *activePiRun) send(command any) error {
+	return r.sendContext(context.Background(), command)
+}
+
+func (r *activePiRun) sendContext(ctx context.Context, command any) error {
+	payload, err := json.Marshal(command)
+	if err != nil {
+		return err
+	}
+	typeName := ""
+	if value, ok := command.(rpcPrompt); ok {
+		typeName = value.Type
+	}
+	if r.getRuntime() == nil {
+		return r.sendFallback(command)
+	}
+	response, err := r.sendRPCContext(ctx, RPCCommand{Type: typeName, Payload: payload})
+	if err != nil {
+		return err
+	}
+	if !response.Success {
+		if response.Error == "" {
+			response.Error = "pi RPC command failed"
+		}
+		return errors.New(response.Error)
+	}
+	return nil
+}
+
+func (r *activePiRun) sendFallback(command any) error {
+	if !r.commandMu.acquire(context.Background()) {
+		return context.Canceled
+	}
+	defer r.commandMu.release()
+	r.setCommandKind("fallback")
+	defer r.setCommandKind("")
+	return r.sendFallbackUnlocked(command)
+}
+
+func (r *activePiRun) sendFallbackUnlocked(command any) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	if r.cancelling {
+		return errors.New("session is cancelling")
+	}
+	if r.stdin == nil {
+		return errors.New("runtime is unavailable")
+	}
 	line, err := json.Marshal(command)
 	if err != nil {
 		return err
 	}
-	line = append(line, '\n')
-	_, err = r.stdin.Write(line)
+	_, err = r.stdin.Write(append(line, '\n'))
 	return err
+}
+
+func (r *activePiRun) sendRPCContext(ctx context.Context, command RPCCommand) (RPCResponse, error) {
+	sendCtx, stop := context.WithCancel(ctx)
+	commandCtx := r.commandContext
+	if commandCtx == nil {
+		commandCtx = context.Background()
+	}
+	stopCommand := context.AfterFunc(commandCtx, stop)
+	defer stopCommand()
+	if !r.commandMu.acquire(sendCtx) {
+		return RPCResponse{}, sendCtx.Err()
+	}
+	defer r.commandMu.release()
+	kind := command.Type
+	if isSteerRPCCommand(command) {
+		kind = "steer"
+	}
+	r.setCommandKind(kind)
+	defer r.setCommandKind("")
+	return r.sendRPCUnlocked(sendCtx, command)
+}
+
+func (r *activePiRun) sendRPCUnlocked(ctx context.Context, command RPCCommand) (RPCResponse, error) {
+	r.mu.Lock()
+	if r.cancelling {
+		r.mu.Unlock()
+		return RPCResponse{}, errors.New("session is cancelling")
+	}
+	runtime := r.runtime
+	r.mu.Unlock()
+	if runtime == nil {
+		return RPCResponse{}, errors.New("runtime is unavailable")
+	}
+	return runtime.Send(ctx, command)
 }
 
 func isPiRPCAgentEnd(line string) bool {
@@ -262,15 +612,108 @@ func imageExtension(mimeType string) string {
 	}
 }
 
+const (
+	cancelAbortTimeout  = 5 * time.Second
+	cancelSettleTimeout = time.Second
+)
+
 func (r *Runner) Cancel(sessionID string) bool {
-	r.mu.Lock()
-	run, ok := r.running[sessionID]
-	if ok {
-		delete(r.running, sessionID)
+	run, ok := r.claimCancellation(sessionID, nil, true)
+	if !ok {
+		return false
 	}
-	r.mu.Unlock()
-	if ok {
+	runManager := r.manager
+	runtime := run.waitRuntime(cancelSettleTimeout)
+	abortStarted := false
+	if runtime != nil {
+		abortStarted = run.tryAbort(runtime)
+	}
+	if !abortStarted {
 		run.cancel()
+		if run.isSteering() {
+			run.waitCommand(cancelSettleTimeout)
+		} else {
+			run.markSettled()
+		}
+	} else if !waitForRun(run.settled, cancelSettleTimeout) {
+		run.cancel()
+		waitForRun(run.eventsDone, cancelSettleTimeout)
 	}
-	return ok
+	if runtime != nil {
+		if abortStarted {
+			closeCtx, closeCancel := context.WithTimeout(context.Background(), cancelAbortTimeout)
+			if runManager != nil {
+				_ = runManager.RetireOwned(closeCtx, run.ownership)
+			} else {
+				_ = runtime.Close(closeCtx)
+			}
+			closeCancel()
+		} else if runManager != nil {
+			runManager.RetireOwnedAsync(run.ownership)
+		} else {
+			go func() {
+				closeCtx, closeCancel := context.WithTimeout(context.Background(), cancelAbortTimeout)
+				defer closeCancel()
+				_ = runtime.Close(closeCtx)
+			}()
+		}
+	}
+	run.markSettled()
+	r.releaseRun(sessionID, run)
+	return true
+}
+
+func (run *activePiRun) tryAbort(runtime PiRuntime) bool {
+	if !run.commandMu.tryAcquire() {
+		return false
+	}
+	defer run.commandMu.release()
+	ctx, cancel := context.WithTimeout(context.Background(), cancelAbortTimeout)
+	defer cancel()
+	done := make(chan struct{})
+	go func() {
+		_, _ = runtime.Send(ctx, RPCCommand{Type: "abort"})
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-ctx.Done():
+	}
+	return true
+}
+
+func (run *activePiRun) waitRuntime(timeout time.Duration) PiRuntime {
+	select {
+	case <-run.runtimeReady:
+		return run.getRuntime()
+	case <-time.After(timeout):
+		return run.getRuntime()
+	}
+}
+
+func waitForRun(done <-chan struct{}, timeout time.Duration) bool {
+	if done == nil {
+		return true
+	}
+	select {
+	case <-done:
+		return true
+	case <-time.After(timeout):
+		return false
+	}
+}
+
+func (r *Runner) cancelRunRuntime(sessionID string, run *activePiRun, manager *RuntimeManager) {
+	runtime := run.getRuntime()
+	if runtime == nil {
+		return
+	}
+	run.tryAbort(runtime)
+	closeCtx, closeCancel := context.WithTimeout(context.Background(), cancelAbortTimeout)
+	defer closeCancel()
+	if manager != nil {
+		_ = manager.RetireOwned(closeCtx, run.ownership)
+		return
+	}
+	_ = runtime.Close(closeCtx)
 }

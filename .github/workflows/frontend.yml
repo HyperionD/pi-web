@@ -21,7 +21,7 @@ jobs:
       - name: Set up Node
         uses: actions/setup-node@v6
         with:
-          node-version: 22.12.0
+          node-version: 22.22.3
 
       - name: Set up Bun
         uses: oven-sh/setup-bun@v2
@@ -31,8 +31,22 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
-      - name: Test coverage
-        run: bun run test:coverage
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+
+      - name: Lint
+        run: bun run lint
+
+      - name: Typecheck
+        run: bun run typecheck
+
+      - name: Frontend unit tests
+        run: bun run test
+
+      - name: Backend unit tests
+        run: go test ./...
 
       - name: Build UI
         run: bun run build

@@ -401,7 +401,7 @@ describe("pi-app input methods coverage", () => {
     expect(String(globalThis.fetch.mock.calls[0][0])).toContain("/api/sessions/s1/ag-ui");
     expect(app.running).toBe(false);
     expect(app.querySelector(".msg.loading")).toBeNull();
-    expect(app.connectEvents).toHaveBeenCalledWith("s1", { replay: false });
+    expect(app.connectEvents).toHaveBeenCalledWith("s1", { replay: true });
 
     globalThis.fetch = vi.fn(async (url) => {
       if (String(url).includes("/ag-ui")) throw new Error("Failed to getReader");

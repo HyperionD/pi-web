@@ -259,11 +259,18 @@ describe("api adapter", () => {
     source.onerror("err");
     sources[0].listeners["session.message"]({ data: JSON.stringify({ type: "session.message" }) });
     sources[0].listeners.heartbeat({ data: "not-json" });
+    sources[0].listeners["session.message"]({
+      lastEventId: "9007199254740993",
+      data: JSON.stringify({ type: "session.message", id: "7" }),
+    });
     expect(onOpen).toHaveBeenCalled();
     expect(onError).toHaveBeenCalledTimes(2);
     expect(onEvent).toHaveBeenCalledWith({ type: "session.message" });
+    expect(onEvent).toHaveBeenCalledWith({ type: "session.message", id: "9007199254740993" });
 
     const noReplay = sessionEvents("s1", { replay: false });
     expect(noReplay.url).toBe("http://backend.test/api/sessions/s1/events?replay=false");
+    const safeCursor = sessionEvents("s1", { replay: false, after: "9007199254740993" });
+    expect(safeCursor.url).toBe("http://backend.test/api/sessions/s1/events?replay=false&after=9007199254740993");
   });
 });

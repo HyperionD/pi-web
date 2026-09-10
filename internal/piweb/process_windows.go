@@ -12,3 +12,7 @@ func terminateCommandProcessGroup(cmd *exec.Cmd) {
 	}
 	_ = cmd.Process.Kill()
 }
+
+func forceTerminateCommandProcessGroup(cmd *exec.Cmd) {
+	terminateCommandProcessGroup(cmd)
+}

@@ -19,12 +19,82 @@ type Config struct {
 	StaticFiles       fs.FS
 }
 
+type serverLifecycle struct {
+	mu     sync.Mutex
+	state  uint8
+	active int
+	zero   chan struct{}
+}
+
+const (
+	serverAccepting uint8 = iota
+	serverClosing
+	serverClosed
+)
+
+func newServerLifecycle() *serverLifecycle {
+	zero := make(chan struct{})
+	close(zero)
+	return &serverLifecycle{zero: zero}
+}
+
+func (lifecycle *serverLifecycle) enter() bool {
+	lifecycle.mu.Lock()
+	defer lifecycle.mu.Unlock()
+	if lifecycle.state != serverAccepting {
+		return false
+	}
+	if lifecycle.active == 0 {
+		lifecycle.zero = make(chan struct{})
+	}
+	lifecycle.active++
+	return true
+}
+
+func (lifecycle *serverLifecycle) leave() {
+	lifecycle.mu.Lock()
+	defer lifecycle.mu.Unlock()
+	lifecycle.active--
+	if lifecycle.active == 0 {
+		close(lifecycle.zero)
+		if lifecycle.state == serverClosing {
+			lifecycle.state = serverClosed
+		}
+	}
+}
+
+func (lifecycle *serverLifecycle) startShutdown() <-chan struct{} {
+	lifecycle.mu.Lock()
+	defer lifecycle.mu.Unlock()
+	if lifecycle.state == serverAccepting {
+		lifecycle.state = serverClosing
+	}
+	return lifecycle.zero
+}
+
+func (lifecycle *serverLifecycle) waitForZero(ctx context.Context, zero <-chan struct{}) error {
+	select {
+	case <-zero:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+func (lifecycle *serverLifecycle) beginShutdown(ctx context.Context) error {
+	return lifecycle.waitForZero(ctx, lifecycle.startShutdown())
+}
+
 type Server struct {
 	store                   *Store
 	broker                  *Broker
 	runner                  *Runner
+	runtimeManager          *RuntimeManager
 	mux                     *http.ServeMux
 	config                  Config
+	ctx                     context.Context
+	cancel                  context.CancelFunc
+	lifecycle               *serverLifecycle
 	accounts                *accountStore
 	workspaceAccess         *WorkspaceAccess
 	adminPasswordConfigured bool
@@ -33,6 +103,13 @@ type Server struct {
 }
 
 func NewServer(config Config, store *Store, broker *Broker) *Server {
+	return NewServerWithRuntimeManager(config, store, broker, NewRuntimeManager(store))
+}
+
+func NewServerWithRuntimeManager(config Config, store *Store, broker *Broker, manager *RuntimeManager) *Server {
+	if manager == nil {
+		manager = NewRuntimeManager(store)
+	}
 	if config.Host == "" {
 		config.Host = "127.0.0.1"
 	}
@@ -48,12 +125,17 @@ func NewServer(config Config, store *Store, broker *Broker) *Server {
 		}
 	}
 	adminPasswordConfigured, adminPasswordCheckError := AdminPasswordConfigured()
+	ctx, cancel := context.WithCancel(context.Background())
 	s := &Server{
 		store:                   store,
 		broker:                  broker,
-		runner:                  NewRunner(),
+		runtimeManager:          manager,
+		runner:                  NewRunnerWithRuntimeManager(manager),
 		mux:                     http.NewServeMux(),
 		config:                  config,
+		ctx:                     ctx,
+		cancel:                  cancel,
+		lifecycle:               newServerLifecycle(),
 		adminPasswordConfigured: adminPasswordConfigured,
 		adminPasswordCheckError: adminPasswordCheckError,
 	}
@@ -70,7 +152,18 @@ func (s *Server) Addr() string {
 	return s.config.Host + ":" + s.config.Port
 }
 func (s *Server) Handler() http.Handler {
-	return s.withLogging(s.withCORS(s.withAccount(s.mux)))
+	return s.withLogging(s.withShutdownGuard(s.withCORS(s.withAccount(s.mux))))
+}
+
+func (s *Server) withShutdownGuard(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !s.lifecycle.enter() {
+			writeError(w, http.StatusServiceUnavailable, errors.New("server is shutting down"))
+			return
+		}
+		defer s.lifecycle.leave()
+		next.ServeHTTP(w, r)
+	})
 }
 func (s *Server) routes() {
 	s.mux.HandleFunc("GET /api/health", s.health)
@@ -130,7 +223,36 @@ func (s *Server) routes() {
 	}
 }
 func (s *Server) context() context.Context {
-	return context.Background()
+	return s.ctx
+}
+
+func (s *Server) Shutdown(ctx context.Context) error {
+	zero := s.lifecycle.startShutdown()
+	s.cancel()
+	runtimeCtx, runtimeCancel := independentShutdownContext(ctx)
+	defer runtimeCancel()
+	brokerCtx, brokerCancel := independentShutdownContext(ctx)
+	defer brokerCancel()
+	storeCtx, storeCancel := independentShutdownContext(ctx)
+	defer storeCancel()
+
+	// Closing subscriptions first lets long-lived SSE handlers leave before we
+	// wait for the request count. Runtime and store cleanup follows admission
+	// shutdown, so no new handler can recreate a resource while it closes.
+	brokerErr := s.broker.Shutdown(brokerCtx)
+	lifecycleErr := s.lifecycle.waitForZero(ctx, zero)
+	return errors.Join(
+		lifecycleErr,
+		brokerErr,
+		s.runtimeManager.Shutdown(runtimeCtx),
+		s.store.Shutdown(storeCtx),
+	)
+}
+
+func independentShutdownContext(context.Context) (context.Context, context.CancelFunc) {
+	// Cleanup must not inherit an already-expired request deadline. Every
+	// shutdown phase gets a fresh, bounded five-second window.
+	return context.WithTimeout(context.Background(), 5*time.Second)
 }
 
 func (s *Server) workspacePolicy() (WorkspacePolicy, error) {

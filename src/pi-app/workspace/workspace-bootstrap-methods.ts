@@ -6,6 +6,7 @@ import {
   getWorkspaces,
 } from "../../lib/api";
 import { clearStoredActiveSession, readStoredActiveSession, storeActiveSession } from "../sessions/session-storage";
+import { normalizeEventCursor } from "../sessions/session-recovery";
 import { isForbiddenWorkspaceError, requestErrorMessage } from "./workspace-methods";
 
 const SESSION_MESSAGE_PAGE_SIZE = 120;
@@ -333,24 +334,27 @@ export const workspaceBootstrapMethods = {
     const loadToken = Symbol(sessionId);
     const { bootstrapGeneration } = options;
     const workspaceId = this.findSessionRow(sessionId)?.dataset.workspace || this.dataset.activeWorkspaceId;
+    const requestedViewGeneration = options.viewGeneration;
+    if (requestedViewGeneration && this.sessionViewGeneration !== requestedViewGeneration) return;
     this.sessionLoadToken = loadToken;
+    this.invalidateEventStream?.({ preserveResync: true });
+    const loadViewGeneration = this.sessionViewGeneration;
     const isCurrentResource = () => (
       this.sessionLoadToken === loadToken
       && (!bootstrapGeneration || this.bootstrapGeneration === bootstrapGeneration)
+      && this.sessionViewGeneration === loadViewGeneration
       && (bootstrapGeneration
         ? this.dataset.activeSessionId === sessionId && this.dataset.activeWorkspaceId === workspaceId
         : (!this.dataset.activeSessionId || this.dataset.activeSessionId === sessionId)
           && (!workspaceId || !this.dataset.activeWorkspaceId || this.dataset.activeWorkspaceId === workspaceId))
     );
-    this.invalidateEventStream?.();
     this.showSessionSwitchLoading(sessionId);
     try {
       const loaded = await getSession(sessionId, { limit: SESSION_MESSAGE_PAGE_SIZE });
       if (!isCurrentResource()) return;
       this.applyLoadedSession(loaded.session, loaded.messages || [], loaded.status, loaded);
     } catch (error) {
-      if (this.sessionLoadToken !== loadToken) return;
-      if (isForbiddenWorkspaceError(error) && !isCurrentResource()) return;
+      if (!isCurrentResource()) return;
       if (!this.recoverForbiddenWorkspace(error)) this.setConnection("err");
     }
   },
@@ -385,9 +389,22 @@ export const workspaceBootstrapMethods = {
     this.sessionHistoryCursor = page.cursor || "";
     this.sessionHistoryHasMore = !!page.hasMore;
     this.sessionHistoryLoading = false;
+    if (Object.prototype.hasOwnProperty.call(page, "latestEventId")) {
+      this.sessionEventCursors ??= new Map();
+      this.sessionEventCursors.delete(session.id);
+      this.setSessionEventCursor(session.id, page.latestEventId);
+    }
     this.renderMessages(messages);
     this.setMode(status || "idle");
-    this.connectEvents(session.id, { replay: false });
+    if (Object.prototype.hasOwnProperty.call(page, "latestEventId")) {
+      this.connectEvents(session.id, {
+        replay: true,
+        after: normalizeEventCursor(page.latestEventId) || "0",
+        reloadOnOpen: false,
+      });
+    } else {
+      this.connectEvents(session.id, { replay: false });
+    }
   },
 
   async loadOlderSessionMessages() {
