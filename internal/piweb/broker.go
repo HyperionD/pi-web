@@ -74,6 +74,13 @@ func (b *Broker) Subscribe(sessionID string) (<-chan Event, func()) {
 }
 
 func (b *Broker) SubscribeFrom(sessionID string, after uint64) EventSubscription {
+	b.mu.Lock()
+	if b.closed {
+		events := make(chan Event)
+		close(events)
+		b.mu.Unlock()
+		return EventSubscription{Events: events, Close: func() {}}
+	}
 	buffer := b.buffer
 	if buffer < 1 {
 		buffer = 1
@@ -89,7 +96,6 @@ func (b *Broker) SubscribeFrom(sessionID string, after uint64) EventSubscription
 		wake: make(chan struct{}, 1), finished: make(chan struct{}), ctx: ctx, cancel: cancel,
 		drainCtx: drainCtx, drainCancel: drainCancel,
 	}
-	b.mu.Lock()
 	if b.subscribers[sessionID] == nil {
 		b.subscribers[sessionID] = map[*brokerSubscriber]struct{}{}
 	}

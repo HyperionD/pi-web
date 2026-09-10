@@ -229,6 +229,23 @@ func TestServerShutdownDoesNotHoldLifecycleReadLock(t *testing.T) {
 	close(release)
 }
 
+func TestServerShutdownClosesLateSSESubscription(t *testing.T) {
+	server := NewServer(Config{}, NewMockStore(), NewBroker())
+	if err := server.Shutdown(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	subscription := server.broker.SubscribeFrom("runtime-session", 0)
+	defer subscription.Close()
+	select {
+	case _, ok := <-subscription.Events:
+		if ok {
+			t.Fatal("late SSE subscription remained live after server shutdown")
+		}
+	case <-time.After(time.Second):
+		t.Fatal("late SSE subscription did not terminate")
+	}
+}
+
 func TestServerShutdownClosesSSEBeforeWaitingForActiveRequests(t *testing.T) {
 	server := NewServer(Config{}, NewMockStore(), NewBroker())
 	writer := newTestSSEWriter()
@@ -255,6 +272,150 @@ func TestServerShutdownClosesSSEBeforeWaitingForActiveRequests(t *testing.T) {
 	}
 	if err := <-shutdownDone; err != nil {
 		t.Fatalf("shutdown failed: %v", err)
+	}
+}
+
+func TestRunnerCancelDoesNotAbortNewPromptAfterCompletionRace(t *testing.T) {
+	store := runtimeTestStore()
+	runtime := newCancelRegressionRuntime()
+	manager := NewRuntimeManagerWithFactory(store, func(context.Context, string, string) (PiRuntime, error) {
+		return runtime, nil
+	})
+	defer manager.Shutdown(context.Background())
+	runner := NewRunnerWithRuntimeManager(manager)
+	broker := NewBroker()
+	if err := runner.StartPiPrompt(context.Background(), broker, store, "runtime-session", "first", nil, "first"); err != nil {
+		t.Fatal(err)
+	}
+	cancelLookup := make(chan struct{})
+	releaseCancelLookup := make(chan struct{})
+	runner.cancelBeforeClaimHook = func() {
+		close(cancelLookup)
+		<-releaseCancelLookup
+	}
+	cancelDone := make(chan bool, 1)
+	go func() { cancelDone <- runner.Cancel("runtime-session") }()
+	<-cancelLookup
+	runtime.events <- PiEvent{Type: "agent_end", Raw: json.RawMessage(`{"type":"agent_end"}`)}
+	waitForRunnerIdle(t, runner, "runtime-session")
+	if err := runner.StartPiPrompt(context.Background(), broker, store, "runtime-session", "second", nil, "second"); err != nil {
+		t.Fatal(err)
+	}
+	close(releaseCancelLookup)
+	if <-cancelDone {
+		t.Fatal("stale Cancel claimed the new run")
+	}
+	runtime.mu.Lock()
+	commands := append([]RPCCommand(nil), runtime.commands...)
+	runtime.mu.Unlock()
+	for _, command := range commands {
+		if command.Type == "abort" {
+			t.Fatal("stale Cancel aborted the new run")
+		}
+	}
+	runtime.events <- PiEvent{Type: "agent_end", Raw: json.RawMessage(`{"type":"agent_end"}`)}
+}
+
+func TestRunnerCompactDoesNotAbortNewPromptAfterCompletionRace(t *testing.T) {
+	store := runtimeTestStore()
+	runtime := newCancelRegressionRuntime()
+	manager := NewRuntimeManagerWithFactory(store, func(context.Context, string, string) (PiRuntime, error) {
+		return runtime, nil
+	})
+	defer manager.Shutdown(context.Background())
+	runner := NewRunnerWithRuntimeManager(manager)
+	compactCompleteReached := make(chan struct{})
+	releaseCompactComplete := make(chan struct{})
+	runner.compactCompleteHook = func() {
+		close(compactCompleteReached)
+		<-releaseCompactComplete
+	}
+	cancelLookup := make(chan struct{})
+	releaseCancelLookup := make(chan struct{})
+	runner.cancelBeforeClaimHook = func() {
+		close(cancelLookup)
+		<-releaseCancelLookup
+	}
+	compactDone := make(chan error, 1)
+	go func() {
+		_, err := runner.Compact(context.Background(), NewBroker(), store, "runtime-session")
+		compactDone <- err
+	}()
+	<-compactCompleteReached
+	cancelDone := make(chan bool, 1)
+	go func() { cancelDone <- runner.Cancel("runtime-session") }()
+	<-cancelLookup
+	close(releaseCompactComplete)
+	if err := <-compactDone; err != nil {
+		t.Fatal(err)
+	}
+	if err := runner.StartPiPrompt(context.Background(), NewBroker(), store, "runtime-session", "second", nil, "second"); err != nil {
+		t.Fatal(err)
+	}
+	close(releaseCancelLookup)
+	if <-cancelDone {
+		t.Fatal("stale Cancel claimed the new compact successor")
+	}
+	runtime.mu.Lock()
+	commands := append([]RPCCommand(nil), runtime.commands...)
+	runtime.mu.Unlock()
+	for _, command := range commands {
+		if command.Type == "abort" {
+			t.Fatal("stale Cancel aborted the new compact successor")
+		}
+	}
+}
+
+func TestRunnerCancelReleasesNonCooperativeSend(t *testing.T) {
+	store := runtimeTestStore()
+	first := newNonCooperativeRuntime()
+	second := newFakePiRuntime()
+	var created atomic.Int32
+	manager := NewRuntimeManagerWithFactory(store, func(context.Context, string, string) (PiRuntime, error) {
+		if created.Add(1) == 1 {
+			return first, nil
+		}
+		return second, nil
+	})
+	defer manager.Shutdown(context.Background())
+	runner := NewRunnerWithRuntimeManager(manager)
+	promptDone := make(chan error, 1)
+	go func() {
+		promptDone <- runner.StartPiPrompt(context.Background(), NewBroker(), store, "runtime-session", "first", nil, "first")
+	}()
+	<-first.promptStarted
+	cancelDone := make(chan bool, 1)
+	go func() { cancelDone <- runner.Cancel("runtime-session") }()
+	select {
+	case ok := <-cancelDone:
+		if !ok {
+			t.Fatal("Cancel did not claim non-cooperative run")
+		}
+	case <-time.After(time.Second):
+		close(first.releasePrompt)
+		t.Fatal("Cancel blocked behind non-cooperative Send")
+	}
+	if err := runner.StartPiPrompt(context.Background(), NewBroker(), store, "runtime-session", "second", nil, "second"); err != nil {
+		t.Fatalf("new prompt after non-cooperative cancel: %v", err)
+	}
+	close(first.releasePrompt)
+	if err := <-promptDone; err != nil {
+		t.Fatalf("old prompt: %v", err)
+	}
+}
+
+func waitForRunnerIdle(t *testing.T, runner *Runner, sessionID string) {
+	t.Helper()
+	deadline := time.NewTimer(time.Second)
+	defer deadline.Stop()
+	ticker := time.NewTicker(time.Millisecond)
+	defer ticker.Stop()
+	for runner.IsRunning(sessionID) {
+		select {
+		case <-deadline.C:
+			t.Fatal("run did not complete")
+		case <-ticker.C:
+		}
 	}
 }
 
@@ -375,6 +536,40 @@ func TestServerShutdownGuardRejectsRequestsAfterShutdown(t *testing.T) {
 	}
 }
 
+type nonCooperativeRuntime struct {
+	mu            sync.Mutex
+	events        chan PiEvent
+	promptStarted chan struct{}
+	releasePrompt chan struct{}
+	closed        int
+}
+
+func newNonCooperativeRuntime() *nonCooperativeRuntime {
+	return &nonCooperativeRuntime{
+		events: make(chan PiEvent, 8), promptStarted: make(chan struct{}), releasePrompt: make(chan struct{}),
+	}
+}
+
+func (r *nonCooperativeRuntime) Send(_ context.Context, command RPCCommand) (RPCResponse, error) {
+	if command.Type == "prompt" {
+		select {
+		case <-r.promptStarted:
+		default:
+			close(r.promptStarted)
+		}
+		<-r.releasePrompt
+	}
+	return RPCResponse{ID: command.ID, Type: "response", Command: command.Type, Success: true}, nil
+}
+func (r *nonCooperativeRuntime) Events() <-chan PiEvent { return r.events }
+func (r *nonCooperativeRuntime) IsRunning() bool        { return true }
+func (r *nonCooperativeRuntime) Close(context.Context) error {
+	r.mu.Lock()
+	r.closed++
+	r.mu.Unlock()
+	return nil
+}
+
 type nonTerminatingRuntime struct {
 	mu     sync.Mutex
 	events chan PiEvent
@@ -449,6 +644,9 @@ func (r *cancelRegressionRuntime) Send(ctx context.Context, command RPCCommand) 
 	r.mu.Lock()
 	r.commands = append(r.commands, command)
 	r.mu.Unlock()
+	if command.Type == "compact" {
+		return RPCResponse{ID: command.ID, Type: "response", Command: command.Type, Success: true, Data: json.RawMessage(`{"summary":"summary"}`)}, nil
+	}
 	if command.Type == "abort" {
 		select {
 		case <-r.abortStart:

@@ -117,3 +117,25 @@ Concerns：取消流程对 session runtime 采用关闭并在下一代 prompt �
 - `git diff --check`：PASS。
 
 Concerns：`Store.Shutdown` 仍是明确 no-op（Store 每次操作独立打开 SQLite）；取消 deadline 常量为 abort 5 秒、settle 1 秒，真实 process close 仍有 5 秒强制终止兜底。未修改 HTTP API/ACL、Task2 Broker 协议、Linux single binary、fallback/mock 或 `static/`。
+
+## 修复轮次 3
+
+状态：已完成，针对最新 review 阻断项补强并通过定向并发验证。
+
+- Broker：`SubscribeFrom` 在 closed 状态返回已关闭哨兵 channel，不注册 subscriber；覆盖 shutdown 后迟到订阅与 active SSE shutdown 完成。
+- Runner：取消 claim 按 session + run pointer 原子确认；Compact 取消也保留旧 generation 直到 owner 完成 retire/release。新增真正交叠的 Prompt/Compact complete 与 Cancel 测试，确认新 run 不收到 abort。
+- Cancel：以 cancellable command gate 替代不可取消 `commandMu.Lock`；非 cooperative Send 会跳过阻塞 abort、停止事件消费并 retire runtime，随后新 prompt 可重建；新增 non-cooperative fake。
+- RuntimeProcess：保存并关闭 stdout/stderr pipe；强杀后 bounded 等待，超时只返回错误、不伪造 `done` 已清理，reaper 继续负责 waiter/channel cleanup。新增真实进程 inherited-pipe、backpressure、EOF/channel-close 测试。
+- 清理未使用的旧 compaction helper、stale event drainer 与 active-run `done`。
+
+TDD：先加入测试并确认因新 hooks/契约缺失而 RED，再实现后定向测试 GREEN。
+
+验证：
+
+- `go test -race ./internal/piweb -run 'Test(SubscribeFromAfterShutdown|Runner(CancelDoesNotAbortNewPromptAfterCompletionRace|CompactDoesNotAbortNewPromptAfterCompletionRace|CancelReleasesNonCooperativeSend)|ProcessRuntime(RealProcessBackpressure|ClosesEventChannelAfterEOF|ForceCloseDoesNotWaitForeverForInheritedPipes))' -count=10`：PASS。
+- `go test -race ./internal/piweb -run 'Test(RuntimeManager|Runner|ProcessRuntime|ServerShutdown|SubscribeFrom)' -count=1`：PASS。
+- `go test ./...`：PASS。
+- `go test -race ./internal/piweb`：PASS，无 race detector 报告。
+- `go build ./...`、`git diff --check`：PASS。
+
+Concerns：`Cancel` 对不响应 context 的第三方 runtime 只提供 bounded retire，不保证其实现内部 goroutine 自行退出；旧 runtime 与新 generation 已通过 manager identity 隔离。未修改 HTTP/ACL、Task2 Broker FIFO/gap/close、fallback/mock、Linux single binary 或 `static/`。

@@ -98,6 +98,54 @@ func TestProcessRuntimeEventBackpressureDoesNotBlockReader(t *testing.T) {
 	}
 }
 
+func TestProcessRuntimeRealProcessBackpressureFailsPendingRPC(t *testing.T) {
+	root := t.TempDir()
+	writeFakePi(t, root, `#!/bin/sh
+read request
+i=0
+while [ "$i" -lt 65 ]; do
+  printf '%s\n' '{"type":"message_update"}'
+  i=$((i + 1))
+done
+sleep 30
+`)
+	runtimeValue, err := newPiRuntime(context.Background(), filepath.Join(root, "session.jsonl"), root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	runtime := runtimeValue.(*processPiRuntime)
+	defer runtime.Close(context.Background())
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	_, err = runtime.Send(ctx, RPCCommand{ID: "request-1", Type: "prompt"})
+	if err == nil || !strings.Contains(err.Error(), "event channel is full") {
+		t.Fatalf("real process backpressure error = %v", err)
+	}
+}
+
+func TestProcessRuntimeClosesEventChannelAfterEOF(t *testing.T) {
+	root := t.TempDir()
+	writeFakePi(t, root, `#!/bin/sh
+read request
+exit 0
+`)
+	runtimeValue, err := newPiRuntime(context.Background(), filepath.Join(root, "session.jsonl"), root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	runtime := runtimeValue.(*processPiRuntime)
+	defer runtime.Close(context.Background())
+	_, _ = runtime.Send(context.Background(), RPCCommand{ID: "request-1", Type: "prompt"})
+	select {
+	case _, ok := <-runtime.Events():
+		if ok {
+			t.Fatal("EOF left runtime event channel open with an event")
+		}
+	case <-time.After(time.Second):
+		t.Fatal("EOF did not close runtime event channel")
+	}
+}
+
 func TestProcessRuntimeNormalStdoutEOFPoisonsPendingWaiter(t *testing.T) {
 	root := t.TempDir()
 	writeFakePi(t, root, `#!/bin/sh
@@ -228,6 +276,37 @@ func (w *blockingWriteCloser) Close() error {
 		close(w.closed)
 	}
 	return nil
+}
+
+func TestProcessRuntimeForceCloseDoesNotWaitForeverForInheritedPipes(t *testing.T) {
+	root := t.TempDir()
+	writeFakePi(t, root, `#!/bin/sh
+read request
+setsid sh -c 'sleep 30' &
+sleep 30
+`)
+	runtimeValue, err := newPiRuntime(context.Background(), filepath.Join(root, "session.jsonl"), root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	runtime := runtimeValue.(*processPiRuntime)
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+	closeDone := make(chan error, 1)
+	go func() { closeDone <- runtime.Close(ctx) }()
+	select {
+	case err := <-closeDone:
+		if !errors.Is(err, context.DeadlineExceeded) {
+			t.Fatalf("forced close error = %v, want deadline exceeded", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("forced close waited forever for inherited pipes")
+	}
+	select {
+	case <-runtime.done:
+	case <-time.After(time.Second):
+		t.Fatal("runtime cleanup did not finish after forced close")
+	}
 }
 
 func TestProcessRuntimeJoinsStderrBeforeClose(t *testing.T) {

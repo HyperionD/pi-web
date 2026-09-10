@@ -34,6 +34,45 @@ type Runner struct {
 	mu      sync.Mutex
 	running map[string]*activePiRun
 	manager *RuntimeManager
+
+	cancelBeforeClaimHook func()
+	compactCompleteHook   func()
+}
+
+type commandGate struct {
+	once  sync.Once
+	ready chan struct{}
+}
+
+func (gate *commandGate) init() {
+	gate.once.Do(func() {
+		gate.ready = make(chan struct{}, 1)
+		gate.ready <- struct{}{}
+	})
+}
+
+func (gate *commandGate) acquire(ctx context.Context) bool {
+	gate.init()
+	select {
+	case <-gate.ready:
+		return true
+	case <-ctx.Done():
+		return false
+	}
+}
+
+func (gate *commandGate) tryAcquire() bool {
+	gate.init()
+	select {
+	case <-gate.ready:
+		return true
+	default:
+		return false
+	}
+}
+
+func (gate *commandGate) release() {
+	gate.ready <- struct{}{}
 }
 
 type activePiRun struct {
@@ -43,14 +82,12 @@ type activePiRun struct {
 	stdin          io.WriteCloser
 	runtime        PiRuntime
 	compacting     bool
-	done           chan struct{}
 	eventsDone     chan struct{}
 	runtimeReady   chan struct{}
-	finishOnce     sync.Once
 	settled        chan struct{}
 	settledOnce    sync.Once
 	runtimeOnce    sync.Once
-	commandMu      sync.Mutex
+	commandMu      commandGate
 	mu             sync.Mutex
 	cancelling     bool
 }
@@ -81,7 +118,7 @@ func (r *Runner) StartPiPrompt(
 	eventCtx, eventCancel := context.WithCancel(parent)
 	commandCtx, commandCancel := context.WithCancel(parent)
 	activeRun := &activePiRun{
-		cancel: eventCancel, commandCancel: commandCancel, commandContext: commandCtx, done: make(chan struct{}),
+		cancel: eventCancel, commandCancel: commandCancel, commandContext: commandCtx,
 		eventsDone: make(chan struct{}), runtimeReady: make(chan struct{}), settled: make(chan struct{}),
 	}
 	if err := r.claimRun(sessionID, activeRun); err != nil {
@@ -91,14 +128,14 @@ func (r *Runner) StartPiPrompt(
 	}
 	runtime, err := manager.Ensure(parent, sessionID)
 	if err != nil {
-		r.forgetRun(sessionID, activeRun)
+		r.discardRun(sessionID, activeRun)
 		eventCancel()
 		commandCancel()
 		return err
 	}
 	if !activeRun.attachRuntime(runtime) {
 		_ = manager.Retire(context.Background(), sessionID, runtime)
-		r.forgetRun(sessionID, activeRun)
+		r.discardRun(sessionID, activeRun)
 		eventCancel()
 		commandCancel()
 		return errSessionBusy
@@ -107,7 +144,7 @@ func (r *Runner) StartPiPrompt(
 
 	user := Message{Kind: "user", Text: displayText, Attachments: images}
 	if err := store.AppendMessage(sessionID, user); err != nil {
-		r.forgetRun(sessionID, activeRun)
+		r.discardRun(sessionID, activeRun)
 		eventCancel()
 		commandCancel()
 		return err
@@ -160,13 +197,20 @@ func (r *Runner) consumeRuntimeEvents(ctx context.Context, broker *Broker, store
 
 func (r *Runner) finishPrompt(sessionID string, run *activePiRun, broker *Broker, runErr error) {
 	run.markSettled()
-	if run.isCancelling() {
+	r.mu.Lock()
+	if r.running[sessionID] != run {
+		r.mu.Unlock()
 		return
 	}
-	if !run.complete() {
+	run.mu.Lock()
+	if run.cancelling {
+		run.mu.Unlock()
+		r.mu.Unlock()
 		return
 	}
-	r.forgetRun(sessionID, run)
+	run.mu.Unlock()
+	delete(r.running, sessionID)
+	r.mu.Unlock()
 	run.cancel()
 	if run.commandCancel != nil {
 		run.commandCancel()
@@ -215,16 +259,72 @@ func (r *Runner) forgetRun(sessionID string, run *activePiRun) {
 	r.mu.Unlock()
 }
 
+func (r *Runner) discardRun(sessionID string, run *activePiRun) {
+	r.mu.Lock()
+	if r.running[sessionID] == run {
+		run.mu.Lock()
+		cancelling := run.cancelling
+		run.mu.Unlock()
+		if !cancelling {
+			delete(r.running, sessionID)
+		}
+	}
+	r.mu.Unlock()
+}
+
 func (r *Runner) finishRun(sessionID string, run *activePiRun) {
-	r.forgetRun(sessionID, run)
 	run.markSettled()
-	run.complete()
+	r.mu.Lock()
+	if r.running[sessionID] == run {
+		run.mu.Lock()
+		cancelling := run.cancelling
+		run.mu.Unlock()
+		if !cancelling {
+			delete(r.running, sessionID)
+		}
+	}
+	r.mu.Unlock()
+}
+
+func (r *Runner) releaseRun(sessionID string, run *activePiRun) {
+	r.mu.Lock()
+	if r.running[sessionID] == run {
+		delete(r.running, sessionID)
+	}
+	r.mu.Unlock()
+}
+
+func (r *Runner) claimCancellation(sessionID string, expected *activePiRun, useHook bool) (*activePiRun, bool) {
+	r.mu.Lock()
+	run, ok := r.running[sessionID]
+	if expected != nil && run != expected {
+		r.mu.Unlock()
+		return nil, false
+	}
+	if useHook && r.cancelBeforeClaimHook != nil {
+		hook := r.cancelBeforeClaimHook
+		r.mu.Unlock()
+		hook()
+		r.mu.Lock()
+		if r.running[sessionID] != run {
+			r.mu.Unlock()
+			return nil, false
+		}
+		ok = true
+	}
+	if !ok || run == nil || !run.beginCancel() {
+		r.mu.Unlock()
+		return nil, false
+	}
+	r.mu.Unlock()
+	return run, true
 }
 
 func (run *activePiRun) attachRuntime(runtime PiRuntime) bool {
 	run.mu.Lock()
 	defer run.mu.Unlock()
 	if run.cancelling {
+		run.runtimeOnce.Do(func() { close(run.runtimeReady) })
 		return false
 	}
 	run.runtime = runtime
@@ -250,17 +350,6 @@ func (run *activePiRun) markSettled() {
 	}
 }
 
-func (run *activePiRun) complete() bool {
-	completed := false
-	run.finishOnce.Do(func() {
-		completed = true
-		if run.done != nil {
-			close(run.done)
-		}
-	})
-	return completed
-}
-
 func (run *activePiRun) beginCancel() bool {
 	run.mu.Lock()
 	defer run.mu.Unlock()
@@ -272,23 +361,6 @@ func (run *activePiRun) beginCancel() bool {
 		run.commandCancel()
 	}
 	return true
-}
-
-type staleEventDiscarder interface {
-	discardStaleEvents()
-}
-
-func drainRuntimeEvents(runtime PiRuntime) {
-	for {
-		select {
-		case _, ok := <-runtime.Events():
-			if !ok {
-				return
-			}
-		default:
-			return
-		}
-	}
 }
 
 func (run *activePiRun) isCancelling() bool {
@@ -371,8 +443,10 @@ func (r *activePiRun) sendContext(ctx context.Context, command any) error {
 }
 
 func (r *activePiRun) sendFallback(command any) error {
-	r.commandMu.Lock()
-	defer r.commandMu.Unlock()
+	if !r.commandMu.acquire(context.Background()) {
+		return context.Canceled
+	}
+	defer r.commandMu.release()
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if r.cancelling {
@@ -390,25 +464,27 @@ func (r *activePiRun) sendFallback(command any) error {
 }
 
 func (r *activePiRun) sendRPCContext(ctx context.Context, command RPCCommand) (RPCResponse, error) {
-	r.commandMu.Lock()
-	defer r.commandMu.Unlock()
+	sendCtx, stop := context.WithCancel(ctx)
+	commandCtx := r.commandContext
+	if commandCtx == nil {
+		commandCtx = context.Background()
+	}
+	stopCommand := context.AfterFunc(commandCtx, stop)
+	defer stopCommand()
+	if !r.commandMu.acquire(sendCtx) {
+		return RPCResponse{}, sendCtx.Err()
+	}
+	defer r.commandMu.release()
 	r.mu.Lock()
 	if r.cancelling {
 		r.mu.Unlock()
 		return RPCResponse{}, errors.New("session is cancelling")
 	}
 	runtime := r.runtime
-	commandCtx := r.commandContext
-	if commandCtx == nil {
-		commandCtx = context.Background()
-	}
 	r.mu.Unlock()
 	if runtime == nil {
 		return RPCResponse{}, errors.New("runtime is unavailable")
 	}
-	sendCtx, stop := context.WithCancel(ctx)
-	stopCommand := context.AfterFunc(commandCtx, stop)
-	defer stopCommand()
 	return runtime.Send(sendCtx, command)
 }
 
@@ -444,48 +520,53 @@ const (
 )
 
 func (r *Runner) Cancel(sessionID string) bool {
-	r.mu.Lock()
-	run, ok := r.running[sessionID]
-	runManager := r.manager
-	r.mu.Unlock()
-	if !ok || !run.beginCancel() {
+	run, ok := r.claimCancellation(sessionID, nil, true)
+	if !ok {
 		return false
 	}
-
-	// Cancel the active RPC immediately (especially compact), then serialize the
-	// abort behind any command that already acquired commandMu.
+	runManager := r.manager
 	runtime := run.waitRuntime(cancelSettleTimeout)
-	run.commandMu.Lock()
+	abortStarted := false
 	if runtime != nil {
-		ctx, cancel := context.WithTimeout(context.Background(), cancelAbortTimeout)
-		_, _ = runtime.Send(ctx, RPCCommand{Type: "abort"})
-		cancel()
+		abortStarted = run.tryAbort(runtime)
 	}
-	run.commandMu.Unlock()
-
-	settled := waitForRun(run.settled, cancelSettleTimeout)
-	if !settled {
-		// Missing agent_end is a bounded protocol failure, not a reason to keep
-		// the session busy forever. Stop the event consumer before retiring the
-		// runtime so stale events cannot reach a future prompt.
-		if run.cancel != nil {
-			run.cancel()
-		}
-		waitForRun(run.eventsDone, cancelAbortTimeout)
-	}
-	if run.cancel != nil {
+	if !abortStarted {
 		run.cancel()
 	}
-	if trun := run.getRuntime(); trun != nil {
+	if !waitForRun(run.settled, cancelSettleTimeout) {
+		run.cancel()
+		waitForRun(run.eventsDone, cancelSettleTimeout)
+	}
+	if runtime != nil {
 		closeCtx, closeCancel := context.WithTimeout(context.Background(), cancelAbortTimeout)
 		if runManager != nil {
-			_ = runManager.Retire(closeCtx, sessionID, trun)
+			_ = runManager.Retire(closeCtx, sessionID, runtime)
 		} else {
-			_ = trun.Close(closeCtx)
+			_ = runtime.Close(closeCtx)
 		}
 		closeCancel()
 	}
 	r.finishRun(sessionID, run)
+	r.releaseRun(sessionID, run)
+	return true
+}
+
+func (run *activePiRun) tryAbort(runtime PiRuntime) bool {
+	if !run.commandMu.tryAcquire() {
+		return false
+	}
+	defer run.commandMu.release()
+	ctx, cancel := context.WithTimeout(context.Background(), cancelAbortTimeout)
+	defer cancel()
+	done := make(chan struct{})
+	go func() {
+		_, _ = runtime.Send(ctx, RPCCommand{Type: "abort"})
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-ctx.Done():
+	}
 	return true
 }
 
@@ -515,11 +596,7 @@ func (r *Runner) cancelRunRuntime(sessionID string, run *activePiRun, manager *R
 	if runtime == nil {
 		return
 	}
-	run.commandMu.Lock()
-	abortCtx, abortCancel := context.WithTimeout(context.Background(), cancelAbortTimeout)
-	_, _ = runtime.Send(abortCtx, RPCCommand{Type: "abort"})
-	abortCancel()
-	run.commandMu.Unlock()
+	run.tryAbort(runtime)
 	closeCtx, closeCancel := context.WithTimeout(context.Background(), cancelAbortTimeout)
 	defer closeCancel()
 	if manager != nil {

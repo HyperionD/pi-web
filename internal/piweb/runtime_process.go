@@ -16,12 +16,15 @@ import (
 type processPiRuntime struct {
 	cmd    *exec.Cmd
 	stdin  io.WriteCloser
+	stdout io.ReadCloser
+	stderr io.ReadCloser
 	events chan PiEvent
 
-	writeMu    sync.Mutex
 	writeReady chan struct{}
 	stdinOnce  sync.Once
+	pipesOnce  sync.Once
 	poisonOnce sync.Once
+	finishOnce sync.Once
 	mu         sync.Mutex
 	pending    map[string]chan runtimeResponse
 	poisonErr  error
@@ -67,7 +70,7 @@ func newPiRuntime(ctx context.Context, sessionFile, cwd string) (PiRuntime, erro
 		return nil, err
 	}
 	runtime := &processPiRuntime{
-		cmd: cmd, stdin: stdin, events: make(chan PiEvent, 64), pending: map[string]chan runtimeResponse{},
+		cmd: cmd, stdin: stdin, stdout: stdout, stderr: stderr, events: make(chan PiEvent, 64), pending: map[string]chan runtimeResponse{},
 		running: true, lastUse: time.Now(), activity: map[string]int{}, done: make(chan struct{}), stdoutDone: make(chan struct{}),
 		stderrDone: make(chan struct{}),
 	}
@@ -294,24 +297,46 @@ func (runtime *processPiRuntime) closeStdin() {
 	})
 }
 
+func (runtime *processPiRuntime) closePipes() {
+	runtime.pipesOnce.Do(func() {
+		if runtime.stdout != nil {
+			_ = runtime.stdout.Close()
+		}
+		if runtime.stderr != nil {
+			_ = runtime.stderr.Close()
+		}
+	})
+}
+
 func (runtime *processPiRuntime) waitForProcess() {
 	err := runtime.cmd.Wait()
+	runtime.closePipes()
 	<-runtime.stdoutDone
 	<-runtime.stderrDone
-	runtime.mu.Lock()
-	runtime.running = false
-	runtime.closed = true
-	pending := runtime.pending
-	runtime.pending = map[string]chan runtimeResponse{}
-	runtime.mu.Unlock()
 	if err == nil {
 		err = errors.New("pi process exited")
 	}
-	for _, waiter := range pending {
-		waiter <- runtimeResponse{err: fmt.Errorf("pi process exited: %w", err)}
-	}
-	close(runtime.done)
-	close(runtime.events)
+	runtime.finish(fmt.Errorf("pi process exited: %w", err))
+}
+
+func (runtime *processPiRuntime) finish(err error) {
+	runtime.finishOnce.Do(func() {
+		runtime.mu.Lock()
+		runtime.running = false
+		runtime.closed = true
+		pending := runtime.pending
+		runtime.pending = map[string]chan runtimeResponse{}
+		runtime.mu.Unlock()
+		for _, waiter := range pending {
+			waiter <- runtimeResponse{err: err}
+		}
+		if runtime.done != nil {
+			close(runtime.done)
+		}
+		if runtime.events != nil {
+			close(runtime.events)
+		}
+	})
 }
 
 func (runtime *processPiRuntime) Events() <-chan PiEvent { return runtime.events }
@@ -363,15 +388,28 @@ func (runtime *processPiRuntime) Close(ctx context.Context) error {
 	runtime.closed = true
 	runtime.mu.Unlock()
 	runtime.closeStdin()
+	if runtime.cmd == nil {
+		runtime.finish(errors.New("runtime closed"))
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		return nil
+	}
 	select {
 	case <-runtime.done:
 		return nil
 	case <-ctx.Done():
-		if runtime.cmd != nil {
-			terminateCommandProcessGroup(runtime.cmd)
-			forceTerminateCommandProcessGroup(runtime.cmd)
+		terminateCommandProcessGroup(runtime.cmd)
+		forceTerminateCommandProcessGroup(runtime.cmd)
+		runtime.closePipes()
+		cleanupTimer := time.NewTimer(250 * time.Millisecond)
+		defer cleanupTimer.Stop()
+		select {
+		case <-runtime.done:
+		case <-cleanupTimer.C:
+			// The reaper owns done; returning here is bounded without claiming
+			// that a stubborn descendant or reader has already been cleaned up.
 		}
-		<-runtime.done
 		return ctx.Err()
 	}
 }

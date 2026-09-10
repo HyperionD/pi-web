@@ -116,6 +116,26 @@ func TestSubscribeFromDoesNotMissEventBetweenReplayAndLive(t *testing.T) {
 	}
 }
 
+func TestSubscribeFromAfterShutdownReturnsClosedSubscription(t *testing.T) {
+	broker := NewBroker()
+	if err := broker.Shutdown(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	subscription := broker.SubscribeFrom("s1", 0)
+	defer subscription.Close()
+	select {
+	case _, ok := <-subscription.Events:
+		if ok {
+			t.Fatal("closed broker registered a live subscription")
+		}
+	case <-time.After(time.Second):
+		t.Fatal("late subscription did not close immediately")
+	}
+	if len(subscription.Replay) != 0 {
+		t.Fatalf("late subscription replayed events: %#v", subscription.Replay)
+	}
+}
+
 func TestBrokerGapIsObservableWhenSubscriberIsSlow(t *testing.T) {
 	broker := NewBroker()
 	broker.buffer = 1
