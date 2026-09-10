@@ -1,6 +1,6 @@
 # Pi Web 整体改进交接文档
 
-更新时间：2026-09-09 16:51（Asia/Shanghai）
+更新时间：2026-09-09 14:38（Asia/Shanghai）
 
 ## 续接位置
 
@@ -8,7 +8,7 @@
 - 隔离工作区：`/home/hyperion/projects/pi-web-offline/.worktrees/pi-web-overall-improvement`
 - 实施计划：`docs/superpowers/plans/2026-09-09-pi-web-overall-improvement.md`
 - SDD ledger：`.superpowers/sdd/2026-09-09-pi-web-overall-improvement/progress.md`
-- 当前 HEAD：`f662d510 fix: harden task 3 runtime ownership`
+- 当前 HEAD：`70232cfe fix: harden task 4 recovery contract`
 
 不要在主工作区覆盖或提交已有 `static/` 变更。主工作区当前仍有 `static/` 删除、修改和新增文件；本执行 worktree 未修改 `static/`。
 
@@ -58,7 +58,7 @@ Task 2 已知 parked/ruling 见 ledger：`gapInFlight` 后续状态语义、取�
 - `internal/piweb/server_session_handlers.go`：删除 session 时关闭 runtime
 - `internal/piweb/commands.go`、`internal/piweb/pi_rpc_status.go`：修复 stderr buffer race
 
-代理报告的验证：定向 race、`go test ./...`、`go test -race ./internal/piweb -count=1` 均通过。控制器尚未独立重跑；报告中 Store 没有持久数据库句柄，因此 shutdown 无额外 Store handle 可释放。
+代理报告的验证：定向 race、`go test ./...`、`go test -race ./internal/piweb -count=1` 均通过；控制器在 Task 4 后再次独立重跑全包 race 与 Go 单测也通过。报告中 Store 没有持久数据库句柄，因此 shutdown 无额外 Store handle 可释放。
 
 Task 3 review package：
 
@@ -66,10 +66,8 @@ Task 3 review package：
 
 注意：reviewer 子代理通常看不到 gitignored 的 `.superpowers/sdd` 临时 artifact；若路径不存在，直接用 `git diff 59451492..2bc259d7` 审查。
 
-## 当前未完成任务
+## 后续暂停任务
 
-- Task 3：已完成（控制器独立复核 `go test -race ./internal/piweb -count=1` 与 `go test ./...`）；`runtime_entry.poison()` 绕过 runner gate 的真实问题已按 breaker parked，Task 4 必须先修复。
-- Task 4：SSE 状态对账与断档恢复；携带 Task 3 poison/gate remediation。
 - Task 5：六个内置 slash 命令后端白名单路由。
 - Task 6：slash palette 输入交互。
 - Task 7：Project Trust、远程暴露和 Shell 限制。
@@ -80,6 +78,18 @@ Task 3 review package：
 - Task 12：TypeScript strict 和 coverage 收敛。
 - Task 13：Playwright、CI E2E、Chrome 107 回归。
 
+## 当前人工测试版
+
+产物目录：`dist/release-candidate-v1.9.0-rc.1/`
+
+- `pi-web-v1.9.0-rc.1-linux-amd64`
+- `pi-web-v1.9.0-rc.1-linux-arm64`
+- 校验文件：`SHA256SUMS`
+- 两个 ELF 均为 `statically linked`；amd64 已通过 `--help` smoke test 和 SHA256 校验。
+- 构建使用临时源码树嵌入最新 Astro `dist/`，未修改或提交仓库 `static/`。
+
+人工测试重点：启动/登录、工作区 ACL、Prompt 流式输出、刷新/断线恢复、gap resync、AG-UI 去重、取消/compact、文件读写、Chrome 107、麒麟 V10 SP3 amd64/arm64。
+
 ## 明天第一步
 
 ```bash
@@ -87,13 +97,12 @@ cd /home/hyperion/projects/pi-web-offline/.worktrees/pi-web-overall-improvement
 git status --short --branch
 git log --oneline -5
 
-# 重新生成 Task 3 review package（若临时 package 不可见）
-/home/hyperion/.pi/agent/git/github.com/obra/superpowers/skills/subagent-driven-development/scripts/review-package \
-  docs/superpowers/plans/2026-09-09-pi-web-overall-improvement.md \
-  59451492f789cb4523bdd30b7d89ddfb686a2bc8 HEAD
+# 人工测试完成后生成 Task 5 brief
+/home/hyperion/.pi/agent/git/github.com/obra/superpowers/skills/subagent-driven-development/scripts/task-brief \
+  docs/superpowers/plans/2026-09-09-pi-web-overall-improvement.md 5
 ```
 
-Task 3 已由 reviewer 审查至 breaker；先在 Task 4 实现前修复并测试 `runtime_entry.poison()` 与 runner gate 的并发问题，再生成 Task 4 brief 并继续 SSE 对账。
+Task 4 已通过 review，Task 5–13 暂停。人工测试完成后，再执行 Task 5 实现、独立 review 和验证。
 
 ## 重要约束
 
