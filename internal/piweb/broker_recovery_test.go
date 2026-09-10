@@ -122,9 +122,18 @@ func TestSessionSnapshotDoesNotAdvanceCursorAcrossOrdinaryPublish(t *testing.T) 
 	broker := NewBroker()
 	snapshotStarted := make(chan struct{})
 	releaseSnapshot := make(chan struct{})
+	publishAdmitted := make(chan struct{})
+	releasePublishAdmission := make(chan struct{})
 	store.sessionSnapshotHook = func() {
 		close(snapshotStarted)
 		<-releaseSnapshot
+	}
+	broker.publishAdmissionHook = func(eventType string) {
+		if eventType != "session.status" {
+			return
+		}
+		close(publishAdmitted)
+		<-releasePublishAdmission
 	}
 	server := NewServer(Config{}, store, broker)
 	request := httptest.NewRequest(http.MethodGet, "/api/sessions/8e7c-44ff", nil)
@@ -140,11 +149,8 @@ func TestSessionSnapshotDoesNotAdvanceCursorAcrossOrdinaryPublish(t *testing.T) 
 	go func() {
 		publishDone <- broker.Publish("8e7c-44ff", "session.status", map[string]string{"status": "running"})
 	}()
-	select {
-	case event := <-publishDone:
-		t.Fatalf("ordinary publish crossed snapshot boundary: %#v", event)
-	case <-time.After(20 * time.Millisecond):
-	}
+	<-publishAdmitted
+	close(releasePublishAdmission)
 	close(releaseSnapshot)
 	response := <-responseDone
 	if response.Code != http.StatusOK {
@@ -162,6 +168,52 @@ func TestSessionSnapshotDoesNotAdvanceCursorAcrossOrdinaryPublish(t *testing.T) 
 	published := <-publishDone
 	if events := broker.Replay("8e7c-44ff", 0); len(events) != 1 || events[0].ID != published.ID {
 		t.Fatalf("concurrent event was not published after snapshot: %#v", events)
+	}
+}
+
+func TestBrokerGapAfterUsesMostRecentlyForwardedEvent(t *testing.T) {
+	broker := NewBroker()
+	broker.buffer = 1
+	sendCompleted := make(chan struct{})
+	releaseSendComplete := make(chan struct{})
+	sendCompletions := 0
+	broker.sendCompleteHook = func() {
+		sendCompletions++
+		if sendCompletions != 2 {
+			return
+		}
+		close(sendCompleted)
+		<-releaseSendComplete
+	}
+	subscription := broker.SubscribeFrom("s1", 0)
+	defer subscription.Close()
+
+	first := broker.Publish("s1", "one", nil)
+	if event := <-subscription.Events; event.ID != first.ID {
+		t.Fatalf("unexpected first event: %#v", event)
+	}
+	second := broker.Publish("s1", "session.status", nil)
+	third := broker.Publish("s1", "error", nil)
+	if event := <-subscription.Events; event.ID != second.ID {
+		t.Fatalf("unexpected second event: %#v", event)
+	}
+	if gap := <-subscription.Events; gap.Type != "broker_gap" {
+		t.Fatalf("expected initial broker gap, got %#v", gap)
+	}
+	<-sendCompleted
+
+	fourth := broker.Publish("s1", "four", nil)
+	close(releaseSendComplete)
+	if event := <-subscription.Events; event.ID != third.ID {
+		t.Fatalf("unexpected third event: %#v", event)
+	}
+	gap := <-subscription.Events
+	if gap.Type != "broker_gap" {
+		t.Fatalf("expected overflow broker gap, got %#v", gap)
+	}
+	payload, ok := gap.Payload.(map[string]any)
+	if !ok || payload["after"] != strconv.FormatUint(third.ID, 10) {
+		t.Fatalf("gap after cursor = %#v, want %d (fourth=%d)", gap.Payload, third.ID, fourth.ID)
 	}
 }
 

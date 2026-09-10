@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"strconv"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -40,7 +41,7 @@ type Broker struct {
 type brokerSubscriber struct {
 	sessionID    string
 	events       chan Event
-	after        uint64
+	after        atomic.Uint64
 	capacity     int
 	backlogLimit int
 	queue        []Event
@@ -93,10 +94,11 @@ func (b *Broker) SubscribeFrom(sessionID string, after uint64) EventSubscription
 	ctx, cancel := context.WithCancel(context.Background())
 	drainCtx, drainCancel := context.WithCancel(context.Background())
 	subscriber := &brokerSubscriber{
-		sessionID: sessionID, events: make(chan Event, buffer), after: after, capacity: buffer, backlogLimit: backlogLimit,
+		sessionID: sessionID, events: make(chan Event, buffer), capacity: buffer, backlogLimit: backlogLimit,
 		wake: make(chan struct{}, 1), finished: make(chan struct{}), ctx: ctx, cancel: cancel,
 		drainCtx: drainCtx, drainCancel: drainCancel,
 	}
+	subscriber.after.Store(after)
 	if b.subscribers[sessionID] == nil {
 		b.subscribers[sessionID] = map[*brokerSubscriber]struct{}{}
 	}
@@ -207,6 +209,10 @@ func (b *Broker) forwardSubscriber(subscriber *brokerSubscriber) {
 		if !sendSubscriberEvent(subscriber, event) {
 			return
 		}
+		if event.Type != "broker_gap" && event.ID > 0 {
+			// Publish may observe this cursor before the forwarder reacquires mu.
+			subscriber.after.Store(event.ID)
+		}
 		if sendCompleteHook != nil {
 			sendCompleteHook()
 		}
@@ -248,6 +254,9 @@ func (b *Broker) enqueueLocked(subscriber *brokerSubscriber, event Event) {
 	if len(subscriber.queue) == 0 && !subscriber.sending {
 		select {
 		case subscriber.events <- event:
+			if event.Type != "broker_gap" && event.ID > 0 {
+				subscriber.after.Store(event.ID)
+			}
 			return
 		default:
 		}
@@ -318,7 +327,7 @@ func (b *Broker) newGapLocked(subscriber *brokerSubscriber, sessionID string, la
 	// client's Last-Event-ID cursor.
 	cursor := uint64(0)
 	if subscriber != nil {
-		cursor = subscriber.after
+		cursor = subscriber.after.Load()
 	} else if len(after) > 0 {
 		cursor = after[0]
 	}

@@ -75,6 +75,45 @@ describe("session recovery", () => {
     });
   });
 
+  it("resyncs an id-less broker gap despite browser lastEventId inheritance", async () => {
+    class FakeEventSource {
+      static instance;
+      constructor() {
+        this.listeners = {};
+        this.lastEventId = "";
+        FakeEventSource.instance = this;
+      }
+      addEventListener(type, listener) {
+        this.listeners[type] = listener;
+      }
+      dispatchSse(type, data, id) {
+        if (id !== undefined) this.lastEventId = id;
+        this.listeners[type]?.({ data: JSON.stringify(data), lastEventId: this.lastEventId });
+      }
+      close() {}
+    }
+    globalThis.EventSource = FakeEventSource;
+    const app = await connectPiApp();
+    app.dataset.activeSessionId = "s1";
+    app.loadSession = vi.fn();
+    const applyEvent = vi.spyOn(app, "applyEvent");
+    app.connectEvents("s1");
+
+    FakeEventSource.instance.dispatchSse("heartbeat", { type: "heartbeat", sessionId: "s1" }, "7");
+    FakeEventSource.instance.dispatchSse("heartbeat", { type: "heartbeat", sessionId: "s1" });
+    FakeEventSource.instance.dispatchSse("broker_gap", {
+      id: 0,
+      type: "broker_gap",
+      sessionId: "s1",
+      payload: { sessionId: "s1", after: "3", latestEventId: "8" },
+    });
+
+    expect(app.loadSession).toHaveBeenCalledWith("s1", expect.objectContaining({ resync: true }));
+    expect(applyEvent).toHaveBeenCalledTimes(2);
+    expect(applyEvent).toHaveBeenLastCalledWith(expect.objectContaining({ type: "broker_gap", id: 0 }));
+    expect(app.sessionEventCursors.get("s1")).toBe("7");
+  });
+
   it("keeps a string cursor and reconnects after the snapshot cursor", async () => {
     const sources = [];
     globalThis.EventSource = class {

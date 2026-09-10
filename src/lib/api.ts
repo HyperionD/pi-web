@@ -413,8 +413,13 @@ export function sessionEvents(sessionId: string, { onEvent, onOpen, onError, rep
     source.addEventListener(type, (message) => {
       try {
         const event = JSON.parse(message.data);
-        const sseCursor = normalizeEventCursor(message.lastEventId);
-        if (sseCursor) event.id = sseCursor;
+        if (type === "broker_gap" || event.type === "broker_gap") {
+          // EventSource inherits lastEventId for id-less SSE blocks; gaps must stay synthetic.
+          event.id = 0;
+        } else {
+          const sseCursor = normalizeEventCursor(message.lastEventId);
+          if (sseCursor) event.id = sseCursor;
+        }
         onEvent?.(event);
       } catch (error) {
         onError?.(error);

@@ -165,7 +165,7 @@ func TestBrokerGapIsObservableWhenSubscriberIsSlow(t *testing.T) {
 		}
 	}
 	gapPayload, ok := events[1].Payload.(map[string]any)
-	if !ok || gapPayload["sessionId"] != "s1" || gapPayload["after"] != strconv.FormatUint(after.ID, 10) || gapPayload["latestEventId"] != strconv.FormatUint(dropped.ID, 10) {
+	if !ok || gapPayload["sessionId"] != "s1" || gapPayload["after"] != strconv.FormatUint(queued.ID, 10) || gapPayload["latestEventId"] != strconv.FormatUint(dropped.ID, 10) {
 		t.Fatalf("unexpected broker gap payload: %#v", events[1].Payload)
 	}
 	if events[0].ID != queued.ID || events[2].ID != idle.ID || events[3].ID != errorEvent.ID ||

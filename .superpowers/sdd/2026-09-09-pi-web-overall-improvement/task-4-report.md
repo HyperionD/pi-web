@@ -122,3 +122,37 @@
 - Astro build 仍有既有 chunk size warning；不影响 exit 0。
 - Broker snapshot barrier 是全局 publish barrier，会让 snapshot read 短暂串行化所有 session publish；这是为保证 cursor/content 一致性的最小安全边界。
 - `replay=false` 仍保留给明确的 live-only background watcher；snapshot、resync、AG-UI reconnect 均不再使用它。
+
+## 修复复审轮次 3
+
+### 状态
+
+已完成最新复审阻断项，保持 snapshot/Subscribe 原子边界、AG-UI cursor、generation/single-flight、runtime gate、Task 2/3、ACL、Chrome 107、escaping；未修改 `static/`。
+
+### 根因与修复
+
+- SSE：浏览器对无 `id` 的 SSE block 会让 `MessageEvent.lastEventId` 继承上一普通事件 ID；`sessionEvents` 现在对 `broker_gap` 强制保留 synthetic `id=0`，使去重不会吞掉 gap，必定触发 session snapshot resync。
+- Broker：subscriber 的最近 cursor 改为原子值；普通事件成功写入 events channel 后立即更新，包含 forwarder 发送完成但尚未重新取得 Broker 锁的窗口；后续 overflow gap 的 `after` 反映最近转发事件。
+- Snapshot 并发测试：删除固定 `20ms` 等待，改用 `publishAdmissionHook` 与 snapshot barrier/channel 确定性制造 publish admission 窗口。
+
+### TDD 红绿证据
+
+- RED：新增 SSE 继承语义测试首次因 gap 被继承 ID 去重，未调用 `loadSession`；新增 Broker 跨多事件测试首次得到 `after=0`；snapshot 测试先以固定等待实现。
+- GREEN：synthetic gap cursor 保护、原子 subscriber cursor 更新及 admission barrier 完成后，定向测试转绿。
+
+### 验证
+
+- `go test -race ./internal/piweb -run 'TestBroker|TestSessionSnapshot' -count=10`：PASS
+- `bunx vitest run src/pi-app/sessions/session-recovery.test.ts src/pi-app/core-events.test.ts src/lib/api.test.ts src/lib/agui-api.test.ts`：PASS，4 files / 47 tests
+- `go test -race ./internal/piweb -count=1`：PASS
+- `go test ./...`：PASS
+- `bunx vitest run`：PASS，43 files / 499 tests
+- `bun run lint`：PASS
+- `bun run typecheck`：PASS
+- `bun run build`：PASS；仅既有 chunk size warning
+- `git diff --check`：PASS
+
+### 交付限制与 concerns
+
+- 按全局 ruling，`static/` 的 source/embedded mismatch 不修改、不提交；本轮交付仅包含 source 与测试变更，embedded 静态产物不会随本 commit 更新。
+- Astro build 仍有既有大 chunk warning；不影响 exit 0。
