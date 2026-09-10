@@ -165,6 +165,45 @@ func TestIndependentShutdownContextsDoNotShareCancellation(t *testing.T) {
 	}
 }
 
+func TestIndependentShutdownContextAfterParentTimeoutHasFreshDeadline(t *testing.T) {
+	parent, cancel := context.WithTimeout(context.Background(), time.Millisecond)
+	defer cancel()
+	<-parent.Done()
+	started := time.Now()
+	cleanup, cleanupCancel := independentShutdownContext(parent)
+	defer cleanupCancel()
+	if err := cleanup.Err(); err != nil {
+		t.Fatalf("cleanup context already canceled: %v", err)
+	}
+	deadline, ok := cleanup.Deadline()
+	if !ok || deadline.Before(started.Add(4*time.Second)) || deadline.After(started.Add(6*time.Second)) {
+		t.Fatalf("cleanup deadline = %v, want a fresh five-second deadline", deadline)
+	}
+}
+
+func TestServerShutdownCompletesRuntimeCleanupAfterParentTimeout(t *testing.T) {
+	store := runtimeTestStore()
+	runtime := newFakePiRuntime()
+	cleanupDone := make(chan struct{})
+	runtime.closeHook = func() { close(cleanupDone) }
+	manager := NewRuntimeManagerWithFactory(store, func(context.Context, string, string) (PiRuntime, error) {
+		return runtime, nil
+	})
+	server := NewServerWithRuntimeManager(Config{}, store, NewBroker(), manager)
+	if _, err := manager.Ensure(context.Background(), "runtime-session"); err != nil {
+		t.Fatal(err)
+	}
+	parent, cancel := context.WithTimeout(context.Background(), time.Millisecond)
+	defer cancel()
+	<-parent.Done()
+	_ = server.Shutdown(parent)
+	select {
+	case <-cleanupDone:
+	case <-time.After(time.Second):
+		t.Fatal("runtime cleanup did not complete after parent timeout")
+	}
+}
+
 func TestServerShutdownDoesNotHoldLifecycleReadLock(t *testing.T) {
 	server := NewServer(Config{}, NewMockStore(), NewBroker())
 	entered := make(chan struct{})
@@ -256,7 +295,14 @@ func TestRunnerCancelWaitsForSettledAgentAndDropsStaleEvents(t *testing.T) {
 	store := runtimeTestStore()
 	runtime := newCancelRegressionRuntime()
 	runtime.lateEvent = true
-	manager := NewRuntimeManagerWithFactory(store, func(context.Context, string, string) (PiRuntime, error) { return runtime, nil })
+	secondRuntime := newCancelRegressionRuntime()
+	var created atomic.Int32
+	manager := NewRuntimeManagerWithFactory(store, func(context.Context, string, string) (PiRuntime, error) {
+		if created.Add(1) == 1 {
+			return runtime, nil
+		}
+		return secondRuntime, nil
+	})
 	defer manager.Shutdown(context.Background())
 	runner := NewRunnerWithRuntimeManager(manager)
 	broker := NewBroker()
@@ -284,10 +330,13 @@ func TestRunnerCancelWaitsForSettledAgentAndDropsStaleEvents(t *testing.T) {
 	if err := runner.StartPiPrompt(context.Background(), broker, store, "runtime-session", "second", nil, "second"); err != nil {
 		t.Fatal(err)
 	}
+	secondRuntime.events <- PiEvent{Type: "agent_start", Raw: json.RawMessage(`{"type":"agent_start"}`)}
+	secondRuntime.events <- PiEvent{Type: "message_update", Raw: json.RawMessage(`{"type":"message_update","assistantMessageEvent":{"type":"text_delta","delta":"new"}}`)}
 	time.Sleep(150 * time.Millisecond)
 	if !runner.IsRunning("runtime-session") {
 		t.Fatal("stale agent_end finished the new prompt")
 	}
+	secondRuntime.events <- PiEvent{Type: "agent_end", Raw: json.RawMessage(`{"type":"agent_end"}`)}
 }
 
 func TestRunnerCancelAbortsBeforeAcceptingNewPrompt(t *testing.T) {
@@ -309,6 +358,172 @@ func TestRunnerCancelAbortsBeforeAcceptingNewPrompt(t *testing.T) {
 	close(runtime.releaseAbort)
 	if !<-cancelDone {
 		t.Fatal("Cancel did not report an active run")
+	}
+	if !runner.IsRunning("runtime-session") {
+		t.Fatal("Cancel finished a run before agent_end settled")
+	}
+	if err := runner.StartPiPrompt(context.Background(), broker, store, "runtime-session", "second", nil, "second"); !errors.Is(err, errSessionBusy) {
+		t.Fatalf("new prompt after unsettled cancel error = %v", err)
+	}
+	runtime.events <- PiEvent{Type: "agent_end", Raw: json.RawMessage(`{"type":"agent_end"}`)}
+}
+
+type compactCancelRuntime struct {
+	events       chan PiEvent
+	abortStarted chan struct{}
+	releaseAbort chan struct{}
+	mu           sync.Mutex
+	commands     []RPCCommand
+}
+
+func newCompactCancelRuntime() *compactCancelRuntime {
+	return &compactCancelRuntime{events: make(chan PiEvent, 8), abortStarted: make(chan struct{}), releaseAbort: make(chan struct{})}
+}
+
+func (r *compactCancelRuntime) Send(ctx context.Context, command RPCCommand) (RPCResponse, error) {
+	r.mu.Lock()
+	r.commands = append(r.commands, command)
+	r.mu.Unlock()
+	if command.Type == "compact" {
+		<-ctx.Done()
+		return RPCResponse{}, ctx.Err()
+	}
+	if command.Type == "abort" {
+		close(r.abortStarted)
+		select {
+		case <-r.releaseAbort:
+		case <-ctx.Done():
+			return RPCResponse{}, ctx.Err()
+		}
+	}
+	return RPCResponse{ID: command.ID, Type: "response", Command: command.Type, Success: true}, nil
+}
+func (r *compactCancelRuntime) Events() <-chan PiEvent      { return r.events }
+func (r *compactCancelRuntime) IsRunning() bool             { return true }
+func (r *compactCancelRuntime) Close(context.Context) error { return nil }
+
+func TestRunnerCompactCancellationSettlesBeforeNewPrompt(t *testing.T) {
+	store := runtimeTestStore()
+	runtime := newCompactCancelRuntime()
+	manager := NewRuntimeManagerWithFactory(store, func(context.Context, string, string) (PiRuntime, error) { return runtime, nil })
+	defer manager.Shutdown(context.Background())
+	runner := NewRunnerWithRuntimeManager(manager)
+	resultDone := make(chan error, 1)
+	compactCtx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+	defer cancel()
+	go func() {
+		_, err := runner.Compact(compactCtx, NewBroker(), store, "runtime-session")
+		resultDone <- err
+	}()
+	<-runtime.abortStarted
+	if err := runner.StartPiPrompt(context.Background(), NewBroker(), store, "runtime-session", "new", nil, "new"); !errors.Is(err, errSessionBusy) {
+		t.Fatalf("new prompt during compact abort error = %v", err)
+	}
+	close(runtime.releaseAbort)
+	if err := <-resultDone; err == nil {
+		t.Fatal("canceled compact unexpectedly succeeded")
+	}
+	if err := runner.StartPiPrompt(context.Background(), NewBroker(), store, "runtime-session", "new", nil, "new"); err != nil {
+		t.Fatalf("new prompt after compact settlement: %v", err)
+	}
+}
+
+func TestRuntimeManagerTombstoneRollbackUsesGeneration(t *testing.T) {
+	store := runtimeTestStore()
+	manager := NewRuntimeManagerWithFactory(store, func(context.Context, string, string) (PiRuntime, error) {
+		return newFakePiRuntime(), nil
+	})
+	defer manager.Shutdown(context.Background())
+	first, err := manager.CloseSessionToken(context.Background(), "runtime-session")
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := manager.CloseSessionToken(context.Background(), "runtime-session")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first == second {
+		t.Fatal("overlapping close requests reused a tombstone generation")
+	}
+	if err := manager.RollbackSessionCloseToken("runtime-session", first); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := manager.Ensure(context.Background(), "runtime-session"); !errors.Is(err, errRuntimeSessionClosed) {
+		t.Fatalf("old rollback released new tombstone: %v", err)
+	}
+	if err := manager.RollbackSessionCloseToken("runtime-session", second); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := manager.Ensure(context.Background(), "runtime-session"); err != nil {
+		t.Fatalf("current rollback did not release tombstone: %v", err)
+	}
+}
+
+func TestWorkspaceSessionDeletionRollsBackTombstonesOnStoreFailure(t *testing.T) {
+	store := NewMockStore()
+	workspace, err := store.OpenWorkspace(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	session, err := store.CreateSession(workspace.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var created atomic.Int32
+	manager := NewRuntimeManagerWithFactory(store, func(context.Context, string, string) (PiRuntime, error) {
+		created.Add(1)
+		return newFakePiRuntime(), nil
+	})
+	defer manager.Shutdown(context.Background())
+	if _, err := manager.Ensure(context.Background(), session.ID); err != nil {
+		t.Fatal(err)
+	}
+	store.mu.Lock()
+	store.refreshDisabledWorkspace[workspace.ID] = true
+	store.workspacePath[workspace.ID] = "invalid\x00workspace"
+	store.mu.Unlock()
+	server := NewServerWithRuntimeManager(Config{}, store, NewBroker(), manager)
+	req := httptest.NewRequest(http.MethodDelete, "/api/workspaces/"+workspace.ID+"/sessions", nil)
+	req.SetPathValue("workspaceID", workspace.ID)
+	res := httptest.NewRecorder()
+	server.deleteWorkspaceSessions(res, req)
+	if res.Code != http.StatusInternalServerError {
+		t.Fatalf("delete status = %d: %s", res.Code, res.Body.String())
+	}
+	if _, err := manager.Ensure(context.Background(), session.ID); err != nil {
+		t.Fatalf("Ensure after failed batch delete: %v", err)
+	}
+	if created.Load() != 2 {
+		t.Fatalf("factory called %d times, want runtime recreation after rollback", created.Load())
+	}
+}
+
+func TestSuccessfulWorkspaceSessionDeletionCleansTombstones(t *testing.T) {
+	store := NewMockStore()
+	workspace, err := store.OpenWorkspace(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	session, err := store.CreateSession(workspace.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	manager := NewRuntimeManagerWithFactory(store, func(context.Context, string, string) (PiRuntime, error) {
+		return newFakePiRuntime(), nil
+	})
+	defer manager.Shutdown(context.Background())
+	server := NewServerWithRuntimeManager(Config{}, store, NewBroker(), manager)
+	req := httptest.NewRequest(http.MethodDelete, "/api/workspaces/"+workspace.ID+"/sessions", nil)
+	res := httptest.NewRecorder()
+	server.Handler().ServeHTTP(res, req)
+	if res.Code != http.StatusOK {
+		t.Fatalf("delete status = %d: %s", res.Code, res.Body.String())
+	}
+	manager.mu.Lock()
+	_, tombstoned := manager.tombstone[session.ID]
+	manager.mu.Unlock()
+	if tombstoned {
+		t.Fatal("successful deletion left an unbounded runtime tombstone")
 	}
 }
 

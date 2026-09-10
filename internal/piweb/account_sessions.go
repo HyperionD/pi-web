@@ -1,9 +1,6 @@
 package piweb
 
-import (
-	"errors"
-	"net/http"
-)
+import "net/http"
 
 func (s *Server) deleteAccountSessions(w http.ResponseWriter, r *http.Request) {
 	sessions, err := s.workspaceAccess.Sessions(requestActor(r), r.PathValue("workspaceID"))
@@ -11,13 +8,19 @@ func (s *Server) deleteAccountSessions(w http.ResponseWriter, r *http.Request) {
 		writeStoreError(w, err)
 		return
 	}
+	tokens := make([]uint64, len(sessions))
 	var closeErr error
-	for _, session := range sessions {
-		closeErr = errors.Join(closeErr, s.runtimeManager.CloseSession(s.context(), session.ID))
+	for index, session := range sessions {
+		tokens[index], closeErr = s.runtimeManager.CloseSessionToken(s.context(), session.ID)
+		if closeErr != nil {
+			break
+		}
 	}
 	if closeErr != nil {
-		for _, session := range sessions {
-			_ = s.runtimeManager.RollbackSessionClose(session.ID)
+		for index, session := range sessions {
+			if tokens[index] != 0 {
+				_ = s.runtimeManager.RollbackSessionCloseToken(session.ID, tokens[index])
+			}
 		}
 		writeError(w, http.StatusInternalServerError, closeErr)
 		return
@@ -25,13 +28,20 @@ func (s *Server) deleteAccountSessions(w http.ResponseWriter, r *http.Request) {
 	deleted := 0
 	for _, session := range sessions {
 		if err := s.store.DeleteSession(session.ID); err != nil {
-			for _, rollback := range sessions[deleted:] {
-				_ = s.runtimeManager.RollbackSessionClose(rollback.ID)
+			for index, rollback := range sessions {
+				if index < deleted {
+					_ = s.runtimeManager.FinalizeSessionClose(rollback.ID, tokens[index])
+				} else {
+					_ = s.runtimeManager.RollbackSessionCloseToken(rollback.ID, tokens[index])
+				}
 			}
 			writeStoreError(w, err)
 			return
 		}
 		deleted++
+	}
+	for index, session := range sessions {
+		_ = s.runtimeManager.FinalizeSessionClose(session.ID, tokens[index])
 	}
 	writeJSON(w, 200, map[string]any{"deletedCount": deleted, "sessions": []Session{}})
 }

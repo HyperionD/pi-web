@@ -49,16 +49,18 @@ func (s *Server) renameSession(w http.ResponseWriter, r *http.Request) {
 }
 func (s *Server) deleteSession(w http.ResponseWriter, r *http.Request) {
 	sessionID := r.PathValue("sessionID")
-	if err := s.runtimeManager.CloseSession(s.context(), sessionID); err != nil {
-		_ = s.runtimeManager.RollbackSessionClose(sessionID)
+	token, err := s.runtimeManager.CloseSessionToken(s.context(), sessionID)
+	if err != nil {
+		_ = s.runtimeManager.RollbackSessionCloseToken(sessionID, token)
 		writeError(w, http.StatusInternalServerError, err)
 		return
 	}
 	if err := s.store.DeleteSession(sessionID); err != nil {
-		_ = s.runtimeManager.RollbackSessionClose(sessionID)
+		_ = s.runtimeManager.RollbackSessionCloseToken(sessionID, token)
 		writeStoreError(w, err)
 		return
 	}
+	_ = s.runtimeManager.FinalizeSessionClose(sessionID, token)
 	writeJSON(w, http.StatusOK, map[string]any{"deleted": true})
 }
 func (s *Server) prompt(w http.ResponseWriter, r *http.Request) {

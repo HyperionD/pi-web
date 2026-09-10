@@ -2,6 +2,7 @@ package piweb
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
@@ -94,6 +95,35 @@ func TestProcessRuntimeEventBackpressureDoesNotBlockReader(t *testing.T) {
 	case <-done:
 	case <-time.After(100 * time.Millisecond):
 		t.Fatal("stdout reader blocked on full event channel")
+	}
+}
+
+func TestProcessRuntimeNormalStdoutEOFPoisonsPendingWaiter(t *testing.T) {
+	root := t.TempDir()
+	writeFakePi(t, root, `#!/bin/sh
+read request
+exit 0
+`)
+	runtime, err := newPiRuntime(context.Background(), filepath.Join(root, "session.jsonl"), root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer runtime.Close(context.Background())
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	_, err = runtime.Send(ctx, RPCCommand{ID: "request-1", Type: "prompt"})
+	if err == nil || strings.Contains(err.Error(), "context deadline") {
+		t.Fatalf("normal stdout EOF error = %v, want immediate protocol failure", err)
+	}
+}
+
+func TestRuntimeEntryBackpressurePoisonsEntry(t *testing.T) {
+	runtime := newFakePiRuntime()
+	entry := &runtimeEntry{runtime: runtime, manager: &RuntimeManager{now: time.Now}, events: make(chan PiEvent, 1), stop: make(chan struct{}), activity: map[string]int{}, closeDone: make(chan struct{})}
+	entry.events <- PiEvent{Type: "already-buffered"}
+	entry.enqueueEvent(PiEvent{Type: "message_update", Raw: json.RawMessage(`{"type":"message_update"}`)})
+	if entry.IsRunning() {
+		t.Fatal("entry remained usable after event backpressure")
 	}
 }
 

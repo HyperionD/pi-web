@@ -238,15 +238,9 @@ func (s *Server) Shutdown(ctx context.Context) error {
 	)
 }
 
-func independentShutdownContext(parent context.Context) (context.Context, context.CancelFunc) {
-	if err := parent.Err(); err != nil {
-		ctx, cancel := context.WithCancel(context.Background())
-		cancel()
-		return ctx, func() {}
-	}
-	if deadline, ok := parent.Deadline(); ok {
-		return context.WithDeadline(context.Background(), deadline)
-	}
+func independentShutdownContext(context.Context) (context.Context, context.CancelFunc) {
+	// Cleanup must not inherit an already-expired request deadline. Every
+	// shutdown phase gets a fresh, bounded five-second window.
 	return context.WithTimeout(context.Background(), 5*time.Second)
 }
 

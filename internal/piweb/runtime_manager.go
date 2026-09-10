@@ -67,7 +67,7 @@ type RuntimeManager struct {
 	sessions  map[string]*runtimeEntry
 	starting  map[string]*runtimeStartup
 	closing   map[string]*runtimeClosing
-	tombstone map[string]struct{}
+	tombstone map[string]uint64
 	ctx       context.Context
 	cancel    context.CancelFunc
 	stop      chan struct{}
@@ -138,7 +138,7 @@ func NewRuntimeManagerWithOptions(store *Store, options RuntimeManagerOptions) *
 	ctx, cancel := context.WithCancel(context.Background())
 	manager := &RuntimeManager{
 		store: store, factory: factory, now: now, idle: idle, cleanup: cleanup,
-		sessions: map[string]*runtimeEntry{}, starting: map[string]*runtimeStartup{}, closing: map[string]*runtimeClosing{}, tombstone: map[string]struct{}{},
+		sessions: map[string]*runtimeEntry{}, starting: map[string]*runtimeStartup{}, closing: map[string]*runtimeClosing{}, tombstone: map[string]uint64{},
 		ctx: ctx, cancel: cancel, stop: make(chan struct{}),
 	}
 	go manager.evictLoop()
@@ -230,12 +230,25 @@ func waitRuntimeStartup(ctx context.Context, startup *runtimeStartup) (PiRuntime
 }
 
 func (m *RuntimeManager) CloseSession(ctx context.Context, sessionID string) error {
+	_, err := m.CloseSessionToken(ctx, sessionID)
+	return err
+}
+
+// CloseSessionToken marks a session closed and returns the generation that owns
+// that tombstone. Callers performing a destructive store operation must use the
+// token when rolling back or finalizing the deletion.
+func (m *RuntimeManager) CloseSessionToken(ctx context.Context, sessionID string) (uint64, error) {
 	m.mu.Lock()
+	if m.stopped {
+		m.mu.Unlock()
+		return 0, errRuntimeManagerClosed
+	}
+	token := m.nextID.Add(1)
 	entry := m.sessions[sessionID]
 	delete(m.sessions, sessionID)
 	startup := m.starting[sessionID]
 	closing := m.closing[sessionID]
-	m.tombstone[sessionID] = struct{}{}
+	m.tombstone[sessionID] = token
 	if startup != nil {
 		startup.discard = true
 	}
@@ -245,18 +258,19 @@ func (m *RuntimeManager) CloseSession(ctx context.Context, sessionID string) err
 	m.mu.Unlock()
 	if startup != nil {
 		if _, err := waitRuntimeStartup(ctx, startup); err != nil && !errors.Is(err, errRuntimeManagerClosed) && !errors.Is(err, errRuntimeSessionClosed) {
-			return err
+			return token, err
 		}
-		return nil
+		return token, nil
 	}
 	if closing == nil {
-		return nil
+		return token, nil
 	}
-	return m.closeRegistered(ctx, sessionID, closing)
+	return token, m.closeRegistered(ctx, sessionID, closing)
 }
 
 // RollbackSessionClose releases a deletion tombstone when the backing store
-// could not delete the session. The closed runtime will be recreated lazily.
+// could not delete the session. The legacy form rolls back the current
+// generation; destructive handlers use RollbackSessionCloseToken instead.
 func (m *RuntimeManager) RollbackSessionClose(sessionID string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -265,6 +279,22 @@ func (m *RuntimeManager) RollbackSessionClose(sessionID string) error {
 	}
 	delete(m.tombstone, sessionID)
 	return nil
+}
+
+func (m *RuntimeManager) RollbackSessionCloseToken(sessionID string, token uint64) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.stopped {
+		return errRuntimeManagerClosed
+	}
+	if current, ok := m.tombstone[sessionID]; ok && current == token {
+		delete(m.tombstone, sessionID)
+	}
+	return nil
+}
+
+func (m *RuntimeManager) FinalizeSessionClose(sessionID string, token uint64) error {
+	return m.RollbackSessionCloseToken(sessionID, token)
 }
 
 func (m *RuntimeManager) Shutdown(ctx context.Context) error {

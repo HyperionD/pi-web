@@ -37,15 +37,17 @@ type Runner struct {
 }
 
 type activePiRun struct {
-	cancel     context.CancelFunc
-	stdin      io.WriteCloser
-	runtime    PiRuntime
-	compacting bool
-	done       chan struct{}
-	eventsDone chan struct{}
-	finishOnce sync.Once
-	mu         sync.Mutex
-	cancelling bool
+	cancel      context.CancelFunc
+	stdin       io.WriteCloser
+	runtime     PiRuntime
+	compacting  bool
+	done        chan struct{}
+	eventsDone  chan struct{}
+	finishOnce  sync.Once
+	settled     chan struct{}
+	settledOnce sync.Once
+	mu          sync.Mutex
+	cancelling  bool
 }
 
 func NewRunner() *Runner {
@@ -76,7 +78,7 @@ func (r *Runner) StartPiPrompt(
 		return err
 	}
 	ctx, cancel := context.WithCancel(parent)
-	activeRun := &activePiRun{cancel: cancel, runtime: runtime, done: make(chan struct{}), eventsDone: make(chan struct{})}
+	activeRun := &activePiRun{cancel: cancel, runtime: runtime, done: make(chan struct{}), eventsDone: make(chan struct{}), settled: make(chan struct{})}
 	if err := r.claimRun(sessionID, activeRun); err != nil {
 		cancel()
 		return err
@@ -135,6 +137,7 @@ func (r *Runner) consumeRuntimeEvents(ctx context.Context, broker *Broker, store
 
 func (r *Runner) finishPrompt(sessionID string, run *activePiRun, broker *Broker, runErr error) {
 	if run.isCancelling() {
+		run.markSettled()
 		return
 	}
 	if !run.complete() {
@@ -189,6 +192,12 @@ func (r *Runner) forgetRun(sessionID string, run *activePiRun) {
 func (r *Runner) finishRun(sessionID string, run *activePiRun) {
 	r.forgetRun(sessionID, run)
 	run.complete()
+}
+
+func (run *activePiRun) markSettled() {
+	if run.settled != nil {
+		run.settledOnce.Do(func() { close(run.settled) })
+	}
 }
 
 func (run *activePiRun) complete() bool {
@@ -353,27 +362,40 @@ func (r *Runner) Cancel(sessionID string) bool {
 	}
 	if run.runtime != nil {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		_, abortErr := run.runtime.Send(ctx, RPCCommand{Type: "abort"})
+		_, _ = run.runtime.Send(ctx, RPCCommand{Type: "abort"})
 		cancel()
-		if abortErr != nil {
-			closeCtx, closeCancel := context.WithTimeout(context.Background(), 5*time.Second)
-			_ = run.runtime.Close(closeCtx)
-			closeCancel()
-		}
 	}
 	if run.eventsDone != nil {
 		select {
 		case <-run.eventsDone:
 		case <-time.After(time.Second):
+			// Keep the run claimed. A timeout must never create overlap; finish
+			// cleanup asynchronously when the event consumer observes settlement.
+			go r.finishCancelledRun(sessionID, run)
+			return true
 		}
 	}
+	// Once the old run has settled, close its event stream before exposing a
+	// new prompt. A fresh runtime is then created for the next generation.
 	if run.runtime != nil {
-		if discarder, ok := run.runtime.(staleEventDiscarder); ok {
-			discarder.discardStaleEvents()
-		}
-		drainRuntimeEvents(run.runtime)
+		closeCtx, closeCancel := context.WithTimeout(context.Background(), 5*time.Second)
+		_ = run.runtime.Close(closeCtx)
+		closeCancel()
 	}
 	run.cancel()
 	r.finishRun(sessionID, run)
 	return true
+}
+
+func (r *Runner) finishCancelledRun(sessionID string, run *activePiRun) {
+	if run.eventsDone != nil {
+		<-run.eventsDone
+	}
+	if run.runtime != nil {
+		closeCtx, closeCancel := context.WithTimeout(context.Background(), 5*time.Second)
+		_ = run.runtime.Close(closeCtx)
+		closeCancel()
+	}
+	run.cancel()
+	r.finishRun(sessionID, run)
 }

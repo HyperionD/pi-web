@@ -89,7 +89,12 @@ func (runtime *processPiRuntime) readStdout(stdout io.Reader) {
 	if err := scanner.Err(); err != nil {
 		runtime.protocolFailure(fmt.Errorf("pi stdout scanner: %w", err))
 		terminateCommandProcessGroup(runtime.cmd)
+		return
 	}
+	// EOF before the process lifecycle has been joined is a protocol failure,
+	// not a successful idle state: wake every RPC waiter and stop the process.
+	runtime.protocolFailure(errors.New("pi stdout closed unexpectedly"))
+	terminateCommandProcessGroup(runtime.cmd)
 }
 
 func (runtime *processPiRuntime) readStderr(stderr io.Reader) {

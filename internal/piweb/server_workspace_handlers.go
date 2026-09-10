@@ -209,18 +209,33 @@ func (s *Server) deleteWorkspaceSessions(w http.ResponseWriter, r *http.Request)
 		writeStoreError(w, err)
 		return
 	}
+	tokens := make([]uint64, len(sessions))
 	var closeErr error
-	for _, session := range sessions {
-		closeErr = errors.Join(closeErr, s.runtimeManager.CloseSession(s.context(), session.ID))
+	for index, session := range sessions {
+		tokens[index], closeErr = s.runtimeManager.CloseSessionToken(s.context(), session.ID)
+		if closeErr != nil {
+			break
+		}
 	}
 	if closeErr != nil {
+		for index, session := range sessions {
+			if tokens[index] != 0 {
+				_ = s.runtimeManager.RollbackSessionCloseToken(session.ID, tokens[index])
+			}
+		}
 		writeError(w, http.StatusInternalServerError, closeErr)
 		return
 	}
 	deletedCount, err := s.store.DeleteWorkspaceSessions(workspaceID)
 	if err != nil {
+		for index, session := range sessions {
+			_ = s.runtimeManager.RollbackSessionCloseToken(session.ID, tokens[index])
+		}
 		writeStoreError(w, err)
 		return
+	}
+	for index, session := range sessions {
+		_ = s.runtimeManager.FinalizeSessionClose(session.ID, tokens[index])
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"deletedCount": deletedCount, "sessions": []Session{}})
 }

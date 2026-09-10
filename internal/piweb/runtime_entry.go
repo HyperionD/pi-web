@@ -76,18 +76,31 @@ func (entry *runtimeEntry) enqueueEvent(event PiEvent) {
 	case entry.events <- event:
 		return
 	default:
+		entry.poison(errors.New("pi runtime entry event channel is full"))
 	}
-	if event.Type != "agent_end" && event.Type != "error" {
+}
+
+func (entry *runtimeEntry) poison(err error) {
+	entry.mu.Lock()
+	if entry.closed {
+		entry.mu.Unlock()
 		return
 	}
-	select {
-	case <-entry.events:
-	default:
+	entry.closed = true
+	if entry.closeDone == nil {
+		entry.closeDone = make(chan struct{})
 	}
-	select {
-	case entry.events <- event:
-	default:
-	}
+	entry.mu.Unlock()
+	entry.stopOnce.Do(func() { close(entry.stop) })
+	go func() {
+		closeCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		closeErr := entry.runtime.Close(closeCtx)
+		cancel()
+		entry.mu.Lock()
+		entry.closeErr = errors.Join(err, closeErr)
+		close(entry.closeDone)
+		entry.mu.Unlock()
+	}()
 }
 
 func (entry *runtimeEntry) recordEvent(event PiEvent) {
@@ -180,7 +193,10 @@ func (entry *runtimeEntry) isClosed() bool {
 func (entry *runtimeEntry) idleBefore(cutoff time.Time) bool {
 	entry.mu.Lock()
 	defer entry.mu.Unlock()
-	if entry.closed || entry.active > 0 || len(entry.activity) > 0 {
+	if entry.closed {
+		return true
+	}
+	if entry.active > 0 || len(entry.activity) > 0 {
 		return false
 	}
 	return entry.lastUsed.Before(cutoff)

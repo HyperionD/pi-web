@@ -40,6 +40,9 @@ func (r *Runner) Compact(parent context.Context, broker *Broker, store *Store, s
 	broker.Publish(sessionID, "session.status", map[string]string{"status": "compacting"})
 	payload, _ := json.Marshal(map[string]string{"type": "compact"})
 	response, err := runtime.Send(ctx, RPCCommand{Type: "compact", Payload: payload})
+	if err != nil && ctx.Err() != nil {
+		abortAndCloseRuntime(runtime)
+	}
 	if err == nil && !response.Success {
 		err = errors.New(response.Error)
 		if response.Error == "" {
@@ -70,6 +73,15 @@ func (r *Runner) Compact(parent context.Context, broker *Broker, store *Store, s
 		"finishedAt": time.Now().UTC().Format(time.RFC3339),
 	})
 	return result, nil
+}
+
+func abortAndCloseRuntime(runtime PiRuntime) {
+	abortCtx, abortCancel := context.WithTimeout(context.Background(), 5*time.Second)
+	_, _ = runtime.Send(abortCtx, RPCCommand{Type: "abort"})
+	abortCancel()
+	closeCtx, closeCancel := context.WithTimeout(context.Background(), 5*time.Second)
+	_ = runtime.Close(closeCtx)
+	closeCancel()
 }
 
 func (r *Runner) claimRun(sessionID string, run *activePiRun) error {

@@ -78,3 +78,24 @@ TDD：新增测试先运行并因缺失 `RollbackSessionClose` 契约失败；�
 - `git diff --check`：PASS。
 
 补充 concerns：stale event 丢弃窗口以 Pi 的下一次 `agent_start` 作为新 run 边界；若未来 Pi 协议省略该事件，需要改用协议级 run ID。可取消写入对遵循 `io.WriteCloser.Close` 语义的 OS pipe 生效；不遵循 Close 解阻塞语义的第三方 writer 可能留下写 goroutine，但不会继续污染 runtime 状态。
+
+## 修复轮次 2（独立复审阻断项）
+
+状态：已完成，待独立提交。
+
+- `independentShutdownContext` 始终从 `context.Background()` 创建新的 5 秒 deadline；父 context 已超时仍可完成 runtime/broker/store cleanup，并新增真实 cleanup 完成回归测试。
+- Cancel 在 abort 后必须等事件消费者 settled；超时只异步等待并保持 run claim，不再 `finishRun` 制造重叠。Compact 取消会先 abort、关闭旧 runtime、完成 waiter 隔离后才释放 session。
+- 取消后的旧事件流在新 prompt 前关闭，确保旧 agent_end/delta/tool 不进入新 runtime；回归测试覆盖新 runtime 的真实 `agent_start` 与 delta 事件。
+- RuntimeManager tombstone 改为 generation token；批量删除失败按 token rollback，成功删除 finalize 并清理 tombstone；增加重叠请求回归测试。
+- stdout 普通 EOF 立即 poison 并唤醒 waiter；runtime entry 背压不再静默丢非终止事件，而是 poison/close；closed entry 可由 idle eviction 回收。
+
+本轮 TDD：先加入独立 context、EOF、entry 背压、Cancel/Compact、tombstone generation、批量删除 rollback 回归测试并确认缺失契约/行为失败，再实现修复。
+
+最终验证：
+
+- `go test ./...`：PASS。
+- `go test -race ./internal/piweb -run 'Test(RuntimeManager|Runner)' -count=1`：PASS。
+- `go test -race ./internal/piweb -count=1`：PASS，无 race detector 报告。
+- `git diff --check`：PASS。
+
+Concerns：取消流程对 session runtime 采用关闭并在下一代 prompt 重建，以提供强事件隔离；正常完成 prompt 仍复用原 runtime。未修改 `static/` 或前端。
