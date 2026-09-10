@@ -55,7 +55,7 @@ type GitStatus struct {
 }
 
 type Event struct {
-	ID          uint64    `json:"id"`
+	ID          uint64    `json:"id,string"`
 	Type        string    `json:"type"`
 	SessionID   string    `json:"sessionId,omitempty"`
 	WorkspaceID string    `json:"workspaceId,omitempty"`

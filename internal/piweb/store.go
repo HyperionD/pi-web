@@ -11,6 +11,7 @@ import (
 
 type Store struct {
 	mu                       sync.RWMutex
+	sessionMutationMu        sync.Mutex
 	workspaceMutationMu      sync.Mutex
 	workspaces               []Workspace
 	recentWorkspaceIDs       []string
@@ -23,6 +24,8 @@ type Store struct {
 	sessionDirModTime        map[string]time.Time
 	dbPath                   string
 	refreshDisabledWorkspace map[string]bool
+	// sessionSnapshotHook is a test barrier held under sessionMutationMu.
+	sessionSnapshotHook func()
 }
 
 func NewAutoStore() *Store {

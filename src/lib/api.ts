@@ -1,5 +1,6 @@
 import { HttpAgent } from "@ag-ui/client";
 import { downloadWorkspaceFile, uploadWorkspaceFile } from "./file-transfer";
+import { normalizeEventCursor } from "../pi-app/sessions/session-recovery";
 
 const DEV_API_BASE = "http://127.0.0.1:8732";
 const DEV_PORTS = new Set(["4321", "6006"]);
@@ -383,7 +384,8 @@ export function steerSession(sessionId, text, attachments = []) {
 export function sessionEvents(sessionId: string, { onEvent, onOpen, onError, replay = true, after }: any = {}) {
   const params = new URLSearchParams();
   if (!replay) params.set("replay", "false");
-  if (Number.isFinite(Number(after)) && Number(after) > 0) params.set("after", String(Number(after)));
+  const cursor = normalizeEventCursor(after);
+  if (cursor && cursor !== "0") params.set("after", cursor);
   const query = params.toString() ? `?${params}` : "";
   const source = new EventSource(
     `${apiBase()}/api/sessions/${encodeURIComponent(sessionId)}/events${query}`,

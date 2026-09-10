@@ -20,8 +20,7 @@ func tailSessionFile(ctx context.Context, broker *Broker, store *Store, sessionI
 	for {
 		newOffset := readSessionLines(path, offset, func(line string) {
 			for _, msg := range ParsePiSessionLineMessages(line) {
-				_ = store.AppendMessage(sessionID, msg)
-				broker.Publish(sessionID, eventTypeForMessage(msg), msg)
+				_ = appendMessageAndPublish(store, broker, sessionID, msg)
 				emitted.Add(1)
 			}
 		})
@@ -35,8 +34,7 @@ func tailSessionFile(ctx context.Context, broker *Broker, store *Store, sessionI
 			case <-idleAfterCancel.C:
 				readSessionLines(path, offset, func(line string) {
 					for _, msg := range ParsePiSessionLineMessages(line) {
-						_ = store.AppendMessage(sessionID, msg)
-						broker.Publish(sessionID, eventTypeForMessage(msg), msg)
+						_ = appendMessageAndPublish(store, broker, sessionID, msg)
 						emitted.Add(1)
 					}
 				})

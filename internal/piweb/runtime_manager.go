@@ -109,6 +109,7 @@ type runtimeEntry struct {
 	activity            map[string]int
 	dropUntilAgentStart bool
 	closed              bool
+	retiring            bool
 	closeDone           chan struct{}
 	closeErr            error
 	ownerGeneration     uint64
@@ -363,16 +364,37 @@ func (m *RuntimeManager) Retire(ctx context.Context, sessionID string, runtime P
 }
 
 func (m *RuntimeManager) RetireOwned(ctx context.Context, ownership runtimeOwnership) error {
+	closing := m.detachOwned(ownership, false)
+	if closing == nil {
+		return nil
+	}
+	return m.closeRegistered(ctx, ownership.sessionID, closing)
+}
+
+func (m *RuntimeManager) RetireOwnedAsync(ownership runtimeOwnership) {
+	closing := m.detachOwned(ownership, true)
+	if closing == nil {
+		return
+	}
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), cancelAbortTimeout)
+		defer cancel()
+		_ = m.closeRegistered(ctx, ownership.sessionID, closing)
+	}()
+}
+
+func (m *RuntimeManager) detachOwned(ownership runtimeOwnership, nonBlocking bool) *runtimeClosing {
 	m.mu.Lock()
+	defer m.mu.Unlock()
 	entry := m.sessions[ownership.sessionID]
 	if entry == nil || entry != ownership.entry || entry.ownerGeneration != ownership.generation {
-		m.mu.Unlock()
 		return nil
 	}
 	delete(m.sessions, ownership.sessionID)
-	closing := m.registerClosingLocked(ownership.sessionID, entry)
-	m.mu.Unlock()
-	return m.closeRegistered(ctx, ownership.sessionID, closing)
+	if nonBlocking {
+		entry.markRetiring()
+	}
+	return m.registerClosingLocked(ownership.sessionID, entry)
 }
 
 func (m *RuntimeManager) Shutdown(ctx context.Context) error {

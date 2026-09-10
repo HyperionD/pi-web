@@ -9,13 +9,10 @@ import (
 )
 
 func (entry *runtimeEntry) Send(ctx context.Context, command RPCCommand) (RPCResponse, error) {
-	steer := isSteerRPCCommand(command)
-	if steer && !entry.steerGate.acquire(ctx) {
+	if !entry.steerGate.acquire(ctx) {
 		return RPCResponse{}, ctx.Err()
 	}
-	if steer {
-		defer entry.steerGate.release()
-	}
+	defer entry.steerGate.release()
 	if command.ID == "" {
 		command.ID = fmt.Sprintf("piweb-%d", entry.manager.nextID.Add(1))
 	}
@@ -88,31 +85,20 @@ func (entry *runtimeEntry) enqueueEvent(event PiEvent) {
 }
 
 func (entry *runtimeEntry) poison(err error) {
-	if !entry.steerGate.acquire(context.Background()) {
+	closeDone, alreadyClosed := entry.beginClose()
+	if alreadyClosed {
 		return
 	}
-	entry.mu.Lock()
-	if entry.closed {
-		entry.mu.Unlock()
-		entry.steerGate.release()
-		return
-	}
-	entry.closed = true
-	if entry.closeDone == nil {
-		entry.closeDone = make(chan struct{})
-	}
-	closeDone := entry.closeDone
-	entry.mu.Unlock()
-	entry.stopOnce.Do(func() { close(entry.stop) })
 	go func() {
+		if !entry.steerGate.acquire(context.Background()) {
+			return
+		}
 		defer entry.steerGate.release()
+		entry.stopOnce.Do(func() { close(entry.stop) })
 		closeCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		closeErr := entry.runtime.Close(closeCtx)
 		cancel()
-		entry.mu.Lock()
-		entry.closeErr = errors.Join(err, closeErr)
-		close(closeDone)
-		entry.mu.Unlock()
+		entry.finishClose(closeDone, errors.Join(err, closeErr))
 	}()
 }
 
@@ -167,44 +153,66 @@ func eventActivityKey(eventType, toolCallID string) string {
 	}
 }
 
-func (entry *runtimeEntry) IsRunning() bool      { return !entry.isClosed() && entry.runtime.IsRunning() }
-func (entry *runtimeEntry) processRunning() bool { return entry.runtime.IsRunning() }
+func (entry *runtimeEntry) IsRunning() bool { return !entry.isClosed() && entry.runtime.IsRunning() }
+func (entry *runtimeEntry) processRunning() bool {
+	entry.mu.Lock()
+	retiring := entry.retiring
+	entry.mu.Unlock()
+	return !retiring && entry.runtime.IsRunning()
+}
+
+func (entry *runtimeEntry) markRetiring() {
+	entry.mu.Lock()
+	entry.retiring = true
+	entry.mu.Unlock()
+}
 func (entry *runtimeEntry) Close(ctx context.Context) error {
+	done, alreadyClosed := entry.beginClose()
+	if alreadyClosed {
+		return entry.waitClose(ctx, done)
+	}
 	if !entry.steerGate.acquire(ctx) {
+		entry.finishClose(done, ctx.Err())
 		return ctx.Err()
 	}
 	defer entry.steerGate.release()
-	entry.mu.Lock()
-	if entry.closed {
-		done := entry.closeDone
-		entry.mu.Unlock()
-		if done == nil {
-			return nil
-		}
-		select {
-		case <-done:
-			entry.mu.Lock()
-			err := entry.closeErr
-			entry.mu.Unlock()
-			return err
-		case <-ctx.Done():
-			return ctx.Err()
-		}
-	}
-	entry.closed = true
-	done := entry.closeDone
-	if done == nil {
-		done = make(chan struct{})
-		entry.closeDone = done
-	}
-	entry.mu.Unlock()
 	entry.stopOnce.Do(func() { close(entry.stop) })
 	err := entry.runtime.Close(ctx)
+	entry.finishClose(done, err)
+	return err
+}
+
+func (entry *runtimeEntry) beginClose() (chan struct{}, bool) {
+	entry.mu.Lock()
+	defer entry.mu.Unlock()
+	if entry.closed {
+		return entry.closeDone, true
+	}
+	entry.closed = true
+	entry.closeDone = make(chan struct{})
+	return entry.closeDone, false
+}
+
+func (entry *runtimeEntry) finishClose(done chan struct{}, err error) {
 	entry.mu.Lock()
 	entry.closeErr = err
 	close(done)
 	entry.mu.Unlock()
-	return err
+}
+
+func (entry *runtimeEntry) waitClose(ctx context.Context, done chan struct{}) error {
+	if done == nil {
+		return nil
+	}
+	select {
+	case <-done:
+		entry.mu.Lock()
+		err := entry.closeErr
+		entry.mu.Unlock()
+		return err
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 }
 func (entry *runtimeEntry) touch(at time.Time) {
 	entry.mu.Lock()

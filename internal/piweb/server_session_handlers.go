@@ -10,7 +10,7 @@ import (
 func (s *Server) session(w http.ResponseWriter, r *http.Request) {
 	sessionID := r.PathValue("sessionID")
 	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
-	session, page, err := s.store.SessionPage(sessionID, limit, r.URL.Query().Get("before"))
+	session, page, latestEventID, err := s.sessionSnapshot(sessionID, limit, r.URL.Query().Get("before"))
 	if err != nil {
 		writeStoreError(w, err)
 		return
@@ -22,8 +22,21 @@ func (s *Server) session(w http.ResponseWriter, r *http.Request) {
 		"hasMore":       page.HasMore,
 		"limit":         page.Limit,
 		"status":        s.sessionStatus(sessionID),
-		"latestEventId": s.broker.LatestEventID(sessionID),
+		"latestEventId": strconv.FormatUint(latestEventID, 10),
 	})
+}
+
+func (s *Server) sessionSnapshot(sessionID string, limit int, before string) (Session, SessionMessagePage, uint64, error) {
+	s.store.sessionMutationMu.Lock()
+	defer s.store.sessionMutationMu.Unlock()
+	if s.store.sessionSnapshotHook != nil {
+		s.store.sessionSnapshotHook()
+	}
+	session, page, err := s.store.SessionPage(sessionID, limit, before)
+	if err != nil {
+		return Session{}, SessionMessagePage{}, 0, err
+	}
+	return session, page, s.broker.LatestEventID(sessionID), nil
 }
 
 func (s *Server) sessionStatus(sessionID string) string {
@@ -153,8 +166,7 @@ func (s *Server) steerSession(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	user := Message{Kind: "user", Text: displayText, Attachments: imageAttachments}
-	_ = s.store.AppendMessage(sessionID, user)
-	s.broker.Publish(sessionID, "session.message", user)
+	_ = appendMessageAndPublish(s.store, s.broker, sessionID, user)
 	writeJSON(w, http.StatusAccepted, map[string]any{"accepted": true, "realPi": s.config.EnablePiExecution})
 }
 func (s *Server) cancelSession(w http.ResponseWriter, r *http.Request) {

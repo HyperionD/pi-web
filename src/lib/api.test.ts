@@ -265,5 +265,7 @@ describe("api adapter", () => {
 
     const noReplay = sessionEvents("s1", { replay: false });
     expect(noReplay.url).toBe("http://backend.test/api/sessions/s1/events?replay=false");
+    const safeCursor = sessionEvents("s1", { replay: false, after: "9007199254740993" });
+    expect(safeCursor.url).toBe("http://backend.test/api/sessions/s1/events?replay=false&after=9007199254740993");
   });
 });

@@ -2,7 +2,12 @@ import { applyUiLocale, currentUiLocale, setUiLocale } from "../i18n/client";
 import { normalizeUiLocale } from "../i18n/locales";
 import { sessionEvents } from "../lib/api";
 import { escapeHtml } from "../lib/renderers";
-import { shouldResyncAfterGap, type SessionEventEnvelope } from "./sessions/session-recovery";
+import {
+  compareEventCursors,
+  normalizeEventCursor,
+  shouldResyncAfterGap,
+  type SessionEventEnvelope,
+} from "./sessions/session-recovery";
 import { SPINNER_FRAME_COUNT } from "./constants";
 import { filePreviewMethods } from "./editor/file-preview-methods";
 import { attachmentMethods } from "./input/attachment-methods";
@@ -38,6 +43,8 @@ class PiApp extends HTMLElement {
     this.initTranscriptWindow();
     this.eventSource = null;
     this.sessionEventCursors = new Map();
+    this.sessionViewGeneration = Symbol("initial-session-view");
+    this.sessionResync = undefined;
     this.apiConnected = false;
     this.currentFolder = "~";
     this.running = false;
@@ -185,7 +192,9 @@ class PiApp extends HTMLElement {
     window.parent?.postMessage({ type: "__edit_mode_available" }, "*");
   }
 
-  invalidateEventStream() {
+  invalidateEventStream({ preserveResync = false } = {}) {
+    this.sessionViewGeneration = Symbol("session-view");
+    if (!preserveResync) this.sessionResync = undefined;
     this.eventStreamId = undefined;
     this.aguiRunActive = false;
     this.aguiRunToken = undefined;
@@ -195,8 +204,11 @@ class PiApp extends HTMLElement {
 
   connectEvents(sessionId: string, options: any = {}) {
     this.invalidateEventStream();
+    const streamGeneration = this.sessionViewGeneration;
     const cursor = options.after ?? this.sessionEventCursors?.get(sessionId);
-    if (Number.isFinite(Number(cursor)) && Number(cursor) > 0) this.setSessionEventCursor(sessionId, Number(cursor));
+    if (normalizeEventCursor(cursor) && normalizeEventCursor(cursor) !== "0") {
+      this.setSessionEventCursor(sessionId, cursor);
+    }
     const reloadOnOpen = options.reloadOnOpen ?? (options.replay === undefined && cursor == null);
     const eventStreamId = Symbol(sessionId);
     this.eventStreamId = eventStreamId;
@@ -206,13 +218,13 @@ class PiApp extends HTMLElement {
       onOpen: () => {
         if (!this.isActiveEventStream(eventStreamId, sessionId)) return;
         this.confirmConnection();
-        if (reloadOnOpen) void this.loadSession(sessionId, { resync: true });
+        if (reloadOnOpen) void this.requestSessionResync(sessionId);
       },
       onError: () => {
         if (this.isActiveEventStream(eventStreamId, sessionId)) this.deferEventStreamError();
       },
       onEvent: (event: SessionEventEnvelope) => {
-        if (!this.isActiveEventStream(eventStreamId, sessionId)) return;
+        if (!this.isActiveEventStream(eventStreamId, sessionId, streamGeneration)) return;
         if (this.isDuplicateSessionEvent(event)) return;
         this.setSessionEventCursor(sessionId, event.id);
         this.confirmConnection();
@@ -221,20 +233,36 @@ class PiApp extends HTMLElement {
     });
   }
 
-  setSessionEventCursor(sessionId: string, eventID: number) {
-    if (!sessionId || !Number.isFinite(eventID) || eventID <= 0) return;
+  requestSessionResync(sessionId: string) {
+    if (!sessionId || this.dataset.activeSessionId !== sessionId) return Promise.resolve();
+    const generation = this.sessionViewGeneration;
+    if (this.sessionResync?.sessionId === sessionId) return this.sessionResync.promise;
+    const promise = Promise.resolve(this.loadSession(sessionId, { resync: true, viewGeneration: generation }))
+      .finally(() => {
+        if (this.sessionResync?.promise === promise) this.sessionResync = undefined;
+      });
+    this.sessionResync = { sessionId, generation, promise };
+    return promise;
+  }
+
+  setSessionEventCursor(sessionId: string, eventID: unknown) {
+    const cursor = normalizeEventCursor(eventID);
+    if (!sessionId || !cursor || cursor === "0") return;
     this.sessionEventCursors ??= new Map();
-    const current = this.sessionEventCursors.get(sessionId) || 0;
-    if (eventID > current) this.sessionEventCursors.set(sessionId, eventID);
+    const current = this.sessionEventCursors.get(sessionId) || "0";
+    if (compareEventCursors(cursor, current) > 0) this.sessionEventCursors.set(sessionId, cursor);
   }
 
   isDuplicateSessionEvent(event: SessionEventEnvelope) {
-    if (!event?.id || event.id <= 0 || !event.sessionId) return false;
-    return event.id <= (this.sessionEventCursors?.get(event.sessionId) || 0);
+    const cursor = normalizeEventCursor(event?.id);
+    if (!cursor || cursor === "0" || !event.sessionId) return false;
+    return compareEventCursors(cursor, this.sessionEventCursors?.get(event.sessionId) || "0") <= 0;
   }
 
-  isActiveEventStream(eventStreamId, sessionId) {
-    return this.eventStreamId === eventStreamId && this.dataset.activeSessionId === sessionId;
+  isActiveEventStream(eventStreamId, sessionId, generation = undefined) {
+    return this.eventStreamId === eventStreamId
+      && this.dataset.activeSessionId === sessionId
+      && (!generation || this.sessionViewGeneration === generation);
   }
 
   aguiSubscriber(sessionId) {
@@ -310,7 +338,7 @@ class PiApp extends HTMLElement {
     if (!this.isCurrentSessionEvent(event)) return;
     if (shouldResyncAfterGap(event)) {
       const sessionId = this.dataset.activeSessionId;
-      if (sessionId) void this.loadSession(sessionId, { resync: true });
+      if (sessionId) void this.requestSessionResync(sessionId);
       return;
     }
     if (event.type === "heartbeat") return;
@@ -332,7 +360,7 @@ class PiApp extends HTMLElement {
       }
       this.setMode(mode);
       if (this.apiConnected && this.dataset.activeSessionId && !this.aguiRunActive) {
-        void this.loadSession(this.dataset.activeSessionId, { resync: true });
+        void this.requestSessionResync(this.dataset.activeSessionId);
       }
       return;
     }

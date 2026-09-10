@@ -324,7 +324,8 @@ func (b *Broker) newGapLocked(subscriber *brokerSubscriber, sessionID string, la
 	return &Event{
 		Type: "broker_gap", SessionID: sessionID,
 		Payload: map[string]any{
-			"sessionId": sessionID, "after": cursor, "latestEventId": latestEventID,
+			"sessionId": sessionID,
+			"after":     strconv.FormatUint(cursor, 10), "latestEventId": strconv.FormatUint(latestEventID, 10),
 		},
 		At: time.Now().UTC(),
 	}
@@ -462,6 +463,11 @@ func (b *Broker) replayGapLocked(sessionID string, after uint64) *Event {
 }
 
 func (b *Broker) ServeSession(w http.ResponseWriter, r *http.Request, sessionID string) {
+	after, err := parseSessionEventCursor(r)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
 	flusher, ok := w.(http.Flusher)
 	if !ok {
 		http.Error(w, "streaming unsupported", http.StatusInternalServerError)
@@ -473,12 +479,6 @@ func (b *Broker) ServeSession(w http.ResponseWriter, r *http.Request, sessionID 
 	w.Header().Set("X-Accel-Buffering", "no")
 	flusher.Flush()
 
-	var after uint64
-	if value := r.Header.Get("Last-Event-ID"); value != "" {
-		after, _ = strconv.ParseUint(value, 10, 64)
-	} else if value := r.URL.Query().Get("after"); value != "" {
-		after, _ = strconv.ParseUint(value, 10, 64)
-	}
 	subscription := b.SubscribeFrom(sessionID, after)
 	defer subscription.Close()
 	if shouldReplayHistory(r, after) {
@@ -522,8 +522,26 @@ func (b *Broker) ServeSession(w http.ResponseWriter, r *http.Request, sessionID 
 	}
 }
 
+func parseSessionEventCursor(r *http.Request) (uint64, error) {
+	value := r.Header.Get("Last-Event-ID")
+	if value == "" {
+		value = r.URL.Query().Get("after")
+	}
+	if value == "" {
+		return 0, nil
+	}
+	cursor, err := strconv.ParseUint(value, 10, 64)
+	if err != nil {
+		return 0, fmt.Errorf("invalid event cursor")
+	}
+	return cursor, nil
+}
+
 func shouldReplayHistory(r *http.Request, after uint64) bool {
-	return after > 0 || r.URL.Query().Get("replay") != "false"
+	if r.URL.Query().Get("replay") == "false" {
+		return false
+	}
+	return true
 }
 
 func WriteSSE(w io.Writer, event Event) error {
@@ -545,8 +563,7 @@ func WriteSSE(w io.Writer, event Event) error {
 
 func (b *Broker) PublishMockPrompt(ctx context.Context, store *Store, sessionID, text string) {
 	user := Message{Kind: "user", Text: text}
-	_ = store.AppendMessage(sessionID, user)
-	b.Publish(sessionID, "session.message", user)
+	_ = appendMessageAndPublish(store, b, sessionID, user)
 
 	steps := []struct {
 		delay    time.Duration
@@ -575,7 +592,8 @@ func (b *Broker) PublishMockPrompt(ctx context.Context, store *Store, sessionID,
 			return
 		case <-time.After(step.delay):
 			if msg, ok := step.payload.(Message); ok && step.typeName == "session.message" {
-				_ = store.AppendMessage(sessionID, msg)
+				_ = appendMessageAndPublish(store, b, sessionID, msg)
+				continue
 			}
 			b.Publish(sessionID, step.typeName, step.payload)
 		}

@@ -31,11 +31,38 @@ describe("session recovery", () => {
       payload: { sessionId: "s1", after: 3, latestEventId: 8 },
     });
 
-    expect(app.loadSession).toHaveBeenCalledWith("s1", { resync: true });
+    expect(app.loadSession).toHaveBeenCalledWith("s1", expect.objectContaining({ resync: true }));
     expect(app.appendMessage).not.toHaveBeenCalled();
   });
 
-  it("keeps a per-session cursor and reconnects after the snapshot cursor", async () => {
+  it("coalesces open and status resync requests", async () => {
+    const sources = [];
+    globalThis.EventSource = class {
+      constructor() {
+        this.listeners = {};
+        this.close = vi.fn();
+        sources.push(this);
+      }
+      addEventListener(type, listener) {
+        this.listeners[type] = listener;
+      }
+    };
+    const app = await connectPiApp();
+    app.dataset.activeSessionId = "s1";
+    app.loadSession = vi.fn(() => new Promise(() => {}));
+    app.connectEvents("s1");
+    sources[0].onopen();
+    sources[0].listeners["session.status"]({
+      data: JSON.stringify({ id: "8", type: "session.status", sessionId: "s1", payload: { status: "running" } }),
+    });
+    sources[0].listeners["session.status"]({
+      data: JSON.stringify({ id: "9", type: "session.status", sessionId: "s1", payload: { status: "idle" } }),
+    });
+
+    expect(app.loadSession).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps a string cursor and reconnects after the snapshot cursor", async () => {
     const sources = [];
     globalThis.EventSource = class {
       constructor(url) {
@@ -50,11 +77,12 @@ describe("session recovery", () => {
     };
     const app = await connectPiApp();
     app.dataset.activeSessionId = "s1";
-    app.connectEvents("s1", { after: 7 });
-    expect(sources[0].url).toContain("after=7");
+    app.connectEvents("s1", { after: "9007199254740993" });
+    expect(sources[0].url).toContain("after=9007199254740993");
     sources[0].listeners["session.message"]({
-      data: JSON.stringify({ id: 8, type: "session.message", sessionId: "s1", payload: { kind: "pi", text: "ok" } }),
+      data: JSON.stringify({ id: "9007199254740994", type: "session.message", sessionId: "s1", payload: { kind: "pi", text: "ok" } }),
     });
-    expect(app.sessionEventCursors.get("s1")).toBe(8);
+    expect(app.sessionEventCursors.get("s1")).toBe("9007199254740994");
+    expect(app.isDuplicateSessionEvent({ id: "9007199254740993", sessionId: "s1" })).toBe(true);
   });
 });

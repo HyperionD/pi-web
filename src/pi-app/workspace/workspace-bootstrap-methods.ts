@@ -333,24 +333,27 @@ export const workspaceBootstrapMethods = {
     const loadToken = Symbol(sessionId);
     const { bootstrapGeneration } = options;
     const workspaceId = this.findSessionRow(sessionId)?.dataset.workspace || this.dataset.activeWorkspaceId;
+    const requestedViewGeneration = options.viewGeneration;
+    if (requestedViewGeneration && this.sessionViewGeneration !== requestedViewGeneration) return;
     this.sessionLoadToken = loadToken;
+    this.invalidateEventStream?.({ preserveResync: true });
+    const loadViewGeneration = this.sessionViewGeneration;
     const isCurrentResource = () => (
       this.sessionLoadToken === loadToken
       && (!bootstrapGeneration || this.bootstrapGeneration === bootstrapGeneration)
+      && this.sessionViewGeneration === loadViewGeneration
       && (bootstrapGeneration
         ? this.dataset.activeSessionId === sessionId && this.dataset.activeWorkspaceId === workspaceId
         : (!this.dataset.activeSessionId || this.dataset.activeSessionId === sessionId)
           && (!workspaceId || !this.dataset.activeWorkspaceId || this.dataset.activeWorkspaceId === workspaceId))
     );
-    this.invalidateEventStream?.();
     this.showSessionSwitchLoading(sessionId);
     try {
       const loaded = await getSession(sessionId, { limit: SESSION_MESSAGE_PAGE_SIZE });
       if (!isCurrentResource()) return;
       this.applyLoadedSession(loaded.session, loaded.messages || [], loaded.status, loaded);
     } catch (error) {
-      if (this.sessionLoadToken !== loadToken) return;
-      if (isForbiddenWorkspaceError(error) && !isCurrentResource()) return;
+      if (!isCurrentResource()) return;
       if (!this.recoverForbiddenWorkspace(error)) this.setConnection("err");
     }
   },
@@ -388,7 +391,7 @@ export const workspaceBootstrapMethods = {
     if (Object.prototype.hasOwnProperty.call(page, "latestEventId")) {
       this.sessionEventCursors ??= new Map();
       this.sessionEventCursors.delete(session.id);
-      this.setSessionEventCursor(session.id, Number(page.latestEventId));
+      this.setSessionEventCursor(session.id, page.latestEventId);
     }
     this.renderMessages(messages);
     this.setMode(status || "idle");

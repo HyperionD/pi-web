@@ -466,7 +466,8 @@ describe("pi-app core events", () => {
     app.loadSession = vi.fn();
     app.connectEvents("s1");
     app.eventSource.onopen();
-    expect(app.loadSession).toHaveBeenCalledWith("s1", { resync: true });
+    expect(app.loadSession).toHaveBeenCalledWith("s1", expect.objectContaining({ resync: true }));
+    await Promise.resolve();
     listeners["session.status"]({
       data: JSON.stringify({ id: 3, type: "session.status", sessionId: "s1", payload: { status: "running" } }),
     });

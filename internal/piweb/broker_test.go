@@ -45,8 +45,8 @@ func TestShouldReplayHistory(t *testing.T) {
 	if shouldReplayHistory(withoutReplay, 0) {
 		t.Fatal("initial loaded sessions should not replay broker history")
 	}
-	if !shouldReplayHistory(withoutReplay, 7) {
-		t.Fatal("EventSource reconnects should replay missed events after Last-Event-ID")
+	if shouldReplayHistory(withoutReplay, 7) {
+		t.Fatal("replay=false must not replay AG-UI-consumed history")
 	}
 	withReplay := httptest.NewRequest("GET", "/events", nil)
 	if !shouldReplayHistory(withReplay, 0) {
@@ -165,7 +165,7 @@ func TestBrokerGapIsObservableWhenSubscriberIsSlow(t *testing.T) {
 		}
 	}
 	gapPayload, ok := events[1].Payload.(map[string]any)
-	if !ok || gapPayload["sessionId"] != "s1" || gapPayload["after"] != after.ID || gapPayload["latestEventId"] != dropped.ID {
+	if !ok || gapPayload["sessionId"] != "s1" || gapPayload["after"] != strconv.FormatUint(after.ID, 10) || gapPayload["latestEventId"] != strconv.FormatUint(dropped.ID, 10) {
 		t.Fatalf("unexpected broker gap payload: %#v", events[1].Payload)
 	}
 	if events[0].ID != queued.ID || events[2].ID != idle.ID || events[3].ID != errorEvent.ID ||
@@ -191,7 +191,7 @@ func TestBrokerGapPrecedesCriticalEventWhenBufferIsFull(t *testing.T) {
 		t.Fatalf("broker gap must not advance the event cursor: %#v", gap)
 	}
 	payload := gap.Payload.(map[string]any)
-	if payload["latestEventId"] != idle.ID {
+	if payload["latestEventId"] != strconv.FormatUint(idle.ID, 10) {
 		t.Fatalf("gap did not identify the overflowing event: %#v", payload)
 	}
 }
@@ -236,7 +236,7 @@ terminated:
 	gapIndex := -1
 	for index, event := range events {
 		payload, ok := event.Payload.(map[string]any)
-		if event.Type == "broker_gap" && ok && payload["latestEventId"] == overflow.ID {
+		if event.Type == "broker_gap" && ok && payload["latestEventId"] == strconv.FormatUint(overflow.ID, 10) {
 			gapIndex = index
 			break
 		}
@@ -418,7 +418,7 @@ func TestGapPayloadIsImmutableAfterExposure(t *testing.T) {
 		t.Fatalf("expected broker gap, got %#v", gap)
 	}
 	payload, ok := gap.Payload.(map[string]any)
-	if !ok || payload["latestEventId"] != dropped.ID {
+	if !ok || payload["latestEventId"] != strconv.FormatUint(dropped.ID, 10) {
 		t.Fatalf("exposed gap payload was mutated: payload=%#v dropped=%d latest=%d", gap.Payload, dropped.ID, latest.ID)
 	}
 }
@@ -555,7 +555,7 @@ func TestBrokerCriticalBacklogIsBoundedAndGapIsVisible(t *testing.T) {
 		case event := <-subscription.Events:
 			if event.Type == "broker_gap" {
 				payload, _ := event.Payload.(map[string]any)
-				if payload["latestEventId"] == overflow.ID {
+				if payload["latestEventId"] == strconv.FormatUint(overflow.ID, 10) {
 					gap = event
 				}
 			}
@@ -564,7 +564,7 @@ func TestBrokerCriticalBacklogIsBoundedAndGapIsVisible(t *testing.T) {
 		}
 	}
 	payload, ok := gap.Payload.(map[string]any)
-	if !ok || payload["latestEventId"] != overflow.ID {
+	if !ok || payload["latestEventId"] != strconv.FormatUint(overflow.ID, 10) {
 		t.Fatalf("gap did not expose the bounded overflow: %#v overflow=%d", gap.Payload, overflow.ID)
 	}
 }
@@ -804,14 +804,14 @@ func TestServeSessionReplaysBeforeLiveAfterLastEventID(t *testing.T) {
 func TestWriteSSEIncludesBrokerGapRecoveryFields(t *testing.T) {
 	var body strings.Builder
 	event := Event{ID: 0, Type: "broker_gap", SessionID: "s1", Payload: map[string]any{
-		"sessionId": "s1", "after": uint64(3), "latestEventId": uint64(8),
+		"sessionId": "s1", "after": "3", "latestEventId": "8",
 	}}
 	if err := WriteSSE(&body, event); err != nil {
 		t.Fatal(err)
 	}
 	got := body.String()
 	for _, want := range []string{
-		"event: broker_gap\n", `"sessionId":"s1"`, `"after":3`, `"latestEventId":8`,
+		"event: broker_gap\n", `"sessionId":"s1"`, `"after":"3"`, `"latestEventId":"8"`,
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("expected %q in gap SSE %q", want, got)

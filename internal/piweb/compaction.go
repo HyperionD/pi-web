@@ -101,7 +101,7 @@ func (r *Runner) Compact(parent context.Context, broker *Broker, store *Store, s
 		r.compactCompleteHook()
 	}
 	message := Message{Kind: "pi", Text: fmt.Sprintf("context summarized · %d tokens before compaction", result.TokensBefore)}
-	if err := store.AppendMessage(sessionID, message); err != nil {
+	if err := appendMessageAndPublish(store, broker, sessionID, message); err != nil {
 		if run.isCancelling() {
 			return CompactionResult{}, err
 		}
@@ -112,7 +112,6 @@ func (r *Runner) Compact(parent context.Context, broker *Broker, store *Store, s
 	if run.isCancelling() {
 		return CompactionResult{}, context.Canceled
 	}
-	broker.Publish(sessionID, "session.message", message)
 	broker.Publish(sessionID, "session.status", map[string]string{
 		"status":     "idle",
 		"finishedAt": time.Now().UTC().Format(time.RFC3339),

@@ -94,6 +94,8 @@ type activePiRun struct {
 	runtimeOnce    sync.Once
 	commandMu      commandGate
 	mu             sync.Mutex
+	commandKind    string
+	steerPending   int
 	cancelling     bool
 }
 
@@ -148,13 +150,12 @@ func (r *Runner) StartPiPrompt(
 	ctx := eventCtx
 
 	user := Message{Kind: "user", Text: displayText, Attachments: images}
-	if err := store.AppendMessage(sessionID, user); err != nil {
+	if err := appendMessageAndPublish(store, broker, sessionID, user); err != nil {
 		r.discardRun(sessionID, activeRun)
 		eventCancel()
 		commandCancel()
 		return err
 	}
-	broker.Publish(sessionID, "session.message", user)
 	broker.Publish(sessionID, "session.status", map[string]string{"status": "running"})
 	go r.consumeRuntimeEvents(ctx, broker, store, sessionID, runtime, activeRun)
 	if err := activeRun.sendContext(ctx, rpcPromptCommand(text, images, "")); err != nil {
@@ -252,10 +253,14 @@ func (r *Runner) SteerContext(ctx context.Context, sessionID string, text string
 	if hook != nil {
 		hook()
 	}
+	run.adjustSteerPending(1)
+	defer run.adjustSteerPending(-1)
 	if !run.commandMu.acquire(ctx) {
 		return ctx.Err()
 	}
 	defer run.commandMu.release()
+	run.setCommandKind("steer")
+	defer run.setCommandKind("")
 	r.mu.Lock()
 	current := r.running[sessionID] == run
 	r.mu.Unlock()
@@ -414,6 +419,32 @@ func (run *activePiRun) beginCancel() bool {
 	return true
 }
 
+func (run *activePiRun) isSteering() bool {
+	run.mu.Lock()
+	defer run.mu.Unlock()
+	return run.steerPending > 0 || run.commandKind == "steer"
+}
+
+func (run *activePiRun) adjustSteerPending(delta int) {
+	run.mu.Lock()
+	run.steerPending += delta
+	run.mu.Unlock()
+}
+
+func (run *activePiRun) setCommandKind(kind string) {
+	run.mu.Lock()
+	run.commandKind = kind
+	run.mu.Unlock()
+}
+
+func (run *activePiRun) waitCommand(timeout time.Duration) {
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+	if run.commandMu.acquire(ctx) {
+		run.commandMu.release()
+	}
+}
+
 func (run *activePiRun) isCancelling() bool {
 	run.mu.Lock()
 	defer run.mu.Unlock()
@@ -498,6 +529,8 @@ func (r *activePiRun) sendFallback(command any) error {
 		return context.Canceled
 	}
 	defer r.commandMu.release()
+	r.setCommandKind("fallback")
+	defer r.setCommandKind("")
 	return r.sendFallbackUnlocked(command)
 }
 
@@ -530,6 +563,12 @@ func (r *activePiRun) sendRPCContext(ctx context.Context, command RPCCommand) (R
 		return RPCResponse{}, sendCtx.Err()
 	}
 	defer r.commandMu.release()
+	kind := command.Type
+	if isSteerRPCCommand(command) {
+		kind = "steer"
+	}
+	r.setCommandKind(kind)
+	defer r.setCommandKind("")
 	return r.sendRPCUnlocked(sendCtx, command)
 }
 
@@ -591,19 +630,33 @@ func (r *Runner) Cancel(sessionID string) bool {
 	}
 	if !abortStarted {
 		run.cancel()
-	}
-	if !waitForRun(run.settled, cancelSettleTimeout) {
+		if run.isSteering() {
+			run.waitCommand(cancelSettleTimeout)
+		} else {
+			run.markSettled()
+		}
+	} else if !waitForRun(run.settled, cancelSettleTimeout) {
 		run.cancel()
 		waitForRun(run.eventsDone, cancelSettleTimeout)
 	}
 	if runtime != nil {
-		closeCtx, closeCancel := context.WithTimeout(context.Background(), cancelAbortTimeout)
-		if runManager != nil {
-			_ = runManager.RetireOwned(closeCtx, run.ownership)
+		if abortStarted {
+			closeCtx, closeCancel := context.WithTimeout(context.Background(), cancelAbortTimeout)
+			if runManager != nil {
+				_ = runManager.RetireOwned(closeCtx, run.ownership)
+			} else {
+				_ = runtime.Close(closeCtx)
+			}
+			closeCancel()
+		} else if runManager != nil {
+			runManager.RetireOwnedAsync(run.ownership)
 		} else {
-			_ = runtime.Close(closeCtx)
+			go func() {
+				closeCtx, closeCancel := context.WithTimeout(context.Background(), cancelAbortTimeout)
+				defer closeCancel()
+				_ = runtime.Close(closeCtx)
+			}()
 		}
-		closeCancel()
 	}
 	run.markSettled()
 	r.releaseRun(sessionID, run)
