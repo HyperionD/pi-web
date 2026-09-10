@@ -46,7 +46,10 @@ type RuntimeManagerOptions struct {
 	Now             func() time.Time
 }
 
-var errRuntimeManagerClosed = errors.New("runtime manager is shut down")
+var (
+	errRuntimeManagerClosed = errors.New("runtime manager is shut down")
+	errRuntimeSessionClosed = errors.New("session runtime is closed")
+)
 
 const (
 	defaultRuntimeIdleTimeout = 10 * time.Minute
@@ -60,14 +63,15 @@ type RuntimeManager struct {
 	idle    time.Duration
 	cleanup time.Duration
 
-	mu       sync.Mutex
-	sessions map[string]*runtimeEntry
-	starting map[string]*runtimeStartup
-	ctx      context.Context
-	cancel   context.CancelFunc
-	stop     chan struct{}
-	stopped  bool
-	nextID   atomic.Uint64
+	mu        sync.Mutex
+	sessions  map[string]*runtimeEntry
+	starting  map[string]*runtimeStartup
+	tombstone map[string]struct{}
+	ctx       context.Context
+	cancel    context.CancelFunc
+	stop      chan struct{}
+	stopped   bool
+	nextID    atomic.Uint64
 }
 
 type runtimeStartup struct {
@@ -78,17 +82,19 @@ type runtimeStartup struct {
 }
 
 type runtimeEntry struct {
-	manager     *RuntimeManager
-	runtime     PiRuntime
-	lastUsed    time.Time
-	events      chan PiEvent
-	eventsOnce  sync.Once
-	stopOnce    sync.Once
-	stop        chan struct{}
-	mu          sync.Mutex
-	active      int
-	eventActive bool
-	closed      bool
+	manager    *RuntimeManager
+	runtime    PiRuntime
+	lastUsed   time.Time
+	events     chan PiEvent
+	eventsOnce sync.Once
+	stopOnce   sync.Once
+	stop       chan struct{}
+	mu         sync.Mutex
+	active     int
+	activity   map[string]int
+	closed     bool
+	closeDone  chan struct{}
+	closeErr   error
 }
 
 func NewRuntimeManager(store *Store, factories ...RuntimeProcessFactory) *RuntimeManager {
@@ -123,7 +129,7 @@ func NewRuntimeManagerWithOptions(store *Store, options RuntimeManagerOptions) *
 	ctx, cancel := context.WithCancel(context.Background())
 	manager := &RuntimeManager{
 		store: store, factory: factory, now: now, idle: idle, cleanup: cleanup,
-		sessions: map[string]*runtimeEntry{}, starting: map[string]*runtimeStartup{},
+		sessions: map[string]*runtimeEntry{}, starting: map[string]*runtimeStartup{}, tombstone: map[string]struct{}{},
 		ctx: ctx, cancel: cancel, stop: make(chan struct{}),
 	}
 	go manager.evictLoop()
@@ -138,6 +144,10 @@ func (m *RuntimeManager) Ensure(ctx context.Context, sessionID string) (PiRuntim
 	if m.stopped {
 		m.mu.Unlock()
 		return nil, errRuntimeManagerClosed
+	}
+	if _, closed := m.tombstone[sessionID]; closed {
+		m.mu.Unlock()
+		return nil, errRuntimeSessionClosed
 	}
 	sessionFile, cwd, ok := m.store.SessionRuntime(sessionID)
 	if !ok {
@@ -169,23 +179,27 @@ func (m *RuntimeManager) startRuntime(sessionID, sessionFile, cwd string, startu
 	closeRuntime := false
 	m.mu.Lock()
 	delete(m.starting, sessionID)
-	if err == nil && (m.stopped || startup.discard) {
+	_, tombstoned := m.tombstone[sessionID]
+	if err == nil && (m.stopped || startup.discard || tombstoned) {
 		closeRuntime = true
-		err = errRuntimeManagerClosed
+		err = errRuntimeSessionClosed
+		if m.stopped {
+			err = errRuntimeManagerClosed
+		}
 	}
 	if err == nil {
-		entry := &runtimeEntry{manager: m, runtime: runtime, lastUsed: m.now(), events: make(chan PiEvent, 64), stop: make(chan struct{})}
+		entry := &runtimeEntry{manager: m, runtime: runtime, lastUsed: m.now(), events: make(chan PiEvent, 64), stop: make(chan struct{}), activity: map[string]int{}, closeDone: make(chan struct{})}
 		m.sessions[sessionID] = entry
 		startup.runtime = entry
 	} else {
 		startup.runtime = runtime
 	}
 	startup.err = err
-	close(startup.done)
 	m.mu.Unlock()
-	if closeRuntime {
+	if closeRuntime && runtime != nil {
 		_ = runtime.Close(context.Background())
 	}
+	close(startup.done)
 }
 
 func waitRuntimeStartup(ctx context.Context, startup *runtimeStartup) (PiRuntime, error) {
@@ -202,13 +216,13 @@ func (m *RuntimeManager) CloseSession(ctx context.Context, sessionID string) err
 	entry := m.sessions[sessionID]
 	delete(m.sessions, sessionID)
 	startup := m.starting[sessionID]
+	m.tombstone[sessionID] = struct{}{}
 	if startup != nil {
 		startup.discard = true
-		delete(m.starting, sessionID)
 	}
 	m.mu.Unlock()
 	if startup != nil {
-		if _, err := waitRuntimeStartup(ctx, startup); err != nil && !errors.Is(err, errRuntimeManagerClosed) {
+		if _, err := waitRuntimeStartup(ctx, startup); err != nil && !errors.Is(err, errRuntimeManagerClosed) && !errors.Is(err, errRuntimeSessionClosed) {
 			return err
 		}
 		return nil

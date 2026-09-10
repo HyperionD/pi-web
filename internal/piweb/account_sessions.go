@@ -1,11 +1,22 @@
 package piweb
 
-import "net/http"
+import (
+	"errors"
+	"net/http"
+)
 
 func (s *Server) deleteAccountSessions(w http.ResponseWriter, r *http.Request) {
 	sessions, err := s.workspaceAccess.Sessions(requestActor(r), r.PathValue("workspaceID"))
 	if err != nil {
 		writeStoreError(w, err)
+		return
+	}
+	var closeErr error
+	for _, session := range sessions {
+		closeErr = errors.Join(closeErr, s.runtimeManager.CloseSession(s.context(), session.ID))
+	}
+	if closeErr != nil {
+		writeError(w, http.StatusInternalServerError, closeErr)
 		return
 	}
 	deleted := 0

@@ -46,3 +46,17 @@
 - `Store` 当前没有持久打开的数据库句柄；其 SQLite 操作均为临时打开/关闭，因此 Server shutdown 无额外 store handle 可释放。
 - runtime 默认 idle timeout 为 10 分钟；idle close 使用 5 秒强制进程组退出兜底。
 - 进程 runtime 的事件通道保持单一 Broker 发布路径，未增加浏览器直连通道。
+
+## 修复轮次 1（Critical/Important）
+
+状态：已完成并独立提交：`f2b3e84cf248d4bd39db469da7e6da94d9010fa4`。
+
+- `runtime_process.go`：所有 RPC（Prompt/Steer/Compact/Abort）按真实 response 等待；严格匹配 request ID，传播 response failure、EOF、scanner/非法 stdout 错误，并清理全部 waiter。
+- stdout 事件发送改为非阻塞且保留终止/error 事件；stderr reader 纳入 join；Runner 取消会发送 `abort`，等待取消消费退出后才允许新 Prompt，失败时关闭 runtime。
+- RuntimeManager 增加 session tombstone 与 startup 等待，阻止 CloseSession/startup 竞态创建第二个进程；活动改为 request + agent/turn/tool 计数，idle eviction 不依赖接口外可选方法。
+- session 单删、account/workspace 批量删均先调用 `CloseSession`；Server shutdown guard 持有读锁覆盖请求，shutdown 明确执行 runtime、broker、store；主程序即使 runtime shutdown 报错仍继续 HTTP shutdown。
+- 新增 process/RPC、EOF/非法输出、背压、stderr、Cancel、startup tombstone、活动计数、批量删除与 shutdown guard 回归测试；更新 fake Pi 响应携带真实 request ID。
+
+验证：`go test -race ./internal/piweb -run 'Test(RuntimeManager|Runner)' -count=1`、`go test ./...`、`go test -race ./internal/piweb -count=1`、`git diff --check` 均通过。
+
+Concerns：Store 当前仍无持久 handle，`Store.Shutdown` 为明确的 no-op 契约；Cancel 使用 Pi RPC `abort`，若 abort 失败会关闭该 session runtime 后由下一次 Ensure 重建。

@@ -18,16 +18,18 @@ type processPiRuntime struct {
 	stdin  io.WriteCloser
 	events chan PiEvent
 
-	writeMu    sync.Mutex
-	mu         sync.Mutex
-	pending    map[string]chan runtimeResponse
-	running    bool
-	active     bool
-	closed     bool
-	lastUse    time.Time
-	seq        atomic.Uint64
-	done       chan struct{}
+	writeMu  sync.Mutex
+	mu       sync.Mutex
+	pending  map[string]chan runtimeResponse
+	running  bool
+	closed   bool
+	lastUse  time.Time
+	activity map[string]int
+	seq      atomic.Uint64
+	done     chan struct{}
+
 	stdoutDone chan struct{}
+	stderrDone chan struct{}
 }
 
 type runtimeResponse struct {
@@ -62,10 +64,11 @@ func newPiRuntime(ctx context.Context, sessionFile, cwd string) (PiRuntime, erro
 	}
 	runtime := &processPiRuntime{
 		cmd: cmd, stdin: stdin, events: make(chan PiEvent, 64), pending: map[string]chan runtimeResponse{},
-		running: true, lastUse: time.Now(), done: make(chan struct{}), stdoutDone: make(chan struct{}),
+		running: true, lastUse: time.Now(), activity: map[string]int{}, done: make(chan struct{}), stdoutDone: make(chan struct{}),
+		stderrDone: make(chan struct{}),
 	}
 	go runtime.readStdout(stdout)
-	go func() { _, _ = io.Copy(io.Discard, stderr) }()
+	go runtime.readStderr(stderr)
 	go runtime.waitForProcess()
 	return runtime, nil
 }
@@ -75,55 +78,102 @@ func (runtime *processPiRuntime) readStdout(stdout io.Reader) {
 	scanner := bufio.NewScanner(stdout)
 	scanner.Buffer(make([]byte, 64*1024), 8*1024*1024)
 	for scanner.Scan() {
-		runtime.handleLine(scanner.Bytes())
-	}
-}
-
-func (runtime *processPiRuntime) handleLine(raw []byte) {
-	var envelope struct {
-		ID      string          `json:"id"`
-		Type    string          `json:"type"`
-		Command string          `json:"command"`
-		Success bool            `json:"success"`
-		Data    json.RawMessage `json:"data"`
-		Error   string          `json:"error"`
-	}
-	if json.Unmarshal(raw, &envelope) != nil || envelope.Type == "" {
-		return
-	}
-	runtime.touchEvent(envelope.Type)
-	if envelope.Type == "response" {
-		response := RPCResponse{ID: envelope.ID, Type: envelope.Type, Command: envelope.Command, Success: envelope.Success, Data: envelope.Data, Error: envelope.Error}
-		if runtime.deliverResponse(response) {
+		if err := runtime.handleLine(scanner.Bytes()); err != nil {
+			runtime.protocolFailure(err)
+			terminateCommandProcessGroup(runtime.cmd)
 			return
 		}
 	}
+	if err := scanner.Err(); err != nil {
+		runtime.protocolFailure(fmt.Errorf("pi stdout scanner: %w", err))
+		terminateCommandProcessGroup(runtime.cmd)
+	}
+}
+
+func (runtime *processPiRuntime) readStderr(stderr io.Reader) {
+	defer close(runtime.stderrDone)
+	_, _ = io.Copy(io.Discard, stderr)
+}
+
+func (runtime *processPiRuntime) handleLine(raw []byte) error {
+	var envelope struct {
+		ID         string          `json:"id"`
+		Type       string          `json:"type"`
+		Command    string          `json:"command"`
+		Success    bool            `json:"success"`
+		Data       json.RawMessage `json:"data"`
+		Error      string          `json:"error"`
+		ToolCallID string          `json:"toolCallId"`
+	}
+	if err := json.Unmarshal(raw, &envelope); err != nil {
+		return fmt.Errorf("invalid pi RPC output: %w", err)
+	}
+	if envelope.Type == "" {
+		return errors.New("invalid pi RPC output: missing event type")
+	}
+	runtime.touchEvent(envelope.Type, envelope.ToolCallID)
+	if envelope.Type == "response" {
+		response := RPCResponse{ID: envelope.ID, Type: envelope.Type, Command: envelope.Command, Success: envelope.Success, Data: envelope.Data, Error: envelope.Error}
+		if runtime.deliverResponse(response) {
+			return nil
+		}
+	}
 	copyRaw := append(json.RawMessage(nil), raw...)
+	runtime.enqueueEvent(PiEvent{Type: envelope.Type, Raw: copyRaw})
+	return nil
+}
+
+func (runtime *processPiRuntime) enqueueEvent(event PiEvent) {
 	select {
-	case runtime.events <- PiEvent{Type: envelope.Type, Raw: copyRaw}:
-	case <-runtime.done:
+	case runtime.events <- event:
+		return
+	default:
+	}
+	if event.Type != "agent_end" && event.Type != "error" {
+		runtime.failPending(errors.New("pi event channel is full"))
+		return
+	}
+	select {
+	case <-runtime.events:
+	default:
+	}
+	select {
+	case runtime.events <- event:
+	default:
+		runtime.failPending(fmt.Errorf("pi event channel is full while reporting %s", event.Type))
 	}
 }
 
 func (runtime *processPiRuntime) deliverResponse(response RPCResponse) bool {
 	runtime.mu.Lock()
 	defer runtime.mu.Unlock()
-	id := response.ID
-	waiter := runtime.pending[id]
-	if waiter == nil && id == "" && len(runtime.pending) == 1 {
-		for pendingID, candidate := range runtime.pending {
-			id, waiter = pendingID, candidate
-		}
-	}
+	waiter := runtime.pending[response.ID]
 	if waiter == nil {
 		return false
 	}
-	delete(runtime.pending, id)
-	select {
-	case waiter <- runtimeResponse{response: response}:
-	default:
-	}
+	delete(runtime.pending, response.ID)
+	waiter <- runtimeResponse{response: response}
 	return true
+}
+
+func (runtime *processPiRuntime) failPending(err error) {
+	runtime.mu.Lock()
+	pending := runtime.pending
+	runtime.pending = map[string]chan runtimeResponse{}
+	runtime.mu.Unlock()
+	for _, waiter := range pending {
+		waiter <- runtimeResponse{err: err}
+	}
+}
+
+func (runtime *processPiRuntime) protocolFailure(err error) {
+	runtime.mu.Lock()
+	pending := runtime.pending
+	runtime.pending = map[string]chan runtimeResponse{}
+	runtime.mu.Unlock()
+	for _, waiter := range pending {
+		waiter <- runtimeResponse{err: err}
+	}
 }
 
 func (runtime *processPiRuntime) Send(ctx context.Context, command RPCCommand) (RPCResponse, error) {
@@ -140,6 +190,10 @@ func (runtime *processPiRuntime) Send(ctx context.Context, command RPCCommand) (
 		runtime.mu.Unlock()
 		return RPCResponse{}, errors.New("runtime is not running")
 	}
+	if _, exists := runtime.pending[command.ID]; exists {
+		runtime.mu.Unlock()
+		return RPCResponse{}, fmt.Errorf("duplicate RPC request ID %q", command.ID)
+	}
 	runtime.pending[command.ID] = waiter
 	runtime.lastUse = time.Now()
 	runtime.mu.Unlock()
@@ -151,18 +205,26 @@ func (runtime *processPiRuntime) Send(ctx context.Context, command RPCCommand) (
 		runtime.removePending(command.ID)
 		return RPCResponse{}, writeErr
 	}
-	if command.Type != "compact" {
-		runtime.removePending(command.ID)
-		return RPCResponse{ID: command.ID, Type: "response", Command: command.Type, Success: true}, nil
-	}
-	select {
-	case result := <-waiter:
-		return result.response, result.err
-	case <-ctx.Done():
-		runtime.removePending(command.ID)
-		return RPCResponse{}, ctx.Err()
-	case <-runtime.done:
-		return RPCResponse{}, errors.New("pi process exited")
+	for {
+		select {
+		case result := <-waiter:
+			return result.response, result.err
+		default:
+		}
+		select {
+		case result := <-waiter:
+			return result.response, result.err
+		case <-ctx.Done():
+			runtime.removePending(command.ID)
+			return RPCResponse{}, ctx.Err()
+		case <-runtime.done:
+			select {
+			case result := <-waiter:
+				return result.response, result.err
+			default:
+			}
+			return RPCResponse{}, errors.New("pi process exited")
+		}
 	}
 }
 
@@ -191,18 +253,18 @@ func (runtime *processPiRuntime) removePending(id string) {
 func (runtime *processPiRuntime) waitForProcess() {
 	err := runtime.cmd.Wait()
 	<-runtime.stdoutDone
+	<-runtime.stderrDone
 	runtime.mu.Lock()
 	runtime.running = false
-	runtime.active = false
 	runtime.closed = true
 	pending := runtime.pending
 	runtime.pending = map[string]chan runtimeResponse{}
 	runtime.mu.Unlock()
+	if err == nil {
+		err = errors.New("pi process exited")
+	}
 	for _, waiter := range pending {
-		select {
-		case waiter <- runtimeResponse{err: fmt.Errorf("pi process exited: %w", err)}:
-		default:
-		}
+		waiter <- runtimeResponse{err: fmt.Errorf("pi process exited: %w", err)}
 	}
 	close(runtime.done)
 	close(runtime.events)
@@ -217,23 +279,35 @@ func (runtime *processPiRuntime) IsRunning() bool {
 func (runtime *processPiRuntime) Active() bool {
 	runtime.mu.Lock()
 	defer runtime.mu.Unlock()
-	return runtime.active || len(runtime.pending) > 0
+	return len(runtime.pending) > 0 || len(runtime.activity) > 0
 }
 func (runtime *processPiRuntime) LastUsedAt() time.Time {
 	runtime.mu.Lock()
 	defer runtime.mu.Unlock()
 	return runtime.lastUse
 }
-func (runtime *processPiRuntime) touchEvent(eventType string) {
+func (runtime *processPiRuntime) touchEvent(eventType, toolCallID string) {
 	runtime.mu.Lock()
+	defer runtime.mu.Unlock()
 	runtime.lastUse = time.Now()
+	if runtime.activity == nil {
+		runtime.activity = map[string]int{}
+	}
+	key := eventActivityKey(eventType, toolCallID)
+	if key == "" {
+		return
+	}
 	switch eventType {
 	case "agent_start", "turn_start", "tool_execution_start":
-		runtime.active = true
-	case "agent_end", "turn_end":
-		runtime.active = false
+		runtime.activity[key]++
+	case "agent_end", "turn_end", "tool_execution_end":
+		if runtime.activity[key] > 0 {
+			runtime.activity[key]--
+			if runtime.activity[key] == 0 {
+				delete(runtime.activity, key)
+			}
+		}
 	}
-	runtime.mu.Unlock()
 }
 
 func (runtime *processPiRuntime) Close(ctx context.Context) error {
@@ -251,11 +325,7 @@ func (runtime *processPiRuntime) Close(ctx context.Context) error {
 	case <-ctx.Done():
 		terminateCommandProcessGroup(runtime.cmd)
 		forceTerminateCommandProcessGroup(runtime.cmd)
-		select {
-		case <-runtime.done:
-			return ctx.Err()
-		default:
-			return ctx.Err()
-		}
+		<-runtime.done
+		return ctx.Err()
 	}
 }

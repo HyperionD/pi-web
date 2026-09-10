@@ -92,9 +92,8 @@ func (s *Server) Handler() http.Handler {
 func (s *Server) withShutdownGuard(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		s.shutdownMu.RLock()
-		shuttingDown := s.shuttingDown
-		s.shutdownMu.RUnlock()
-		if shuttingDown {
+		defer s.shutdownMu.RUnlock()
+		if s.shuttingDown {
 			writeError(w, http.StatusServiceUnavailable, errors.New("server is shutting down"))
 			return
 		}
@@ -171,7 +170,11 @@ func (s *Server) Shutdown(ctx context.Context) error {
 	s.shuttingDown = true
 	s.cancel()
 	s.shutdownMu.Unlock()
-	return errors.Join(s.runtimeManager.Shutdown(ctx), s.broker.Shutdown(ctx))
+	return errors.Join(
+		s.runtimeManager.Shutdown(ctx),
+		s.broker.Shutdown(ctx),
+		s.store.Shutdown(ctx),
+	)
 }
 
 func (s *Server) workspacePolicy() (WorkspacePolicy, error) {

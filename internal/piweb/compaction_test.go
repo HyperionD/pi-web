@@ -18,7 +18,8 @@ func TestRunnerCompactUsesPiRPCAndPublishesSummary(t *testing.T) {
 	writeFakePi(t, root, `#!/bin/sh
 read request
 printf '%s' "$request" > "$PI_COMPACT_REQUEST"
-printf '%s\n' '{"type":"response","command":"compact","success":true,"data":{"summary":"kept the implementation plan","tokensBefore":120,"estimatedTokensAfter":40}}'
+id=$(printf '%s' "$request" | sed 's/.*"id":"\([^"]*\)".*/\1/')
+printf '%s\n' "{\"id\":\"$id\",\"type\":\"response\",\"command\":\"compact\",\"success\":true,\"data\":{\"summary\":\"kept the implementation plan\",\"tokensBefore\":120,\"estimatedTokensAfter\":40}}"
 `)
 
 	store := NewMockStore()
@@ -65,7 +66,8 @@ func TestRunnerCompactPropagatesPiRPCFailure(t *testing.T) {
 	root := t.TempDir()
 	writeFakePi(t, root, `#!/bin/sh
 read request
-printf '%s\n' '{"type":"response","command":"compact","success":false,"error":"quota exceeded"}'
+id=$(printf '%s' "$request" | sed 's/.*"id":"\([^"]*\)".*/\1/')
+printf '%s\n' "{\"id\":\"$id\",\"type\":\"response\",\"command\":\"compact\",\"success\":false,\"error\":\"quota exceeded\"}"
 `)
 	store := NewMockStore()
 	workspace, err := store.OpenWorkspace(root)

@@ -2,6 +2,7 @@ package piweb
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"time"
@@ -40,23 +41,71 @@ func (entry *runtimeEntry) forwardEvents() {
 			if !ok {
 				return
 			}
-			entry.mu.Lock()
-			entry.lastUsed = entry.manager.now()
-			switch event.Type {
-			case "agent_start", "turn_start", "tool_execution_start":
-				entry.eventActive = true
-			case "agent_end", "turn_end", "tool_execution_end":
-				entry.eventActive = false
-			}
-			entry.mu.Unlock()
-			select {
-			case entry.events <- event:
-			case <-entry.stop:
-				return
-			}
+			entry.recordEvent(event)
+			entry.enqueueEvent(event)
 		case <-entry.stop:
 			return
 		}
+	}
+}
+
+func (entry *runtimeEntry) enqueueEvent(event PiEvent) {
+	select {
+	case entry.events <- event:
+		return
+	default:
+	}
+	if event.Type != "agent_end" && event.Type != "error" {
+		return
+	}
+	select {
+	case <-entry.events:
+	default:
+	}
+	select {
+	case entry.events <- event:
+	default:
+	}
+}
+
+func (entry *runtimeEntry) recordEvent(event PiEvent) {
+	var envelope struct {
+		ToolCallID string `json:"toolCallId"`
+	}
+	_ = json.Unmarshal(event.Raw, &envelope)
+	key := eventActivityKey(event.Type, envelope.ToolCallID)
+	if key == "" {
+		return
+	}
+	entry.mu.Lock()
+	defer entry.mu.Unlock()
+	entry.lastUsed = entry.manager.now()
+	switch event.Type {
+	case "agent_start", "turn_start", "tool_execution_start":
+		entry.activity[key]++
+	case "agent_end", "turn_end", "tool_execution_end":
+		if entry.activity[key] > 0 {
+			entry.activity[key]--
+			if entry.activity[key] == 0 {
+				delete(entry.activity, key)
+			}
+		}
+	}
+}
+
+func eventActivityKey(eventType, toolCallID string) string {
+	switch eventType {
+	case "agent_start", "agent_end":
+		return "agent"
+	case "turn_start", "turn_end":
+		return "turn"
+	case "tool_execution_start", "tool_execution_end":
+		if toolCallID == "" {
+			return "tool"
+		}
+		return "tool:" + toolCallID
+	default:
+		return ""
 	}
 }
 
@@ -64,13 +113,35 @@ func (entry *runtimeEntry) IsRunning() bool { return !entry.isClosed() && entry.
 func (entry *runtimeEntry) Close(ctx context.Context) error {
 	entry.mu.Lock()
 	if entry.closed {
+		done := entry.closeDone
 		entry.mu.Unlock()
-		return nil
+		if done == nil {
+			return nil
+		}
+		select {
+		case <-done:
+			entry.mu.Lock()
+			err := entry.closeErr
+			entry.mu.Unlock()
+			return err
+		case <-ctx.Done():
+			return ctx.Err()
+		}
 	}
 	entry.closed = true
+	done := entry.closeDone
+	if done == nil {
+		done = make(chan struct{})
+		entry.closeDone = done
+	}
 	entry.mu.Unlock()
 	entry.stopOnce.Do(func() { close(entry.stop) })
-	return entry.runtime.Close(ctx)
+	err := entry.runtime.Close(ctx)
+	entry.mu.Lock()
+	entry.closeErr = err
+	close(done)
+	entry.mu.Unlock()
+	return err
 }
 func (entry *runtimeEntry) touch(at time.Time) {
 	entry.mu.Lock()
@@ -87,17 +158,8 @@ func (entry *runtimeEntry) isClosed() bool {
 func (entry *runtimeEntry) idleBefore(cutoff time.Time) bool {
 	entry.mu.Lock()
 	defer entry.mu.Unlock()
-	if entry.closed || entry.active > 0 || entry.eventActive || entry.runtime.IsRunning() && runtimeIsActive(entry.runtime) {
+	if entry.closed || entry.active > 0 || len(entry.activity) > 0 {
 		return false
 	}
-	lastUsed := entry.lastUsed
-	if activity, ok := entry.runtime.(interface{ LastUsedAt() time.Time }); ok && activity.LastUsedAt().After(lastUsed) {
-		lastUsed = activity.LastUsedAt()
-	}
-	return lastUsed.Before(cutoff)
-}
-
-func runtimeIsActive(runtime PiRuntime) bool {
-	activity, ok := runtime.(interface{ Active() bool })
-	return ok && activity.Active()
+	return entry.lastUsed.Before(cutoff)
 }

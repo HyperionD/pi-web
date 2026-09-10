@@ -203,7 +203,21 @@ func (s *Server) deleteWorkspaceSessions(w http.ResponseWriter, r *http.Request)
 		s.deleteAccountSessions(w, r)
 		return
 	}
-	deletedCount, err := s.store.DeleteWorkspaceSessions(r.PathValue("workspaceID"))
+	workspaceID := r.PathValue("workspaceID")
+	sessions, err := s.store.Sessions(workspaceID)
+	if err != nil {
+		writeStoreError(w, err)
+		return
+	}
+	var closeErr error
+	for _, session := range sessions {
+		closeErr = errors.Join(closeErr, s.runtimeManager.CloseSession(s.context(), session.ID))
+	}
+	if closeErr != nil {
+		writeError(w, http.StatusInternalServerError, closeErr)
+		return
+	}
+	deletedCount, err := s.store.DeleteWorkspaceSessions(workspaceID)
 	if err != nil {
 		writeStoreError(w, err)
 		return

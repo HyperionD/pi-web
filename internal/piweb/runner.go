@@ -41,7 +41,11 @@ type activePiRun struct {
 	stdin      io.WriteCloser
 	runtime    PiRuntime
 	compacting bool
+	done       chan struct{}
+	eventsDone chan struct{}
+	finishOnce sync.Once
 	mu         sync.Mutex
+	cancelling bool
 }
 
 func NewRunner() *Runner {
@@ -72,7 +76,7 @@ func (r *Runner) StartPiPrompt(
 		return err
 	}
 	ctx, cancel := context.WithCancel(parent)
-	activeRun := &activePiRun{cancel: cancel, runtime: runtime}
+	activeRun := &activePiRun{cancel: cancel, runtime: runtime, done: make(chan struct{}), eventsDone: make(chan struct{})}
 	if err := r.claimRun(sessionID, activeRun); err != nil {
 		cancel()
 		return err
@@ -88,10 +92,7 @@ func (r *Runner) StartPiPrompt(
 	broker.Publish(sessionID, "session.status", map[string]string{"status": "running"})
 	go r.consumeRuntimeEvents(ctx, broker, store, sessionID, runtime, activeRun)
 	if err := activeRun.sendContext(ctx, rpcPromptCommand(text, images, "")); err != nil {
-		r.forgetRun(sessionID, activeRun)
-		cancel()
-		broker.Publish(sessionID, "error", map[string]string{"error": err.Error()})
-		broker.Publish(sessionID, "session.status", map[string]string{"status": "idle"})
+		r.finishPrompt(sessionID, activeRun, broker, err)
 		return err
 	}
 	return nil
@@ -107,6 +108,9 @@ func (r *Runner) runtimeManager(store *Store) (*RuntimeManager, error) {
 }
 
 func (r *Runner) consumeRuntimeEvents(ctx context.Context, broker *Broker, store *Store, sessionID string, runtime PiRuntime, run *activePiRun) {
+	if run.eventsDone != nil {
+		defer close(run.eventsDone)
+	}
 	state := &jsonStreamState{}
 	for {
 		select {
@@ -130,6 +134,12 @@ func (r *Runner) consumeRuntimeEvents(ctx context.Context, broker *Broker, store
 }
 
 func (r *Runner) finishPrompt(sessionID string, run *activePiRun, broker *Broker, runErr error) {
+	if run.isCancelling() {
+		return
+	}
+	if !run.complete() {
+		return
+	}
 	r.forgetRun(sessionID, run)
 	run.cancel()
 	if runErr != nil {
@@ -141,13 +151,17 @@ func (r *Runner) finishPrompt(sessionID string, run *activePiRun, broker *Broker
 }
 
 func (r *Runner) Steer(sessionID string, text string, images []PromptAttachment) error {
+	return r.SteerContext(context.Background(), sessionID, text, images)
+}
+
+func (r *Runner) SteerContext(ctx context.Context, sessionID string, text string, images []PromptAttachment) error {
 	r.mu.Lock()
 	run, ok := r.running[sessionID]
 	r.mu.Unlock()
-	if !ok || run.compacting {
+	if !ok || run.compacting || run.isCancelling() {
 		return errors.New("session is not running")
 	}
-	return run.sendContext(context.Background(), rpcPromptCommand(text, images, "steer"))
+	return run.sendContext(ctx, rpcPromptCommand(text, images, "steer"))
 }
 
 func (r *Runner) IsRunning(sessionID string) bool {
@@ -170,6 +184,51 @@ func (r *Runner) forgetRun(sessionID string, run *activePiRun) {
 		delete(r.running, sessionID)
 	}
 	r.mu.Unlock()
+}
+
+func (r *Runner) finishRun(sessionID string, run *activePiRun) {
+	r.forgetRun(sessionID, run)
+	run.complete()
+}
+
+func (run *activePiRun) complete() bool {
+	completed := false
+	run.finishOnce.Do(func() {
+		completed = true
+		if run.done != nil {
+			close(run.done)
+		}
+	})
+	return completed
+}
+
+func (run *activePiRun) beginCancel() bool {
+	run.mu.Lock()
+	defer run.mu.Unlock()
+	if run.cancelling {
+		return false
+	}
+	run.cancelling = true
+	return true
+}
+
+func drainRuntimeEvents(runtime PiRuntime) {
+	for {
+		select {
+		case _, ok := <-runtime.Events():
+			if !ok {
+				return
+			}
+		default:
+			return
+		}
+	}
+}
+
+func (run *activePiRun) isCancelling() bool {
+	run.mu.Lock()
+	defer run.mu.Unlock()
+	return run.cancelling
 }
 
 func piRPCArgs(sessionFile string) []string {
@@ -281,12 +340,33 @@ func imageExtension(mimeType string) string {
 func (r *Runner) Cancel(sessionID string) bool {
 	r.mu.Lock()
 	run, ok := r.running[sessionID]
-	if ok {
-		delete(r.running, sessionID)
+	if ok && !run.beginCancel() {
+		ok = false
 	}
 	r.mu.Unlock()
-	if ok {
-		run.cancel()
+	if !ok {
+		return false
 	}
-	return ok
+	run.cancel()
+	if run.runtime != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		_, abortErr := run.runtime.Send(ctx, RPCCommand{Type: "abort"})
+		cancel()
+		if abortErr != nil {
+			closeCtx, closeCancel := context.WithTimeout(context.Background(), 5*time.Second)
+			_ = run.runtime.Close(closeCtx)
+			closeCancel()
+		}
+	}
+	if run.eventsDone != nil {
+		select {
+		case <-run.eventsDone:
+		case <-time.After(time.Second):
+		}
+	}
+	if run.runtime != nil {
+		drainRuntimeEvents(run.runtime)
+	}
+	r.finishRun(sessionID, run)
+	return true
 }

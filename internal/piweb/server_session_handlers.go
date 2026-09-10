@@ -142,7 +142,7 @@ func (s *Server) steerSession(w http.ResponseWriter, r *http.Request) {
 	}
 	displayText := promptDisplayText(req.Text, req.Attachments)
 	if s.config.EnablePiExecution {
-		if err := s.runner.Steer(sessionID, promptText, imageAttachments); err != nil {
+		if err := s.runner.SteerContext(r.Context(), sessionID, promptText, imageAttachments); err != nil {
 			writeError(w, http.StatusConflict, err)
 			return
 		}
