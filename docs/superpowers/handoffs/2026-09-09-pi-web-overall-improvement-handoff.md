@@ -88,7 +88,14 @@ Task 3 review package：
 - 两个 ELF 均为 `statically linked`；amd64 已通过 `--help` smoke test 和 SHA256 校验。
 - 构建使用临时源码树嵌入最新 Astro `dist/`，未修改或提交仓库 `static/`。
 
-人工测试重点：启动/登录、工作区 ACL、Prompt 流式输出、刷新/断线恢复、gap resync、AG-UI 去重、取消/compact、文件读写、Chrome 107、麒麟 V10 SP3 amd64/arm64。
+启动人工测试时必须显式限制 localhost：
+
+```bash
+./pi-web-v1.9.0-rc.1-linux-amd64 --host 127.0.0.1 --port 8732
+# 无真实 Pi 时增加 --mock
+```
+
+注意：CLI 默认 host 仍为 `0.0.0.0`，将在 Task 7 修复；本 RC 不可直接作为远程部署版本。人工测试重点：启动/登录、工作区 ACL、Prompt 流式输出、刷新/断线恢复、gap resync、AG-UI 去重、取消/compact、文件读写、Chrome 107、麒麟 V10 SP3 amd64/arm64。
 
 ## 明天第一步
 
