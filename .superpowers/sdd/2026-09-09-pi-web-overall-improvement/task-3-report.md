@@ -139,3 +139,25 @@ TDD：先加入测试并确认因新 hooks/契约缺失而 RED，再实现后定
 - `go build ./...`、`git diff --check`：PASS。
 
 Concerns：`Cancel` 对不响应 context 的第三方 runtime 只提供 bounded retire，不保证其实现内部 goroutine 自行退出；旧 runtime 与新 generation 已通过 manager identity 隔离。未修改 HTTP/ACL、Task2 Broker FIFO/gap/close、fallback/mock、Linux single binary 或 `static/`。
+
+## 修复轮次 4
+
+状态：已完成，针对三个 Important、启动失败清理和 request ID 复用阻断项补强。
+
+- Runner：每次 claim 分配单调 run generation；Steer 在同一 command gate 内再次确认 `running[sessionID] == run` 后才发送，完成/取消与发送协调，迟到 Steer 不会写入 successor generation。
+- RuntimeManager：新增 generation-bound ownership lease；Prompt/Compact 的 Ensure、attach、Retire 均携带 lease，交叠 startup/旧 owner retire 不会关闭新 owner runtime。
+- RuntimeManager.Close：超时且旧进程仍运行时保留 closing promise；Ensure 不提前 rebuild，待 `IsRunning` 确认退出后才允许新 runtime，close error 保留并可观察。
+- RuntimeProcess：启动失败关闭 stdin/stdout/stderr descriptor；使用独立 os pipes 避免 Wait 提前关闭未消费 response；取消 waiter 进入 request-ID quarantine，迟到 response 不会满足新 waiter。
+- 新增 Steer generation、overlapping startup ownership、bounded close/rebuild、request-ID quarantine 回归测试；不使用固定 sleep 或遗留后台进程。
+
+TDD：先运行新增测试确认 hooks/ownership API 缺失导致 RED，再实现并验证 GREEN。
+
+验证：
+
+- `go test -race ./internal/piweb -run 'Test(RunnerSteerCannotSendAfterRunGenerationChanges|RuntimeManagerOverlappingStartupOwnership|RuntimeOwnershipBlocksStaleRetire|RuntimeManagerRetainsTimedOutClosingRuntime|ProcessRuntimeQuarantinesCanceledRequestID|RunnerCancelReleasesNonCooperativeSend|RunnerCompactDoesNotAbortNewPromptAfterCompletionRace)' -count=10`：PASS。
+- `go test ./...`：PASS。
+- `go test -race ./internal/piweb -count=1`：PASS，无 race detector 报告。
+- `go build ./...`：PASS。
+- `git diff --check`：PASS。
+
+Concerns：Cancel API 仍保持既有 bool 契约；超时 close error 通过 retained closing 状态阻止静默 rebuild，并在后续 Ensure 返回。未修改 static、HTTP/ACL、Task2 Broker、fallback/mock 或 Linux single binary。

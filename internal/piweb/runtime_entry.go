@@ -144,7 +144,8 @@ func eventActivityKey(eventType, toolCallID string) string {
 	}
 }
 
-func (entry *runtimeEntry) IsRunning() bool { return !entry.isClosed() && entry.runtime.IsRunning() }
+func (entry *runtimeEntry) IsRunning() bool      { return !entry.isClosed() && entry.runtime.IsRunning() }
+func (entry *runtimeEntry) processRunning() bool { return entry.runtime.IsRunning() }
 func (entry *runtimeEntry) Close(ctx context.Context) error {
 	entry.mu.Lock()
 	if entry.closed {

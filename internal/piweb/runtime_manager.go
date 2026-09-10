@@ -39,6 +39,12 @@ type PiRuntime interface {
 
 type RuntimeProcessFactory func(ctx context.Context, sessionFile, cwd string) (PiRuntime, error)
 
+type runtimeOwnership struct {
+	sessionID  string
+	generation uint64
+	entry      *runtimeEntry
+}
+
 type RuntimeManagerOptions struct {
 	Factory         RuntimeProcessFactory
 	IdleTimeout     time.Duration
@@ -76,10 +82,11 @@ type RuntimeManager struct {
 }
 
 type runtimeStartup struct {
-	done    chan struct{}
-	runtime PiRuntime
-	err     error
-	discard bool
+	done       chan struct{}
+	runtime    PiRuntime
+	err        error
+	discard    bool
+	generation uint64
 }
 
 type runtimeClosing struct {
@@ -104,6 +111,7 @@ type runtimeEntry struct {
 	closed              bool
 	closeDone           chan struct{}
 	closeErr            error
+	ownerGeneration     uint64
 }
 
 func NewRuntimeManager(store *Store, factories ...RuntimeProcessFactory) *RuntimeManager {
@@ -146,47 +154,85 @@ func NewRuntimeManagerWithOptions(store *Store, options RuntimeManagerOptions) *
 }
 
 func (m *RuntimeManager) Ensure(ctx context.Context, sessionID string) (PiRuntime, error) {
+	runtime, _, err := m.EnsureOwned(ctx, sessionID, 0)
+	return runtime, err
+}
+
+func (m *RuntimeManager) EnsureOwned(ctx context.Context, sessionID string, generation uint64) (PiRuntime, runtimeOwnership, error) {
 	if sessionID == "" {
-		return nil, fmt.Errorf("session ID is required")
+		return nil, runtimeOwnership{}, fmt.Errorf("session ID is required")
 	}
 	for {
 		m.mu.Lock()
 		if m.stopped {
 			m.mu.Unlock()
-			return nil, errRuntimeManagerClosed
+			return nil, runtimeOwnership{}, errRuntimeManagerClosed
 		}
 		if _, closed := m.tombstone[sessionID]; closed {
 			m.mu.Unlock()
-			return nil, errRuntimeSessionClosed
+			return nil, runtimeOwnership{}, errRuntimeSessionClosed
 		}
 		if closing := m.closing[sessionID]; closing != nil {
+			if !closing.entry.processRunning() {
+				delete(m.closing, sessionID)
+				m.mu.Unlock()
+				continue
+			}
 			m.mu.Unlock()
 			if err := waitRuntimeClosing(ctx, closing); err != nil {
-				return nil, err
+				return nil, runtimeOwnership{}, err
 			}
 			continue
 		}
 		sessionFile, cwd, ok := m.store.SessionRuntime(sessionID)
 		if !ok {
 			m.mu.Unlock()
-			return nil, ErrNotFound
+			return nil, runtimeOwnership{}, ErrNotFound
 		}
-		if entry := m.sessions[sessionID]; entry != nil && entry.IsRunning() {
-			entry.touch(m.now())
+		if entry := m.sessions[sessionID]; entry != nil {
+			if entry.IsRunning() {
+				entry.ownerGeneration = generation
+				entry.touch(m.now())
+				ownership := runtimeOwnership{sessionID: sessionID, generation: generation, entry: entry}
+				m.mu.Unlock()
+				return entry, ownership, nil
+			}
+			delete(m.sessions, sessionID)
+			closing := m.registerClosingLocked(sessionID, entry)
 			m.mu.Unlock()
-			return entry, nil
+			if err := m.closeRegistered(ctx, sessionID, closing); err != nil {
+				return nil, runtimeOwnership{}, err
+			}
+			continue
 		}
 		if startup := m.starting[sessionID]; startup != nil {
 			m.mu.Unlock()
-			return waitRuntimeStartup(ctx, startup)
+			return m.waitOwnedStartup(ctx, sessionID, startup, generation)
 		}
-		startup := &runtimeStartup{done: make(chan struct{})}
+		startup := &runtimeStartup{done: make(chan struct{}), generation: generation}
 		m.starting[sessionID] = startup
 		startCtx := m.ctx
 		m.mu.Unlock()
 		go m.startRuntime(sessionID, sessionFile, cwd, startup, startCtx)
-		return waitRuntimeStartup(ctx, startup)
+		return m.waitOwnedStartup(ctx, sessionID, startup, generation)
 	}
+}
+
+func (m *RuntimeManager) waitOwnedStartup(ctx context.Context, sessionID string, startup *runtimeStartup, generation uint64) (PiRuntime, runtimeOwnership, error) {
+	runtime, err := waitRuntimeStartup(ctx, startup)
+	if err != nil {
+		return nil, runtimeOwnership{}, err
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	entry, ok := m.sessions[sessionID]
+	if !ok || entry != runtime {
+		return runtime, runtimeOwnership{}, errRuntimeSessionClosed
+	}
+	if entry.ownerGeneration == startup.generation {
+		entry.ownerGeneration = generation
+	}
+	return entry, runtimeOwnership{sessionID: sessionID, generation: generation, entry: entry}, nil
 }
 
 func (m *RuntimeManager) startRuntime(sessionID, sessionFile, cwd string, startup *runtimeStartup, ctx context.Context) {
@@ -206,7 +252,7 @@ func (m *RuntimeManager) startRuntime(sessionID, sessionFile, cwd string, startu
 		}
 	}
 	if err == nil {
-		entry := &runtimeEntry{manager: m, runtime: runtime, lastUsed: m.now(), events: make(chan PiEvent, 64), stop: make(chan struct{}), activity: map[string]int{}, closeDone: make(chan struct{})}
+		entry := &runtimeEntry{manager: m, runtime: runtime, ownerGeneration: startup.generation, lastUsed: m.now(), events: make(chan PiEvent, 64), stop: make(chan struct{}), activity: map[string]int{}, closeDone: make(chan struct{})}
 		m.sessions[sessionID] = entry
 		startup.runtime = entry
 	} else {
@@ -304,10 +350,22 @@ func (m *RuntimeManager) Retire(ctx context.Context, sessionID string, runtime P
 		m.mu.Unlock()
 		return nil
 	}
-	delete(m.sessions, sessionID)
-	closing := m.registerClosingLocked(sessionID, entry)
+	ownership := runtimeOwnership{sessionID: sessionID, generation: entry.ownerGeneration, entry: entry}
 	m.mu.Unlock()
-	return m.closeRegistered(ctx, sessionID, closing)
+	return m.RetireOwned(ctx, ownership)
+}
+
+func (m *RuntimeManager) RetireOwned(ctx context.Context, ownership runtimeOwnership) error {
+	m.mu.Lock()
+	entry := m.sessions[ownership.sessionID]
+	if entry == nil || entry != ownership.entry || entry.ownerGeneration != ownership.generation {
+		m.mu.Unlock()
+		return nil
+	}
+	delete(m.sessions, ownership.sessionID)
+	closing := m.registerClosingLocked(ownership.sessionID, entry)
+	m.mu.Unlock()
+	return m.closeRegistered(ctx, ownership.sessionID, closing)
 }
 
 func (m *RuntimeManager) Shutdown(ctx context.Context) error {
@@ -428,7 +486,7 @@ func (m *RuntimeManager) closeRegistered(ctx context.Context, sessionID string, 
 		err := closing.entry.Close(ctx)
 		m.mu.Lock()
 		closing.err = err
-		if m.closing[sessionID] == closing {
+		if m.closing[sessionID] == closing && (err == nil || !closing.entry.processRunning()) {
 			delete(m.closing, sessionID)
 		}
 		close(closing.done)

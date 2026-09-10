@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -275,6 +276,165 @@ func TestServerShutdownClosesSSEBeforeWaitingForActiveRequests(t *testing.T) {
 	}
 }
 
+func TestRunnerSteerCannotSendAfterRunGenerationChanges(t *testing.T) {
+	store := runtimeTestStore()
+	runtime := newFakePiRuntime()
+	manager := NewRuntimeManagerWithFactory(store, func(context.Context, string, string) (PiRuntime, error) {
+		return runtime, nil
+	})
+	defer manager.Shutdown(context.Background())
+	runner := NewRunnerWithRuntimeManager(manager)
+	if err := runner.StartPiPrompt(context.Background(), NewBroker(), store, "runtime-session", "first", nil, "first"); err != nil {
+		t.Fatal(err)
+	}
+	steerLookup := make(chan struct{})
+	releaseSteer := make(chan struct{})
+	runner.steerBeforeSendHook = func() {
+		close(steerLookup)
+		<-releaseSteer
+	}
+	steerDone := make(chan error, 1)
+	go func() { steerDone <- runner.Steer("runtime-session", "late", nil) }()
+	<-steerLookup
+	runtime.events <- PiEvent{Type: "agent_end", Raw: json.RawMessage(`{"type":"agent_end"}`)}
+	waitForRunnerIdle(t, runner, "runtime-session")
+	if err := runner.StartPiPrompt(context.Background(), NewBroker(), store, "runtime-session", "second", nil, "second"); err != nil {
+		t.Fatal(err)
+	}
+	close(releaseSteer)
+	if err := <-steerDone; err == nil {
+		t.Fatal("late steer unexpectedly succeeded")
+	}
+	runtime.mu.Lock()
+	commands := append([]RPCCommand(nil), runtime.sends...)
+	runtime.mu.Unlock()
+	for _, command := range commands {
+		if command.Type == "prompt" && strings.Contains(string(command.Payload), `"late"`) {
+			t.Fatal("late steer reached the successor runtime generation")
+		}
+	}
+	runtime.events <- PiEvent{Type: "agent_end", Raw: json.RawMessage(`{"type":"agent_end"}`)}
+}
+
+func TestRuntimeManagerOverlappingStartupOwnership(t *testing.T) {
+	store := runtimeTestStore()
+	started := make(chan struct{})
+	release := make(chan struct{})
+	runtime := newFakePiRuntime()
+	manager := NewRuntimeManagerWithFactory(store, func(ctx context.Context, _, _ string) (PiRuntime, error) {
+		close(started)
+		select {
+		case <-release:
+			return runtime, nil
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
+	})
+	defer manager.Shutdown(context.Background())
+	type result struct {
+		runtime PiRuntime
+		lease   runtimeOwnership
+		err     error
+	}
+	firstDone := make(chan result, 1)
+	secondDone := make(chan result, 1)
+	go func() {
+		got, lease, err := manager.EnsureOwned(context.Background(), "runtime-session", 1)
+		firstDone <- result{runtime: got, lease: lease, err: err}
+	}()
+	<-started
+	go func() {
+		got, lease, err := manager.EnsureOwned(context.Background(), "runtime-session", 2)
+		secondDone <- result{runtime: got, lease: lease, err: err}
+	}()
+	close(release)
+	first := <-firstDone
+	second := <-secondDone
+	if first.err != nil || second.err != nil || first.runtime != second.runtime {
+		t.Fatalf("overlapping startup results = %+v, %+v", first, second)
+	}
+	if err := manager.RetireOwned(context.Background(), first.lease); err != nil {
+		t.Fatal(err)
+	}
+	runtime.mu.Lock()
+	staleCloseCount := runtime.closed
+	runtime.mu.Unlock()
+	if staleCloseCount != 0 {
+		t.Fatalf("stale startup owner retired successor runtime: %d", staleCloseCount)
+	}
+	if err := manager.RetireOwned(context.Background(), second.lease); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestRuntimeOwnershipBlocksStaleRetire(t *testing.T) {
+	store := runtimeTestStore()
+	runtime := newFakePiRuntime()
+	manager := NewRuntimeManagerWithFactory(store, func(context.Context, string, string) (PiRuntime, error) {
+		return runtime, nil
+	})
+	defer manager.Shutdown(context.Background())
+	first, firstLease, err := manager.EnsureOwned(context.Background(), "runtime-session", 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, secondLease, err := manager.EnsureOwned(context.Background(), "runtime-session", 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first != second {
+		t.Fatal("ownership handoff unexpectedly created a different runtime")
+	}
+	if err := manager.RetireOwned(context.Background(), firstLease); err != nil {
+		t.Fatal(err)
+	}
+	runtime.mu.Lock()
+	staleCloseCount := runtime.closed
+	runtime.mu.Unlock()
+	if staleCloseCount != 0 {
+		t.Fatalf("stale owner retired successor runtime: %d", staleCloseCount)
+	}
+	if err := manager.RetireOwned(context.Background(), secondLease); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestRuntimeManagerRetainsTimedOutClosingRuntime(t *testing.T) {
+	store := runtimeTestStore()
+	runtime := newBoundedCloseRuntime()
+	var created atomic.Int32
+	manager := NewRuntimeManagerWithFactory(store, func(context.Context, string, string) (PiRuntime, error) {
+		created.Add(1)
+		if created.Load() == 1 {
+			return runtime, nil
+		}
+		return newFakePiRuntime(), nil
+	})
+	defer manager.Shutdown(context.Background())
+	entry, err := manager.Ensure(context.Background(), "runtime-session")
+	if err != nil {
+		t.Fatal(err)
+	}
+	closeCtx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if err := manager.Retire(closeCtx, "runtime-session", entry); err == nil {
+		t.Fatal("timed out close unexpectedly succeeded")
+	}
+	if _, err := manager.Ensure(context.Background(), "runtime-session"); err == nil {
+		t.Fatal("Ensure rebuilt a runtime while the old process was still running")
+	}
+	if created.Load() != 1 {
+		t.Fatalf("factory called %d times while closing, want one", created.Load())
+	}
+	runtime.stop()
+	if _, err := manager.Ensure(context.Background(), "runtime-session"); err != nil {
+		t.Fatalf("Ensure after old process exit: %v", err)
+	}
+	if created.Load() != 2 {
+		t.Fatalf("factory called %d times after confirmed exit, want two", created.Load())
+	}
+}
+
 func TestRunnerCancelDoesNotAbortNewPromptAfterCompletionRace(t *testing.T) {
 	store := runtimeTestStore()
 	runtime := newCancelRegressionRuntime()
@@ -534,6 +694,32 @@ func TestServerShutdownGuardRejectsRequestsAfterShutdown(t *testing.T) {
 	if res.Code != http.StatusServiceUnavailable || called {
 		t.Fatalf("shutdown guard status=%d called=%v", res.Code, called)
 	}
+}
+
+type boundedCloseRuntime struct {
+	mu      sync.Mutex
+	running bool
+	events  chan PiEvent
+}
+
+func newBoundedCloseRuntime() *boundedCloseRuntime {
+	return &boundedCloseRuntime{running: true, events: make(chan PiEvent, 1)}
+}
+
+func (r *boundedCloseRuntime) Send(context.Context, RPCCommand) (RPCResponse, error) {
+	return RPCResponse{Type: "response", Success: true}, nil
+}
+func (r *boundedCloseRuntime) Events() <-chan PiEvent { return r.events }
+func (r *boundedCloseRuntime) IsRunning() bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.running
+}
+func (r *boundedCloseRuntime) Close(context.Context) error { return context.DeadlineExceeded }
+func (r *boundedCloseRuntime) stop() {
+	r.mu.Lock()
+	r.running = false
+	r.mu.Unlock()
 }
 
 type nonCooperativeRuntime struct {

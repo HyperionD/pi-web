@@ -44,6 +44,32 @@ printf '%s\n' '{"id":"request-1","type":"response","command":"prompt","success":
 	}
 }
 
+func TestProcessRuntimeQuarantinesCanceledRequestID(t *testing.T) {
+	root := t.TempDir()
+	writeFakePi(t, root, `#!/bin/sh
+read first
+read second
+printf '%s\n' '{"id":"reused","type":"response","command":"prompt","success":true}'
+`)
+	runtime, err := newPiRuntime(context.Background(), filepath.Join(root, "session.jsonl"), root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer runtime.Close(context.Background())
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Millisecond)
+	defer cancel()
+	_, err = runtime.Send(ctx, RPCCommand{ID: "reused", Type: "prompt"})
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("canceled request error = %v, want context deadline exceeded", err)
+	}
+	secondCtx, secondCancel := context.WithTimeout(context.Background(), time.Second)
+	defer secondCancel()
+	_, err = runtime.Send(secondCtx, RPCCommand{ID: "reused", Type: "prompt"})
+	if err == nil || !strings.Contains(err.Error(), "quarantined") {
+		t.Fatalf("reused request ID error = %v, want quarantine error", err)
+	}
+}
+
 func TestProcessRuntimeMatchesResponseRequestID(t *testing.T) {
 	root := t.TempDir()
 	writeFakePi(t, root, `#!/bin/sh

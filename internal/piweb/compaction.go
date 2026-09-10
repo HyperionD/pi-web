@@ -34,15 +34,15 @@ func (r *Runner) Compact(parent context.Context, broker *Broker, store *Store, s
 		commandCancel()
 		return CompactionResult{}, err
 	}
-	runtime, err := manager.Ensure(parent, sessionID)
+	runtime, ownership, err := manager.EnsureOwned(parent, sessionID, run.generation)
 	if err != nil {
 		r.discardRun(sessionID, run)
 		eventCancel()
 		commandCancel()
 		return CompactionResult{}, err
 	}
-	if !run.attachRuntime(runtime) {
-		_ = manager.Retire(context.Background(), sessionID, runtime)
+	if !run.attachRuntime(runtime, ownership) {
+		_ = manager.RetireOwned(context.Background(), ownership)
 		r.discardRun(sessionID, run)
 		eventCancel()
 		commandCancel()
@@ -126,6 +126,7 @@ func (r *Runner) claimRun(sessionID string, run *activePiRun) error {
 	if _, exists := r.running[sessionID]; exists {
 		return errSessionBusy
 	}
+	run.generation = r.nextGeneration.Add(1)
 	r.running[sessionID] = run
 	return nil
 }

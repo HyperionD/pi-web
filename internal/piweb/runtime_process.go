@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"os/exec"
 	"sync"
 	"sync/atomic"
@@ -20,20 +21,21 @@ type processPiRuntime struct {
 	stderr io.ReadCloser
 	events chan PiEvent
 
-	writeReady chan struct{}
-	stdinOnce  sync.Once
-	pipesOnce  sync.Once
-	poisonOnce sync.Once
-	finishOnce sync.Once
-	mu         sync.Mutex
-	pending    map[string]chan runtimeResponse
-	poisonErr  error
-	running    bool
-	closed     bool
-	lastUse    time.Time
-	activity   map[string]int
-	seq        atomic.Uint64
-	done       chan struct{}
+	writeReady  chan struct{}
+	stdinOnce   sync.Once
+	pipesOnce   sync.Once
+	poisonOnce  sync.Once
+	finishOnce  sync.Once
+	mu          sync.Mutex
+	pending     map[string]chan runtimeResponse
+	quarantined map[string]struct{}
+	poisonErr   error
+	running     bool
+	closed      bool
+	lastUse     time.Time
+	activity    map[string]int
+	seq         atomic.Uint64
+	done        chan struct{}
 
 	stdoutDone chan struct{}
 	stderrDone chan struct{}
@@ -55,23 +57,33 @@ func newPiRuntime(ctx context.Context, sessionFile, cwd string) (PiRuntime, erro
 	if err != nil {
 		return nil, err
 	}
-	stdout, err := cmd.StdoutPipe()
+	stdout, stdoutWriter, err := os.Pipe()
 	if err != nil {
 		_ = stdin.Close()
 		return nil, err
 	}
-	stderr, err := cmd.StderrPipe()
+	cmd.Stdout = stdoutWriter
+	stderr, stderrWriter, err := os.Pipe()
 	if err != nil {
 		_ = stdin.Close()
+		_ = stdout.Close()
+		_ = stdoutWriter.Close()
 		return nil, err
 	}
+	cmd.Stderr = stderrWriter
 	if err := cmd.Start(); err != nil {
 		_ = stdin.Close()
+		_ = stdout.Close()
+		_ = stdoutWriter.Close()
+		_ = stderr.Close()
+		_ = stderrWriter.Close()
 		return nil, err
 	}
+	_ = stdoutWriter.Close()
+	_ = stderrWriter.Close()
 	runtime := &processPiRuntime{
-		cmd: cmd, stdin: stdin, stdout: stdout, stderr: stderr, events: make(chan PiEvent, 64), pending: map[string]chan runtimeResponse{},
-		running: true, lastUse: time.Now(), activity: map[string]int{}, done: make(chan struct{}), stdoutDone: make(chan struct{}),
+		cmd: cmd, stdin: stdin, stdout: stdout, stderr: stderr, events: make(chan PiEvent, 64),
+		running: true, lastUse: time.Now(), activity: map[string]int{}, pending: map[string]chan runtimeResponse{}, quarantined: map[string]struct{}{}, done: make(chan struct{}), stdoutDone: make(chan struct{}),
 		stderrDone: make(chan struct{}),
 	}
 	go runtime.readStdout(stdout)
@@ -152,6 +164,10 @@ func (runtime *processPiRuntime) deliverResponse(response RPCResponse) bool {
 	defer runtime.mu.Unlock()
 	waiter := runtime.pending[response.ID]
 	if waiter == nil {
+		if _, quarantined := runtime.quarantined[response.ID]; quarantined {
+			delete(runtime.quarantined, response.ID)
+			return true
+		}
 		return false
 	}
 	delete(runtime.pending, response.ID)
@@ -199,12 +215,16 @@ func (runtime *processPiRuntime) Send(ctx context.Context, command RPCCommand) (
 		runtime.mu.Unlock()
 		return RPCResponse{}, fmt.Errorf("duplicate RPC request ID %q", command.ID)
 	}
+	if _, quarantined := runtime.quarantined[command.ID]; quarantined {
+		runtime.mu.Unlock()
+		return RPCResponse{}, fmt.Errorf("RPC request ID %q is quarantined", command.ID)
+	}
 	runtime.pending[command.ID] = waiter
 	runtime.lastUse = time.Now()
 	runtime.mu.Unlock()
 
 	if writeErr := runtime.writeContext(ctx, append(line, '\n')); writeErr != nil {
-		runtime.removePending(command.ID)
+		runtime.quarantinePending(command.ID)
 		if ctx.Err() != nil {
 			runtime.poison(ctx.Err())
 		} else {
@@ -222,7 +242,7 @@ func (runtime *processPiRuntime) Send(ctx context.Context, command RPCCommand) (
 		case result := <-waiter:
 			return result.response, result.err
 		case <-ctx.Done():
-			runtime.removePending(command.ID)
+			runtime.quarantinePending(command.ID)
 			return RPCResponse{}, ctx.Err()
 		case <-runtime.done:
 			select {
@@ -251,9 +271,13 @@ func marshalRPCCommand(command RPCCommand) ([]byte, error) {
 	return json.Marshal(fields)
 }
 
-func (runtime *processPiRuntime) removePending(id string) {
+func (runtime *processPiRuntime) quarantinePending(id string) {
 	runtime.mu.Lock()
+	if runtime.quarantined == nil {
+		runtime.quarantined = map[string]struct{}{}
+	}
 	delete(runtime.pending, id)
+	runtime.quarantined[id] = struct{}{}
 	runtime.mu.Unlock()
 }
 
@@ -310,13 +334,26 @@ func (runtime *processPiRuntime) closePipes() {
 
 func (runtime *processPiRuntime) waitForProcess() {
 	err := runtime.cmd.Wait()
-	runtime.closePipes()
+	if !waitForPipe(runtime.stdoutDone, 100*time.Millisecond) || !waitForPipe(runtime.stderrDone, 100*time.Millisecond) {
+		runtime.closePipes()
+	}
 	<-runtime.stdoutDone
 	<-runtime.stderrDone
 	if err == nil {
 		err = errors.New("pi process exited")
 	}
 	runtime.finish(fmt.Errorf("pi process exited: %w", err))
+}
+
+func waitForPipe(done <-chan struct{}, timeout time.Duration) bool {
+	timer := time.NewTimer(timeout)
+	defer timer.Stop()
+	select {
+	case <-done:
+		return true
+	case <-timer.C:
+		return false
+	}
 }
 
 func (runtime *processPiRuntime) finish(err error) {

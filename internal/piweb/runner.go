@@ -7,6 +7,7 @@ import (
 	"io"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -31,11 +32,13 @@ const fallbackChoiceSystemPrompt = `Pi Web UI fallback choice protocol:
 - Keep id stable, short, and unique. Use at most 8 options. Use inert plain text only.`
 
 type Runner struct {
-	mu      sync.Mutex
-	running map[string]*activePiRun
-	manager *RuntimeManager
+	mu             sync.Mutex
+	running        map[string]*activePiRun
+	manager        *RuntimeManager
+	nextGeneration atomic.Uint64
 
 	cancelBeforeClaimHook func()
+	steerBeforeSendHook   func()
 	compactCompleteHook   func()
 }
 
@@ -81,6 +84,8 @@ type activePiRun struct {
 	commandContext context.Context
 	stdin          io.WriteCloser
 	runtime        PiRuntime
+	ownership      runtimeOwnership
+	generation     uint64
 	compacting     bool
 	eventsDone     chan struct{}
 	runtimeReady   chan struct{}
@@ -126,15 +131,15 @@ func (r *Runner) StartPiPrompt(
 		commandCancel()
 		return err
 	}
-	runtime, err := manager.Ensure(parent, sessionID)
+	runtime, ownership, err := manager.EnsureOwned(parent, sessionID, activeRun.generation)
 	if err != nil {
 		r.discardRun(sessionID, activeRun)
 		eventCancel()
 		commandCancel()
 		return err
 	}
-	if !activeRun.attachRuntime(runtime) {
-		_ = manager.Retire(context.Background(), sessionID, runtime)
+	if !activeRun.attachRuntime(runtime, ownership) {
+		_ = manager.RetireOwned(context.Background(), ownership)
 		r.discardRun(sessionID, activeRun)
 		eventCancel()
 		commandCancel()
@@ -197,6 +202,17 @@ func (r *Runner) consumeRuntimeEvents(ctx context.Context, broker *Broker, store
 
 func (r *Runner) finishPrompt(sessionID string, run *activePiRun, broker *Broker, runErr error) {
 	run.markSettled()
+	if run.isCancelling() {
+		return
+	}
+	finishCtx := run.commandContext
+	if finishCtx == nil {
+		finishCtx = context.Background()
+	}
+	if !run.commandMu.acquire(finishCtx) {
+		return
+	}
+	defer run.commandMu.release()
 	r.mu.Lock()
 	if r.running[sessionID] != run {
 		r.mu.Unlock()
@@ -230,11 +246,43 @@ func (r *Runner) Steer(sessionID string, text string, images []PromptAttachment)
 func (r *Runner) SteerContext(ctx context.Context, sessionID string, text string, images []PromptAttachment) error {
 	r.mu.Lock()
 	run, ok := r.running[sessionID]
+	hook := r.steerBeforeSendHook
 	r.mu.Unlock()
-	if !ok || run.isCompacting() || run.isCancelling() {
+	if !ok {
 		return errors.New("session is not running")
 	}
-	return run.sendContext(ctx, rpcPromptCommand(text, images, "steer"))
+	if hook != nil {
+		hook()
+	}
+	if !run.commandMu.acquire(ctx) {
+		return ctx.Err()
+	}
+	defer run.commandMu.release()
+	r.mu.Lock()
+	current := r.running[sessionID] == run
+	r.mu.Unlock()
+	if !current || run.isCompacting() || run.isCancelling() {
+		return errors.New("session is not running")
+	}
+	command := rpcPromptCommand(text, images, "steer")
+	if run.getRuntime() == nil {
+		return run.sendFallbackUnlocked(command)
+	}
+	payload, err := json.Marshal(command)
+	if err != nil {
+		return err
+	}
+	response, err := run.sendRPCUnlocked(ctx, RPCCommand{Type: "prompt", Payload: payload})
+	if err != nil {
+		return err
+	}
+	if !response.Success {
+		if response.Error == "" {
+			response.Error = "pi RPC command failed"
+		}
+		return errors.New(response.Error)
+	}
+	return nil
 }
 
 func (r *Runner) IsRunning(sessionID string) bool {
@@ -274,6 +322,10 @@ func (r *Runner) discardRun(sessionID string, run *activePiRun) {
 
 func (r *Runner) finishRun(sessionID string, run *activePiRun) {
 	run.markSettled()
+	if !run.commandMu.acquire(context.Background()) {
+		return
+	}
+	defer run.commandMu.release()
 	r.mu.Lock()
 	if r.running[sessionID] == run {
 		run.mu.Lock()
@@ -320,7 +372,7 @@ func (r *Runner) claimCancellation(sessionID string, expected *activePiRun, useH
 	return run, true
 }
 
-func (run *activePiRun) attachRuntime(runtime PiRuntime) bool {
+func (run *activePiRun) attachRuntime(runtime PiRuntime, ownership runtimeOwnership) bool {
 	run.mu.Lock()
 	defer run.mu.Unlock()
 	if run.cancelling {
@@ -328,6 +380,7 @@ func (run *activePiRun) attachRuntime(runtime PiRuntime) bool {
 		return false
 	}
 	run.runtime = runtime
+	run.ownership = ownership
 	run.runtimeOnce.Do(func() { close(run.runtimeReady) })
 	return true
 }
@@ -447,6 +500,10 @@ func (r *activePiRun) sendFallback(command any) error {
 		return context.Canceled
 	}
 	defer r.commandMu.release()
+	return r.sendFallbackUnlocked(command)
+}
+
+func (r *activePiRun) sendFallbackUnlocked(command any) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if r.cancelling {
@@ -475,6 +532,10 @@ func (r *activePiRun) sendRPCContext(ctx context.Context, command RPCCommand) (R
 		return RPCResponse{}, sendCtx.Err()
 	}
 	defer r.commandMu.release()
+	return r.sendRPCUnlocked(sendCtx, command)
+}
+
+func (r *activePiRun) sendRPCUnlocked(ctx context.Context, command RPCCommand) (RPCResponse, error) {
 	r.mu.Lock()
 	if r.cancelling {
 		r.mu.Unlock()
@@ -485,7 +546,7 @@ func (r *activePiRun) sendRPCContext(ctx context.Context, command RPCCommand) (R
 	if runtime == nil {
 		return RPCResponse{}, errors.New("runtime is unavailable")
 	}
-	return runtime.Send(sendCtx, command)
+	return runtime.Send(ctx, command)
 }
 
 func isPiRPCAgentEnd(line string) bool {
@@ -540,13 +601,13 @@ func (r *Runner) Cancel(sessionID string) bool {
 	if runtime != nil {
 		closeCtx, closeCancel := context.WithTimeout(context.Background(), cancelAbortTimeout)
 		if runManager != nil {
-			_ = runManager.Retire(closeCtx, sessionID, runtime)
+			_ = runManager.RetireOwned(closeCtx, run.ownership)
 		} else {
 			_ = runtime.Close(closeCtx)
 		}
 		closeCancel()
 	}
-	r.finishRun(sessionID, run)
+	run.markSettled()
 	r.releaseRun(sessionID, run)
 	return true
 }
@@ -600,7 +661,7 @@ func (r *Runner) cancelRunRuntime(sessionID string, run *activePiRun, manager *R
 	closeCtx, closeCancel := context.WithTimeout(context.Background(), cancelAbortTimeout)
 	defer closeCancel()
 	if manager != nil {
-		_ = manager.Retire(closeCtx, sessionID, runtime)
+		_ = manager.RetireOwned(closeCtx, run.ownership)
 		return
 	}
 	_ = runtime.Close(closeCtx)
