@@ -101,6 +101,9 @@ func (b *Broker) SubscribeFrom(sessionID string, after uint64) EventSubscription
 	}
 	b.subscribers[sessionID][subscriber] = struct{}{}
 	replay := b.replayLocked(sessionID, after)
+	if gap := b.replayGapLocked(sessionID, after); gap != nil {
+		replay = []Event{*gap}
+	}
 	if b.subscribeHook != nil {
 		b.subscribeHook()
 	}
@@ -309,13 +312,19 @@ func (b *Broker) activeGapLocked(subscriber *brokerSubscriber) bool {
 	return subscriber.gapInFlight || b.pendingGapLocked(subscriber) != nil
 }
 
-func (b *Broker) newGapLocked(subscriber *brokerSubscriber, sessionID string, latestEventID uint64) *Event {
+func (b *Broker) newGapLocked(subscriber *brokerSubscriber, sessionID string, latestEventID uint64, after ...uint64) *Event {
 	// A gap is synthetic and is not in history, so ID 0 must not advance the
 	// client's Last-Event-ID cursor.
+	cursor := uint64(0)
+	if subscriber != nil {
+		cursor = subscriber.after
+	} else if len(after) > 0 {
+		cursor = after[0]
+	}
 	return &Event{
 		Type: "broker_gap", SessionID: sessionID,
 		Payload: map[string]any{
-			"sessionId": sessionID, "after": subscriber.after, "latestEventId": latestEventID,
+			"sessionId": sessionID, "after": cursor, "latestEventId": latestEventID,
 		},
 		At: time.Now().UTC(),
 	}
@@ -418,6 +427,16 @@ func (b *Broker) appendHistoryLocked(sessionID string, event Event) {
 	}
 }
 
+func (b *Broker) LatestEventID(sessionID string) uint64 {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+	history := b.history[sessionID]
+	if len(history) == 0 {
+		return 0
+	}
+	return history[len(history)-1].ID
+}
+
 func (b *Broker) Replay(sessionID string, after uint64) []Event {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
@@ -434,6 +453,14 @@ func (b *Broker) replayLocked(sessionID string, after uint64) []Event {
 	return replay
 }
 
+func (b *Broker) replayGapLocked(sessionID string, after uint64) *Event {
+	history := b.history[sessionID]
+	if after == 0 || len(history) == 0 || after >= history[0].ID {
+		return nil
+	}
+	return b.newGapLocked(nil, sessionID, history[len(history)-1].ID, after)
+}
+
 func (b *Broker) ServeSession(w http.ResponseWriter, r *http.Request, sessionID string) {
 	flusher, ok := w.(http.Flusher)
 	if !ok {
@@ -448,6 +475,8 @@ func (b *Broker) ServeSession(w http.ResponseWriter, r *http.Request, sessionID 
 
 	var after uint64
 	if value := r.Header.Get("Last-Event-ID"); value != "" {
+		after, _ = strconv.ParseUint(value, 10, 64)
+	} else if value := r.URL.Query().Get("after"); value != "" {
 		after, _ = strconv.ParseUint(value, 10, 64)
 	}
 	subscription := b.SubscribeFrom(sessionID, after)

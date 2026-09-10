@@ -88,24 +88,30 @@ func (entry *runtimeEntry) enqueueEvent(event PiEvent) {
 }
 
 func (entry *runtimeEntry) poison(err error) {
+	if !entry.steerGate.acquire(context.Background()) {
+		return
+	}
 	entry.mu.Lock()
 	if entry.closed {
 		entry.mu.Unlock()
+		entry.steerGate.release()
 		return
 	}
 	entry.closed = true
 	if entry.closeDone == nil {
 		entry.closeDone = make(chan struct{})
 	}
+	closeDone := entry.closeDone
 	entry.mu.Unlock()
 	entry.stopOnce.Do(func() { close(entry.stop) })
 	go func() {
+		defer entry.steerGate.release()
 		closeCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		closeErr := entry.runtime.Close(closeCtx)
 		cancel()
 		entry.mu.Lock()
 		entry.closeErr = errors.Join(err, closeErr)
-		close(entry.closeDone)
+		close(closeDone)
 		entry.mu.Unlock()
 	}()
 }

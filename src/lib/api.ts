@@ -380,10 +380,13 @@ export function steerSession(sessionId, text, attachments = []) {
   });
 }
 
-export function sessionEvents(sessionId: string, { onEvent, onOpen, onError, replay = true }: any = {}) {
-  const replayQuery = replay ? "" : "?replay=false";
+export function sessionEvents(sessionId: string, { onEvent, onOpen, onError, replay = true, after }: any = {}) {
+  const params = new URLSearchParams();
+  if (!replay) params.set("replay", "false");
+  if (Number.isFinite(Number(after)) && Number(after) > 0) params.set("after", String(Number(after)));
+  const query = params.toString() ? `?${params}` : "";
   const source = new EventSource(
-    `${apiBase()}/api/sessions/${encodeURIComponent(sessionId)}/events${replayQuery}`,
+    `${apiBase()}/api/sessions/${encodeURIComponent(sessionId)}/events${query}`,
   );
   source.onopen = () => onOpen?.();
   source.onerror = (event) => onError?.(event);
@@ -397,6 +400,7 @@ export function sessionEvents(sessionId: string, { onEvent, onOpen, onError, rep
     "tool.finished",
     "workspace.files.changed",
     "error",
+    "broker_gap",
     "heartbeat",
   ];
   for (const type of types) {

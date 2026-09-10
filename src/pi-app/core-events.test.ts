@@ -451,6 +451,28 @@ describe("pi-app core events", () => {
     expect(app.finishTool).toHaveBeenCalled();
   });
 
+  it("reloads the session snapshot when the connection opens or status changes", async () => {
+    const listeners = {};
+    class FakeEventSource {
+      constructor() {
+        this.listeners = listeners;
+        this.close = vi.fn();
+      }
+      addEventListener(type, callback) { this.listeners[type] = callback; }
+    }
+    vi.stubGlobal("EventSource", FakeEventSource);
+    const app = await connectPiApp();
+    app.dataset.activeSessionId = "s1";
+    app.loadSession = vi.fn();
+    app.connectEvents("s1");
+    app.eventSource.onopen();
+    expect(app.loadSession).toHaveBeenCalledWith("s1", { resync: true });
+    listeners["session.status"]({
+      data: JSON.stringify({ id: 3, type: "session.status", sessionId: "s1", payload: { status: "running" } }),
+    });
+    expect(app.loadSession).toHaveBeenCalledTimes(2);
+  });
+
   it("surfaces runtime auth warnings while loading prompt metadata", async () => {
     globalThis.PI_WEB_API_BASE = "http://backend.test";
     globalThis.fetch = vi.fn(async (url) => {

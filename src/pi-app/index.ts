@@ -2,6 +2,7 @@ import { applyUiLocale, currentUiLocale, setUiLocale } from "../i18n/client";
 import { normalizeUiLocale } from "../i18n/locales";
 import { sessionEvents } from "../lib/api";
 import { escapeHtml } from "../lib/renderers";
+import { shouldResyncAfterGap, type SessionEventEnvelope } from "./sessions/session-recovery";
 import { SPINNER_FRAME_COUNT } from "./constants";
 import { filePreviewMethods } from "./editor/file-preview-methods";
 import { attachmentMethods } from "./input/attachment-methods";
@@ -36,6 +37,7 @@ class PiApp extends HTMLElement {
     this.streamingTail = this.querySelector("[data-streaming-tail]");
     this.initTranscriptWindow();
     this.eventSource = null;
+    this.sessionEventCursors = new Map();
     this.apiConnected = false;
     this.currentFolder = "~";
     this.running = false;
@@ -193,22 +195,42 @@ class PiApp extends HTMLElement {
 
   connectEvents(sessionId: string, options: any = {}) {
     this.invalidateEventStream();
+    const cursor = options.after ?? this.sessionEventCursors?.get(sessionId);
+    if (Number.isFinite(Number(cursor)) && Number(cursor) > 0) this.setSessionEventCursor(sessionId, Number(cursor));
+    const reloadOnOpen = options.reloadOnOpen ?? (options.replay === undefined && cursor == null);
     const eventStreamId = Symbol(sessionId);
     this.eventStreamId = eventStreamId;
     this.eventSource = sessionEvents(sessionId, {
       replay: options.replay,
+      after: cursor,
       onOpen: () => {
-        if (this.isActiveEventStream(eventStreamId, sessionId)) this.confirmConnection();
+        if (!this.isActiveEventStream(eventStreamId, sessionId)) return;
+        this.confirmConnection();
+        if (reloadOnOpen) void this.loadSession(sessionId, { resync: true });
       },
       onError: () => {
         if (this.isActiveEventStream(eventStreamId, sessionId)) this.deferEventStreamError();
       },
-      onEvent: (event) => {
+      onEvent: (event: SessionEventEnvelope) => {
         if (!this.isActiveEventStream(eventStreamId, sessionId)) return;
+        if (this.isDuplicateSessionEvent(event)) return;
+        this.setSessionEventCursor(sessionId, event.id);
         this.confirmConnection();
         this.applyEvent(event);
       },
     });
+  }
+
+  setSessionEventCursor(sessionId: string, eventID: number) {
+    if (!sessionId || !Number.isFinite(eventID) || eventID <= 0) return;
+    this.sessionEventCursors ??= new Map();
+    const current = this.sessionEventCursors.get(sessionId) || 0;
+    if (eventID > current) this.sessionEventCursors.set(sessionId, eventID);
+  }
+
+  isDuplicateSessionEvent(event: SessionEventEnvelope) {
+    if (!event?.id || event.id <= 0 || !event.sessionId) return false;
+    return event.id <= (this.sessionEventCursors?.get(event.sessionId) || 0);
   }
 
   isActiveEventStream(eventStreamId, sessionId) {
@@ -286,6 +308,11 @@ class PiApp extends HTMLElement {
 
   applyEvent(event) {
     if (!this.isCurrentSessionEvent(event)) return;
+    if (shouldResyncAfterGap(event)) {
+      const sessionId = this.dataset.activeSessionId;
+      if (sessionId) void this.loadSession(sessionId, { resync: true });
+      return;
+    }
     if (event.type === "heartbeat") return;
     if (event.type === "error") {
       this.commitStreamingMessages?.({ preserveAguiText: this.aguiRunActive });
@@ -304,6 +331,9 @@ class PiApp extends HTMLElement {
         this.commitStreamingMessages?.({ preserveAguiText: this.aguiRunActive });
       }
       this.setMode(mode);
+      if (this.apiConnected && this.dataset.activeSessionId && !this.aguiRunActive) {
+        void this.loadSession(this.dataset.activeSessionId, { resync: true });
+      }
       return;
     }
     if (event.type === "session.message") {

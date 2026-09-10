@@ -16,12 +16,13 @@ func (s *Server) session(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
-		"session":  session,
-		"messages": page.Messages,
-		"cursor":   page.Cursor,
-		"hasMore":  page.HasMore,
-		"limit":    page.Limit,
-		"status":   s.sessionStatus(sessionID),
+		"session":       session,
+		"messages":      page.Messages,
+		"cursor":        page.Cursor,
+		"hasMore":       page.HasMore,
+		"limit":         page.Limit,
+		"status":        s.sessionStatus(sessionID),
+		"latestEventId": s.broker.LatestEventID(sessionID),
 	})
 }
 

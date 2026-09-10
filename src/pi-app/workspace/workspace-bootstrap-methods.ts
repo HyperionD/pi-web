@@ -385,6 +385,11 @@ export const workspaceBootstrapMethods = {
     this.sessionHistoryCursor = page.cursor || "";
     this.sessionHistoryHasMore = !!page.hasMore;
     this.sessionHistoryLoading = false;
+    if (Object.prototype.hasOwnProperty.call(page, "latestEventId")) {
+      this.sessionEventCursors ??= new Map();
+      this.sessionEventCursors.delete(session.id);
+      this.setSessionEventCursor(session.id, Number(page.latestEventId));
+    }
     this.renderMessages(messages);
     this.setMode(status || "idle");
     this.connectEvents(session.id, { replay: false });
