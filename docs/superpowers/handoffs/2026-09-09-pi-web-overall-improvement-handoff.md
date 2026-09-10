@@ -8,7 +8,7 @@
 - 隔离工作区：`/home/hyperion/projects/pi-web-offline/.worktrees/pi-web-overall-improvement`
 - 实施计划：`docs/superpowers/plans/2026-09-09-pi-web-overall-improvement.md`
 - SDD ledger：`.superpowers/sdd/2026-09-09-pi-web-overall-improvement/progress.md`
-- 当前 HEAD：`2bc259d7 docs: record task 3 runtime verification`
+- 当前 HEAD：`f662d510 fix: harden task 3 runtime ownership`
 
 不要在主工作区覆盖或提交已有 `static/` 变更。主工作区当前仍有 `static/` 删除、修改和新增文件；本执行 worktree 未修改 `static/`。
 
@@ -42,10 +42,10 @@ Task 2 已知 parked/ruling 见 ledger：`gapInFlight` 后续状态语义、取�
 
 ### Task 3：持久 Pi runtime
 
-实现已提交，审查尚未完成：
+实现已提交；审查完成但有两个 parked finding，详见 ledger：
 
 - `d987a64f` 按 session 持久 runtime 实现
-- `2bc259d7` Task 3 验证报告
+- `7c996a07`、`78f24523`、`cbb6b299`、`f52a3d4f`、`f662d510` 生命周期修复
 
 实现涉及：
 
@@ -68,8 +68,8 @@ Task 3 review package：
 
 ## 当前未完成任务
 
-- Task 3：等待/完成独立 code review；若有 Important/Critical，按 review loop 修复。
-- Task 4：SSE 状态对账与断档恢复。
+- Task 3：已完成（控制器独立复核 `go test -race ./internal/piweb -count=1` 与 `go test ./...`）；`runtime_entry.poison()` 绕过 runner gate 的真实问题已按 breaker parked，Task 4 必须先修复。
+- Task 4：SSE 状态对账与断档恢复；携带 Task 3 poison/gate remediation。
 - Task 5：六个内置 slash 命令后端白名单路由。
 - Task 6：slash palette 输入交互。
 - Task 7：Project Trust、远程暴露和 Shell 限制。
@@ -93,13 +93,14 @@ git log --oneline -5
   59451492f789cb4523bdd30b7d89ddfb686a2bc8 HEAD
 ```
 
-然后用 reviewer 审查 Task 3，重点检查：同 session 单实例、并发 Ensure、RPC response waiter、EOF/error、idle eviction、shutdown 顺序、进程组清理、Runner Prompt/Steer/Compact 兼容和 ACL；review clean 后在 ledger 登记 Task 3 complete，再生成 Task 4 brief。
+Task 3 已由 reviewer 审查至 breaker；先在 Task 4 实现前修复并测试 `runtime_entry.poison()` 与 runner gate 的并发问题，再生成 Task 4 brief 并继续 SSE 对账。
 
 ## 重要约束
 
 - PTY 首期只做 Linux amd64/arm64，重点麒麟 V10 SP3；不做 Windows/macOS PTY adapter。
 - Chrome 107 是硬基线；不引入 `color-mix`、`100dvh` authored API 风险。
 - 不提交当前已有 `static/` 变更，除非未来任务明确授权生成嵌入资源。
+- Task 3 parked 的 poison/gate 问题在 Task 4 开始前必须解决或重新裁决。
 - 每个 commit 必须带：`Co-authored-by: JuunAI <juunai.ai@gmail.com>`。
 - 生产代码先测试后实现；每个 Task 需定向验证、独立 review。
 - reviewer 若报告“绝对路径不存在”，通常是其隔离工作区看不到 gitignored `.superpowers/sdd` artifact，不代表路径拼写错误；使用 Git diff 重建 review package。
