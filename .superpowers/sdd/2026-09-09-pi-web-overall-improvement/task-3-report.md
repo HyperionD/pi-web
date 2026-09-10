@@ -161,3 +161,25 @@ TDD：先运行新增测试确认 hooks/ownership API 缺失导致 RED，再实�
 - `git diff --check`：PASS。
 
 Concerns：Cancel API 仍保持既有 bool 契约；超时 close error 通过 retained closing 状态阻止静默 rebuild，并在后续 Ensure 返回。未修改 static、HTTP/ACL、Task2 Broker、fallback/mock 或 Linux single binary。
+
+## 修复轮次 5（breaker 前最后一轮）
+
+状态：已完成并通过并发回归验证。
+
+- `finishPrompt` 清理 gate 改用独立的非取消 context；parent cancellation 不再提前返回，`running[sessionID]` 会最终释放。
+- Steer runtime entry 增加独占 gate，Cancel/close 与迟到 Steer 的实际 `Send` 原子交叠；successor 不会在旧 Steer 仍发送时启动。补充真实 Steer/Cancel overlap 回归测试。
+- generation `0` 的兼容 `Ensure` 不覆盖活跃 owner lease；增加 owner lease 回归测试。
+- request-ID quarantine 达到安全上限时 poison runtime，避免无界增长；quarantine 测试真实生成并观察迟到 response，确认不会逃逸为事件。
+- 强化强制 Close 后续退出、stdout/stderr pipe reader 与 event channel 的真实时序断言。
+
+TDD：先加入回归测试并确认缺失 quarantine 契约导致 RED，再实现并验证 GREEN。
+
+验证：
+
+- `go test -race ./internal/piweb -run 'TestRunner(FinishPromptReleasesAfterParentCancellation|CancelWaitsForInFlightSteerBeforeSuccessorSend)|TestRuntimeManagerEnsureZeroGenerationPreservesOwnerLease|TestRuntimeProcessQuarantineIsBounded' -count=10`：PASS。
+- `go test -race ./internal/piweb -run 'Test(RuntimeManager|Runner)' -count=10`：PASS。
+- `go test ./...`：PASS。
+- `go test -race ./internal/piweb`：PASS，无 race detector 报告。
+- `go build ./...`、`git diff --check`：PASS。
+
+Concerns：quarantine 不做时间过期，因为未知迟到 response 的过期会使 request ID 重用不安全；达到 1024 条后 poison runtime，交由重建路径回收。未修改 static、HTTP/ACL、Task2 Broker、fallback/mock 或 Linux single binary。

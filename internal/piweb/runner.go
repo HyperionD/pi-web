@@ -205,11 +205,9 @@ func (r *Runner) finishPrompt(sessionID string, run *activePiRun, broker *Broker
 	if run.isCancelling() {
 		return
 	}
-	finishCtx := run.commandContext
-	if finishCtx == nil {
-		finishCtx = context.Background()
-	}
-	if !run.commandMu.acquire(finishCtx) {
+	// Cleanup must not inherit the command context: parent cancellation is the
+	// reason this path runs, and the gate still has to release the run claim.
+	if !run.commandMu.acquire(context.Background()) {
 		return
 	}
 	defer run.commandMu.release()

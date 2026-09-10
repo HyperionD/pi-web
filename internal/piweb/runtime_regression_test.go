@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -316,6 +317,35 @@ func TestRunnerSteerCannotSendAfterRunGenerationChanges(t *testing.T) {
 	runtime.events <- PiEvent{Type: "agent_end", Raw: json.RawMessage(`{"type":"agent_end"}`)}
 }
 
+func TestRuntimeManagerEnsureZeroGenerationPreservesOwnerLease(t *testing.T) {
+	store := runtimeTestStore()
+	runtime := newFakePiRuntime()
+	manager := NewRuntimeManagerWithFactory(store, func(context.Context, string, string) (PiRuntime, error) {
+		return runtime, nil
+	})
+	defer manager.Shutdown(context.Background())
+	_, owner, err := manager.EnsureOwned(context.Background(), "runtime-session", 7)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, legacy, err := manager.EnsureOwned(context.Background(), "runtime-session", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if legacy.generation != owner.generation {
+		t.Fatalf("legacy Ensure changed owner generation from %d to %d", owner.generation, legacy.generation)
+	}
+	if err := manager.RetireOwned(context.Background(), owner); err != nil {
+		t.Fatal(err)
+	}
+	runtime.mu.Lock()
+	closed := runtime.closed
+	runtime.mu.Unlock()
+	if closed != 1 {
+		t.Fatalf("owner lease was not retained, close count = %d", closed)
+	}
+}
+
 func TestRuntimeManagerOverlappingStartupOwnership(t *testing.T) {
 	store := runtimeTestStore()
 	started := make(chan struct{})
@@ -396,6 +426,26 @@ func TestRuntimeOwnershipBlocksStaleRetire(t *testing.T) {
 	}
 	if err := manager.RetireOwned(context.Background(), secondLease); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestRuntimeProcessQuarantineIsBounded(t *testing.T) {
+	runtime := &processPiRuntime{
+		quarantined: map[string]struct{}{}, pending: map[string]chan runtimeResponse{},
+		events: make(chan PiEvent, 1), done: make(chan struct{}), running: true,
+	}
+	for index := 0; index < runtimeRequestQuarantineLimit+32; index++ {
+		runtime.quarantinePending(fmt.Sprintf("request-%d", index))
+	}
+	runtime.mu.Lock()
+	quarantined := len(runtime.quarantined)
+	closed := runtime.closed
+	runtime.mu.Unlock()
+	if quarantined > runtimeRequestQuarantineLimit {
+		t.Fatalf("quarantine grew to %d entries, limit is %d", quarantined, runtimeRequestQuarantineLimit)
+	}
+	if !closed {
+		t.Fatal("runtime did not poison after reaching the quarantine limit")
 	}
 }
 
@@ -939,6 +989,7 @@ type serializedSteerRuntime struct {
 	steerStarted chan struct{}
 	releaseSteer chan struct{}
 	abortStarted chan struct{}
+	closeHook    func()
 	steerOnce    sync.Once
 	abortOnce    sync.Once
 }
@@ -966,9 +1017,84 @@ func (r *serializedSteerRuntime) Send(_ context.Context, command RPCCommand) (RP
 	}
 	return RPCResponse{ID: command.ID, Type: "response", Command: command.Type, Success: true}, nil
 }
-func (r *serializedSteerRuntime) Events() <-chan PiEvent      { return r.events }
-func (r *serializedSteerRuntime) IsRunning() bool             { return true }
-func (r *serializedSteerRuntime) Close(context.Context) error { return nil }
+func (r *serializedSteerRuntime) Events() <-chan PiEvent { return r.events }
+func (r *serializedSteerRuntime) IsRunning() bool        { return true }
+func (r *serializedSteerRuntime) Close(context.Context) error {
+	if r.closeHook != nil {
+		r.closeHook()
+	}
+	return nil
+}
+func (r *serializedSteerRuntime) setCloseHook(hook func()) { r.closeHook = hook }
+
+func TestRunnerFinishPromptReleasesAfterParentCancellation(t *testing.T) {
+	store := runtimeTestStore()
+	runtime := newFakePiRuntime()
+	manager := NewRuntimeManagerWithFactory(store, func(context.Context, string, string) (PiRuntime, error) {
+		return runtime, nil
+	})
+	defer manager.Shutdown(context.Background())
+	runner := NewRunnerWithRuntimeManager(manager)
+	broker := NewBroker()
+	parent, cancelParent := context.WithCancel(context.Background())
+	defer cancelParent()
+	if err := runner.StartPiPrompt(parent, broker, store, "runtime-session", "first", nil, "first"); err != nil {
+		t.Fatal(err)
+	}
+	cancelParent()
+	waitForRunnerIdle(t, runner, "runtime-session")
+}
+
+func TestRunnerCancelWaitsForInFlightSteerBeforeSuccessorSend(t *testing.T) {
+	store := runtimeTestStore()
+	first := newSerializedSteerRuntime()
+	second := newSerializedSteerRuntime()
+	var created atomic.Int32
+	manager := NewRuntimeManagerWithFactory(store, func(context.Context, string, string) (PiRuntime, error) {
+		if created.Add(1) == 1 {
+			return first, nil
+		}
+		return second, nil
+	})
+	defer manager.Shutdown(context.Background())
+	runner := NewRunnerWithRuntimeManager(manager)
+	if err := runner.StartPiPrompt(context.Background(), NewBroker(), store, "runtime-session", "first", nil, "first"); err != nil {
+		t.Fatal(err)
+	}
+	steerDone := make(chan error, 1)
+	go func() { steerDone <- runner.Steer("runtime-session", "late", nil) }()
+	<-first.steerStarted
+
+	closeStarted := make(chan struct{})
+	first.setCloseHook(func() { close(closeStarted) })
+	cancelClaimed := make(chan struct{})
+	runner.cancelBeforeClaimHook = func() { close(cancelClaimed) }
+	cancelDone := make(chan bool, 1)
+	go func() { cancelDone <- runner.Cancel("runtime-session") }()
+	<-cancelClaimed
+	select {
+	case <-closeStarted:
+		t.Fatal("Cancel closed the runtime while Steer was still sending")
+	case <-time.After(100 * time.Millisecond):
+	}
+
+	select {
+	case ok := <-cancelDone:
+		t.Fatalf("Cancel released the run before stale Steer finished: %v", ok)
+	case <-time.After(100 * time.Millisecond):
+	}
+	close(first.releaseSteer)
+	if err := <-steerDone; err != nil {
+		t.Fatalf("Steer: %v", err)
+	}
+	if !<-cancelDone {
+		t.Fatal("Cancel did not claim the active run")
+	}
+	if err := runner.StartPiPrompt(context.Background(), NewBroker(), store, "runtime-session", "second", nil, "second"); err != nil {
+		t.Fatalf("successor prompt: %v", err)
+	}
+	second.events <- PiEvent{Type: "agent_end", Raw: json.RawMessage(`{"type":"agent_end"}`)}
+}
 
 func TestRunnerSteerCannotCrossConcurrentCancel(t *testing.T) {
 	store := runtimeTestStore()

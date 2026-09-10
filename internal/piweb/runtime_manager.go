@@ -112,6 +112,7 @@ type runtimeEntry struct {
 	closeDone           chan struct{}
 	closeErr            error
 	ownerGeneration     uint64
+	steerGate           commandGate
 }
 
 func NewRuntimeManager(store *Store, factories ...RuntimeProcessFactory) *RuntimeManager {
@@ -191,9 +192,11 @@ func (m *RuntimeManager) EnsureOwned(ctx context.Context, sessionID string, gene
 		}
 		if entry := m.sessions[sessionID]; entry != nil {
 			if entry.IsRunning() {
-				entry.ownerGeneration = generation
+				if generation != 0 {
+					entry.ownerGeneration = generation
+				}
 				entry.touch(m.now())
-				ownership := runtimeOwnership{sessionID: sessionID, generation: generation, entry: entry}
+				ownership := runtimeOwnership{sessionID: sessionID, generation: entry.ownerGeneration, entry: entry}
 				m.mu.Unlock()
 				return entry, ownership, nil
 			}
@@ -229,10 +232,14 @@ func (m *RuntimeManager) waitOwnedStartup(ctx context.Context, sessionID string,
 	if !ok || entry != runtime {
 		return runtime, runtimeOwnership{}, errRuntimeSessionClosed
 	}
-	if entry.ownerGeneration == startup.generation {
+	if generation != 0 && entry.ownerGeneration == startup.generation {
 		entry.ownerGeneration = generation
 	}
-	return entry, runtimeOwnership{sessionID: sessionID, generation: generation, entry: entry}, nil
+	leaseGeneration := generation
+	if leaseGeneration == 0 {
+		leaseGeneration = entry.ownerGeneration
+	}
+	return entry, runtimeOwnership{sessionID: sessionID, generation: leaseGeneration, entry: entry}, nil
 }
 
 func (m *RuntimeManager) startRuntime(sessionID, sessionFile, cwd string, startup *runtimeStartup, ctx context.Context) {

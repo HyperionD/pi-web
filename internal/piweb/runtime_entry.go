@@ -9,6 +9,13 @@ import (
 )
 
 func (entry *runtimeEntry) Send(ctx context.Context, command RPCCommand) (RPCResponse, error) {
+	steer := isSteerRPCCommand(command)
+	if steer && !entry.steerGate.acquire(ctx) {
+		return RPCResponse{}, ctx.Err()
+	}
+	if steer {
+		defer entry.steerGate.release()
+	}
 	if command.ID == "" {
 		command.ID = fmt.Sprintf("piweb-%d", entry.manager.nextID.Add(1))
 	}
@@ -128,6 +135,16 @@ func (entry *runtimeEntry) recordEvent(event PiEvent) {
 	}
 }
 
+func isSteerRPCCommand(command RPCCommand) bool {
+	if command.Type != "prompt" || len(command.Payload) == 0 {
+		return false
+	}
+	var payload struct {
+		StreamingBehavior string `json:"streamingBehavior"`
+	}
+	return json.Unmarshal(command.Payload, &payload) == nil && payload.StreamingBehavior == "steer"
+}
+
 func eventActivityKey(eventType, toolCallID string) string {
 	switch eventType {
 	case "agent_start", "agent_end":
@@ -147,6 +164,10 @@ func eventActivityKey(eventType, toolCallID string) string {
 func (entry *runtimeEntry) IsRunning() bool      { return !entry.isClosed() && entry.runtime.IsRunning() }
 func (entry *runtimeEntry) processRunning() bool { return entry.runtime.IsRunning() }
 func (entry *runtimeEntry) Close(ctx context.Context) error {
+	if !entry.steerGate.acquire(ctx) {
+		return ctx.Err()
+	}
+	defer entry.steerGate.release()
 	entry.mu.Lock()
 	if entry.closed {
 		done := entry.closeDone

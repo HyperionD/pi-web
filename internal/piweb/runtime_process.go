@@ -46,6 +46,8 @@ type runtimeResponse struct {
 	err      error
 }
 
+const runtimeRequestQuarantineLimit = 1024
+
 func newPiRuntime(ctx context.Context, sessionFile, cwd string) (PiRuntime, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
@@ -277,6 +279,15 @@ func (runtime *processPiRuntime) quarantinePending(id string) {
 		runtime.quarantined = map[string]struct{}{}
 	}
 	delete(runtime.pending, id)
+	if _, exists := runtime.quarantined[id]; exists {
+		runtime.mu.Unlock()
+		return
+	}
+	if len(runtime.quarantined) >= runtimeRequestQuarantineLimit {
+		runtime.mu.Unlock()
+		runtime.poison(errors.New("RPC request quarantine limit exceeded"))
+		return
+	}
 	runtime.quarantined[id] = struct{}{}
 	runtime.mu.Unlock()
 }

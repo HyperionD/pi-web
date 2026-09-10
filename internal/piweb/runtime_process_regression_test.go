@@ -46,10 +46,13 @@ printf '%s\n' '{"id":"request-1","type":"response","command":"prompt","success":
 
 func TestProcessRuntimeQuarantinesCanceledRequestID(t *testing.T) {
 	root := t.TempDir()
+	lateMarker := filepath.Join(root, "late-response-marker")
 	writeFakePi(t, root, `#!/bin/sh
 read first
-read second
+sleep 0.2
+printf late > '`+lateMarker+`'
 printf '%s\n' '{"id":"reused","type":"response","command":"prompt","success":true}'
+sleep 1
 `)
 	runtime, err := newPiRuntime(context.Background(), filepath.Join(root, "session.jsonl"), root)
 	if err != nil {
@@ -67,6 +70,21 @@ printf '%s\n' '{"id":"reused","type":"response","command":"prompt","success":tru
 	_, err = runtime.Send(secondCtx, RPCCommand{ID: "reused", Type: "prompt"})
 	if err == nil || !strings.Contains(err.Error(), "quarantined") {
 		t.Fatalf("reused request ID error = %v, want quarantine error", err)
+	}
+	deadline := time.Now().Add(time.Second)
+	for {
+		if _, statErr := os.Stat(lateMarker); statErr == nil {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("fake Pi did not produce the late response")
+		}
+		time.Sleep(time.Millisecond)
+	}
+	select {
+	case event := <-runtime.Events():
+		t.Fatalf("late response escaped quarantine as event: %+v", event)
+	default:
 	}
 }
 
@@ -332,6 +350,24 @@ sleep 30
 	case <-runtime.done:
 	case <-time.After(time.Second):
 		t.Fatal("runtime cleanup did not finish after forced close")
+	}
+	select {
+	case <-runtime.stdoutDone:
+	case <-time.After(time.Second):
+		t.Fatal("stdout pipe reader did not exit after forced close")
+	}
+	select {
+	case <-runtime.stderrDone:
+	case <-time.After(time.Second):
+		t.Fatal("stderr pipe reader did not exit after forced close")
+	}
+	select {
+	case _, ok := <-runtime.Events():
+		if ok {
+			t.Fatal("runtime event channel remained open after forced close")
+		}
+	case <-time.After(time.Second):
+		t.Fatal("runtime event channel did not close after forced close")
 	}
 }
 
