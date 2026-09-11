@@ -1,12 +1,17 @@
 import {
   getGitStatus,
   getSession,
+  getSessionState,
+  health,
   getWorkspaceCommands,
   getWorkspaceFiles,
   getWorkspaces,
 } from "../../lib/api";
 import { clearStoredActiveSession, readStoredActiveSession, storeActiveSession } from "../sessions/session-storage";
 import { normalizeEventCursor } from "../sessions/session-recovery";
+import { createSessionStreamClient } from "../sessions/session-stream-client";
+import { emptyTranscriptState, type TranscriptState } from "../sessions/transcript-state";
+import { installSessionSnapshot, reduceSessionEvent } from "../sessions/transcript-reducer";
 import { isForbiddenWorkspaceError, requestErrorMessage } from "./workspace-methods";
 
 const SESSION_MESSAGE_PAGE_SIZE = 120;
@@ -94,7 +99,13 @@ export const workspaceBootstrapMethods = {
         return undefined;
       });
     try {
-      const [{ workspaces }] = await Promise.all([getWorkspaces(), appConfigRequest, adminPasswordRequest]);
+      const [{ workspaces }, healthState] = await Promise.all([
+        getWorkspaces(),
+        appConfigRequest,
+        adminPasswordRequest,
+        Promise.resolve(health?.()).catch(() => undefined),
+      ]);
+      this.durableEvents = !!healthState?.durableEvents;
       if (!isCurrentBootstrap() || !ownsBootstrapState()) return;
       this.apiConnected = true;
       this.setConnection("ok");
@@ -348,12 +359,152 @@ export const workspaceBootstrapMethods = {
     );
     this.showSessionSwitchLoading(sessionId);
     try {
+      if (this.durableEvents) {
+        const durable = await this.loadDurableSessionState(sessionId);
+        if (!isCurrentResource()) return;
+        if (durable) {
+          this.applyLoadedDurableSession(durable);
+          return;
+        }
+      }
       const loaded = await getSession(sessionId, { limit: SESSION_MESSAGE_PAGE_SIZE });
       if (!isCurrentResource()) return;
       this.applyLoadedSession(loaded.session, loaded.messages || [], loaded.status, loaded);
     } catch (error) {
       if (!isCurrentResource()) return;
       if (!this.recoverForbiddenWorkspace(error)) this.setConnection("err");
+    }
+  },
+
+  async loadDurableSessionState(sessionId) {
+    try {
+      const state = await getSessionState(sessionId, { limit: SESSION_MESSAGE_PAGE_SIZE });
+      if (!state || typeof state.projectionGeneration === "undefined") return undefined;
+      this.transcriptState = installSessionSnapshot(
+        emptyTranscriptState(sessionId, this.sessionViewGeneration),
+        state,
+      );
+      return state;
+    } catch {
+      return undefined;
+    }
+  },
+
+  applyLoadedDurableSession(state) {
+    const session = state.session || { id: this.dataset.activeSessionId };
+    this.dataset.activeSessionId = session.id;
+    this.resetActiveSessionState?.();
+    const workspaceId = session.workspaceId || this.findSessionRow(session.id)?.dataset.workspace;
+    if (workspaceId) this.activateWorkspaceForSession(workspaceId, { loadContext: true });
+    this.markSelectedSessionRow?.(session.id);
+    storeActiveSession(workspaceId || this.dataset.activeWorkspaceId, session.id);
+    this.activateBootstrapSession(session);
+    this.sessionHistoryCursor = state.cursor || "";
+    this.sessionHistoryHasMore = !!state.hasMore;
+    this.sessionHistoryLoading = false;
+    this.renderMessages((state.items || []).map((item) => this.durableMessage(item)));
+    this.setMode(state.status || "idle");
+    this.connectDurableEvents(session.id, state.seq);
+  },
+
+  durableMessage(item): any {
+    if (item.kind === "user") return { kind: "user", text: item.text, attachments: item.attachments };
+    if (item.kind === "pi" || item.kind === "think") return { kind: item.kind, text: item.text };
+    if (item.kind === "tool") {
+      return {
+        kind: "tool",
+        id: item.toolCallId || item.id,
+        tool: item.tool,
+        args: item.args,
+        status: item.status,
+        body: item.bodyPreview,
+        resultMeta: item.resultMeta,
+        durationMs: item.durationMs,
+      };
+    }
+    return { kind: item.kind || "pi", text: item.text };
+  },
+
+  stopDurableStream() {
+    this.durableStream?.stop?.();
+    this.durableStream = undefined;
+  },
+
+  connectDurableEvents(sessionId, initialSeq) {
+    this.stopDurableStream();
+    this.sessionEventCursors ??= new Map();
+    this.setSessionEventCursor(sessionId, initialSeq);
+    const client = createSessionStreamClient({
+      sessionId,
+      appliedSeq: () => this.transcriptState?.appliedSeq || "0",
+      onEvent: (event) => this.applyDurableEvent(event),
+      onReset: () => {
+        if (this.dataset.activeSessionId === sessionId) void this.requestSessionResync(sessionId);
+      },
+      onError: () => this.setConnection("reconnecting"),
+    });
+    this.durableStream = client;
+    client.start();
+    this.confirmConnection?.();
+  },
+
+  applyDurableEvent(event) {
+    if (!this.transcriptState || event?.sessionId !== this.transcriptState.sessionId) return;
+    let next: TranscriptState;
+    try {
+      next = reduceSessionEvent(this.transcriptState, event);
+    } catch {
+      this.stopDurableStream();
+      void this.requestSessionResync(this.dataset.activeSessionId);
+      return;
+    }
+    this.transcriptState = next;
+    this.setSessionEventCursor(event.sessionId, event.seq);
+    this.confirmConnection?.();
+    const payload = event.payload || {};
+    switch (event.type) {
+      case "user.message.created":
+        this.appendMessage({ kind: "user", text: payload.text, attachments: payload.attachments });
+        break;
+      case "run.started":
+        this.setMode("running");
+        break;
+      case "assistant.segment.delta":
+        if (payload.delta) this.appendDelta({ kind: payload.kind === "think" ? "think" : "pi", delta: payload.delta });
+        break;
+      case "assistant.segment.committed":
+        if (payload.text) this.finalizePiStream(payload.text);
+        break;
+      case "tool.started":
+        this.appendMessage({ kind: "tool", id: payload.toolCallId, tool: payload.tool, args: payload.args, status: "running", collapsedByDefault: true });
+        break;
+      case "tool.output":
+        this.appendToolOutput({ id: payload.toolCallId, tool: payload.tool, chunk: payload.chunk, mode: payload.mode });
+        break;
+      case "tool.finished":
+        this.finishTool({ kind: "tool", id: payload.toolCallId, tool: payload.tool, status: payload.status, body: payload.body, resultMeta: payload.resultMeta, durationMs: payload.durationMs });
+        break;
+      case "run.finished":
+        this.commitStreamingMessages?.();
+        this.removeLoadingMessage?.();
+        this.setMode("idle");
+        break;
+      case "run.cancelled":
+        this.commitStreamingMessages?.();
+        this.removeLoadingMessage?.();
+        this.setMode("cancelled");
+        break;
+      case "run.failed":
+        this.finishRunningTools?.({ status: "err", resultMeta: "failed" });
+        this.appendErrorMessage?.(payload.error);
+        this.setMode("idle");
+        break;
+      case "run.interrupted":
+        this.finishRunningTools?.({ status: "interrupted", resultMeta: "interrupted" });
+        this.setMode("idle");
+        break;
+      default:
+        break;
     }
   },
 

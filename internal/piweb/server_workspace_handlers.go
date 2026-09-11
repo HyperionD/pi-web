@@ -8,7 +8,9 @@ import (
 )
 
 func (s *Server) health(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "time": time.Now().UTC()})
+	writeJSON(w, http.StatusOK, map[string]any{
+		"ok": true, "time": time.Now().UTC(), "durableEvents": s.events != nil,
+	})
 }
 func (s *Server) listFolders(w http.ResponseWriter, r *http.Request) {
 	path := r.URL.Query().Get("path")
