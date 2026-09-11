@@ -88,6 +88,8 @@ func (lifecycle *serverLifecycle) beginShutdown(ctx context.Context) error {
 type Server struct {
 	store                   *Store
 	broker                  *Broker
+	events                  SessionEventStore
+	hub                     *SessionWakeHub
 	runner                  *Runner
 	runtimeManager          *RuntimeManager
 	mux                     *http.ServeMux
@@ -104,6 +106,13 @@ type Server struct {
 
 func NewServer(config Config, store *Store, broker *Broker) *Server {
 	return NewServerWithRuntimeManager(config, store, broker, NewRuntimeManager(store))
+}
+
+func NewServerWithEventStore(config Config, store *Store, broker *Broker, events SessionEventStore, hub *SessionWakeHub) *Server {
+	server := NewServer(config, store, broker)
+	server.events = events
+	server.hub = hub
+	return server
 }
 
 func NewServerWithRuntimeManager(config Config, store *Store, broker *Broker, manager *RuntimeManager) *Server {
@@ -218,6 +227,9 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("POST /api/sessions/{sessionID}/steer", s.requireSessionAccess(s.steerSession))
 	s.mux.HandleFunc("POST /api/sessions/{sessionID}/cancel", s.requireSessionAccess(s.cancelSession))
 	s.mux.HandleFunc("GET /api/sessions/{sessionID}/events", s.requireSessionAccess(s.sessionEvents))
+	s.mux.HandleFunc("GET /api/sessions/{sessionID}/state", s.requireSessionAccess(s.sessionState))
+	s.mux.HandleFunc("GET /api/sessions/{sessionID}/events-v2", s.requireSessionAccess(s.sessionEventsV2))
+	s.mux.HandleFunc("GET /api/sessions/{sessionID}/items/{itemID}/content", s.requireSessionAccess(s.sessionItemContent))
 	if s.config.StaticFiles != nil {
 		s.mux.HandleFunc("GET /", s.staticFile)
 	}
