@@ -14,6 +14,7 @@ type SessionEventStore interface {
 	Append(context.Context, string, SessionEventDraft) (StoredSessionEvent, error)
 	Snapshot(context.Context, string, SessionPageRequest) (SessionStateSnapshot, error)
 	EventsAfter(context.Context, string, int64, EventReadLimit) (EventBatch, error)
+	ItemContent(context.Context, string, string, int64, int64, int64) ([]byte, int64, error)
 	OpenSession(context.Context, SessionSource) (ImportReport, error)
 	RecoverInterrupted(context.Context) error
 	DeleteSession(context.Context, string) error
@@ -81,22 +82,10 @@ type SQLiteSessionEventStore struct {
 	eventStoreFaultHook func(EventStoreFaultPoint) error
 }
 
-func (s *SQLiteSessionEventStore) Snapshot(context.Context, string, SessionPageRequest) (SessionStateSnapshot, error) {
-	return SessionStateSnapshot{}, ErrEventStoreNotReady
-}
-
-func (s *SQLiteSessionEventStore) EventsAfter(context.Context, string, int64, EventReadLimit) (EventBatch, error) {
-	return EventBatch{}, ErrEventStoreNotReady
-}
-
 func (s *SQLiteSessionEventStore) OpenSession(context.Context, SessionSource) (ImportReport, error) {
 	return ImportReport{}, ErrEventStoreNotReady
 }
 
 func (s *SQLiteSessionEventStore) RecoverInterrupted(context.Context) error {
-	return ErrEventStoreNotReady
-}
-
-func (s *SQLiteSessionEventStore) DeleteSession(context.Context, string) error {
 	return ErrEventStoreNotReady
 }

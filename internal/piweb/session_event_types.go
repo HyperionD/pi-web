@@ -70,23 +70,26 @@ type SessionStreamState struct {
 }
 
 type ProjectedSessionItem struct {
-	ItemID      string             `json:"itemId"`
-	Ordinal     int64              `json:"ordinal"`
-	Kind        string             `json:"kind"`
-	Origin      string             `json:"origin"`
-	RunID       string             `json:"runId,omitempty"`
-	EntityID    string             `json:"entityId,omitempty"`
-	Text        string             `json:"text,omitempty"`
-	Tool        string             `json:"tool,omitempty"`
-	ToolCallID  string             `json:"toolCallId,omitempty"`
-	Args        string             `json:"args,omitempty"`
-	Body        string             `json:"body,omitempty"`
-	Status      string             `json:"status,omitempty"`
-	ResultMeta  string             `json:"resultMeta,omitempty"`
-	DurationMs  int                `json:"durationMs,omitempty"`
-	Attachments []PromptAttachment `json:"attachments,omitempty"`
-	CreatedSeq  int64              `json:"createdSeq"`
-	UpdatedSeq  int64              `json:"updatedSeq"`
+	ItemID         string             `json:"itemId"`
+	Ordinal        int64              `json:"ordinal"`
+	Kind           string             `json:"kind"`
+	Origin         string             `json:"origin"`
+	RunID          string             `json:"runId,omitempty"`
+	EntityID       string             `json:"entityId,omitempty"`
+	Text           string             `json:"text,omitempty"`
+	Tool           string             `json:"tool,omitempty"`
+	ToolCallID     string             `json:"toolCallId,omitempty"`
+	Args           string             `json:"args,omitempty"`
+	Body           string             `json:"body,omitempty"`
+	Status         string             `json:"status,omitempty"`
+	ResultMeta     string             `json:"resultMeta,omitempty"`
+	DurationMs     int                `json:"durationMs,omitempty"`
+	Attachments    []PromptAttachment `json:"attachments,omitempty"`
+	CreatedSeq     int64              `json:"createdSeq"`
+	UpdatedSeq     int64              `json:"updatedSeq"`
+	ContentRef     string             `json:"contentRef,omitempty"`
+	ContentVersion int64              `json:"contentVersion,omitempty"`
+	ContentLength  int64              `json:"contentLength,omitempty"`
 }
 
 type ProjectionView struct {
@@ -104,12 +107,16 @@ type ProjectionChange struct {
 }
 
 var (
-	ErrUnknownSessionEvent   = errors.New("unknown session event")
-	ErrInvalidSessionEvent   = errors.New("invalid session event")
-	ErrInvalidEntityID       = errors.New("invalid session entity id")
-	ErrStaleSessionRun       = errors.New("stale session run")
-	ErrActiveToolAtRunFinish = errors.New("active tool at run finish")
-	ErrConflictingToolFinish = errors.New("conflicting tool finish")
-	ErrCommandHashConflict   = errors.New("command request hash conflict")
-	ErrInvalidSourceOrdinal  = errors.New("invalid source ordinal")
+	ErrUnknownSessionEvent     = errors.New("unknown session event")
+	ErrInvalidSessionEvent     = errors.New("invalid session event")
+	ErrInvalidEntityID         = errors.New("invalid session entity id")
+	ErrStaleSessionRun         = errors.New("stale session run")
+	ErrActiveToolAtRunFinish   = errors.New("active tool at run finish")
+	ErrConflictingToolFinish   = errors.New("conflicting tool finish")
+	ErrCommandHashConflict     = errors.New("command request hash conflict")
+	ErrInvalidSourceOrdinal    = errors.New("invalid source ordinal")
+	ErrProjectionCursorExpired = errors.New("projection cursor expired")
+	ErrInvalidProjectionCursor = errors.New("invalid projection cursor")
+	ErrContentVersionConflict  = errors.New("content version conflict")
+	ErrInvalidContentRange     = errors.New("invalid content range")
 )

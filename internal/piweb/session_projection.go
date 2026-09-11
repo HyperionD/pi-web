@@ -147,6 +147,7 @@ func reduceToolEvent(view ProjectionView, event StoredSessionEvent) (ProjectionC
 		} else {
 			item.Body += stringValue(payload, "chunk")
 		}
+		syncContentMetadata(&item, event.Seq)
 	case EventToolFinished:
 		if isTerminalTool(item.Status) && !sameToolFinish(item, payload) {
 			return ProjectionChange{}, ErrConflictingToolFinish
@@ -155,6 +156,7 @@ func reduceToolEvent(view ProjectionView, event StoredSessionEvent) (ProjectionC
 		item.Status = stringOrDefault(stringValue(payload, "status"), ToolStatusOK)
 		item.ResultMeta = stringValue(payload, "resultMeta")
 		item.DurationMs = intValue(payload, "durationMs")
+		syncContentMetadata(&item, event.Seq)
 	}
 	item.UpdatedSeq = event.Seq
 	return ProjectionChange{Stream: view.Stream, Upsert: &item}, nil
@@ -194,6 +196,16 @@ func terminalStatuses(eventType string) (string, string) {
 	default:
 		return SessionStatusIdle, ToolStatusOK
 	}
+}
+
+func syncContentMetadata(item *ProjectedSessionItem, seq int64) {
+	if item.Body == "" {
+		item.ContentRef, item.ContentVersion, item.ContentLength = "", 0, 0
+		return
+	}
+	item.ContentRef = item.ItemID
+	item.ContentVersion = seq
+	item.ContentLength = int64(len(item.Body))
 }
 
 func hasRunningTool(view ProjectionView) bool {
