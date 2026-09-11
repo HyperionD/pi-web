@@ -363,7 +363,8 @@ class PiApp extends HTMLElement {
         this.commitStreamingMessages?.({ preserveAguiText: this.aguiRunActive });
       }
       this.setMode(mode);
-      if (this.apiConnected && this.dataset.activeSessionId && !this.aguiRunActive) {
+      if ((mode === "idle" || mode === "cancelled")
+        && this.apiConnected && this.dataset.activeSessionId && !this.aguiRunActive) {
         void this.requestSessionResync(this.dataset.activeSessionId);
       }
       return;

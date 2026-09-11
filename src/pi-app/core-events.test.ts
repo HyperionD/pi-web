@@ -471,6 +471,10 @@ describe("pi-app core events", () => {
     listeners["session.status"]({
       data: JSON.stringify({ id: 3, type: "session.status", sessionId: "s1", payload: { status: "running" } }),
     });
+    expect(app.loadSession).toHaveBeenCalledTimes(1);
+    listeners["session.status"]({
+      data: JSON.stringify({ id: 4, type: "session.status", sessionId: "s1", payload: { status: "idle" } }),
+    });
     expect(app.loadSession).toHaveBeenCalledTimes(2);
   });
 

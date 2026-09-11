@@ -62,6 +62,23 @@ describe("session recovery", () => {
     expect(app.loadSession).toHaveBeenCalledTimes(1);
   });
 
+  it("does not reload the snapshot for an active status during stream recovery", async () => {
+    const app = await connectPiApp();
+    app.apiConnected = true;
+    app.dataset.activeSessionId = "s1";
+    app.loadSession = vi.fn();
+
+    app.applyEvent({
+      id: "8",
+      type: "session.status",
+      sessionId: "s1",
+      payload: { status: "thinking" },
+    });
+
+    expect(app.loadSession).not.toHaveBeenCalled();
+    expect(app.running).toBe(true);
+  });
+
   it("connects after the snapshot cursor with replay enabled", async () => {
     const app = await connectPiApp();
     app.dataset.activeSessionId = "s1";
