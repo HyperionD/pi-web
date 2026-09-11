@@ -56,6 +56,40 @@ func TestActiveRunReplaySurvivesHistoryWindow(t *testing.T) {
 	}
 }
 
+func TestActiveRunReplaySkipsDeltasCoveredBySnapshotMessage(t *testing.T) {
+	broker := NewBroker()
+	broker.historySize = 1
+	running := broker.Publish("s1", "session.status", map[string]string{"status": "running"})
+	coveredDelta := broker.Publish("s1", "session.delta", map[string]string{"kind": "pi", "delta": "persisted"})
+	persisted := broker.Publish("s1", "session.message", Message{Kind: "pi", Text: "persisted"})
+	liveDelta := broker.Publish("s1", "session.delta", map[string]string{"kind": "pi", "delta": "live"})
+
+	// The cursor includes pre-snapshot transient events that are not represented
+	// in the durable page, so liveDelta must still be replayed.
+	subscription := broker.SubscribeFromActive("s1", running.ID, liveDelta.ID)
+	defer subscription.Close()
+	if len(subscription.Replay) != 1 || subscription.Replay[0].ID != liveDelta.ID {
+		t.Fatalf("active replay = %#v, want only uncovered delta %d; covered delta was %d before message %d", subscription.Replay, liveDelta.ID, coveredDelta.ID, persisted.ID)
+	}
+}
+
+func TestActiveRunReplayTracksCoveredDeltasByMessageKind(t *testing.T) {
+	broker := NewBroker()
+	running := broker.Publish("s1", "session.status", map[string]string{"status": "running"})
+	broker.Publish("s1", "session.delta", map[string]string{"kind": "pi", "delta": "old answer"})
+	broker.Publish("s1", "session.message", Message{Kind: "pi", Text: "old answer"})
+	liveAnswer := broker.Publish("s1", "session.delta", map[string]string{"kind": "pi", "delta": "new answer"})
+	broker.Publish("s1", "session.delta", map[string]string{"kind": "think", "delta": "old thought"})
+	broker.Publish("s1", "session.message", Message{Kind: "think", Text: "old thought"})
+	liveThought := broker.Publish("s1", "session.delta", map[string]string{"kind": "think", "delta": "new thought"})
+
+	subscription := broker.SubscribeFromActive("s1", running.ID, liveThought.ID)
+	defer subscription.Close()
+	if len(subscription.Replay) != 2 || subscription.Replay[0].ID != liveAnswer.ID || subscription.Replay[1].ID != liveThought.ID {
+		t.Fatalf("active replay by kind = %#v, want uncovered deltas %d and %d", subscription.Replay, liveAnswer.ID, liveThought.ID)
+	}
+}
+
 func TestRepeatedActiveStatusPreservesRunRecovery(t *testing.T) {
 	broker := NewBroker()
 	running := broker.Publish("s1", "session.status", map[string]string{"status": "running"})

@@ -548,14 +548,53 @@ func replayAfter(events []Event, after uint64) []Event {
 }
 
 func replayActiveRunAfter(events []Event, after, snapshotAfter uint64) []Event {
+	coveredDeltas := snapshotCoveredDeltaCursors(events, snapshotAfter)
 	var replay []Event
 	for _, event := range events {
-		if event.ID <= after || (event.ID <= snapshotAfter && !isTransientRunEvent(event.Type)) {
+		if event.ID <= after {
 			continue
+		}
+		if event.ID <= snapshotAfter {
+			if !isTransientRunEvent(event.Type) {
+				continue
+			}
+			if event.Type == "session.delta" && event.ID <= coveredDeltas[eventPayloadKind(event.Payload)] {
+				continue
+			}
 		}
 		replay = append(replay, event)
 	}
 	return replay
+}
+
+func snapshotCoveredDeltaCursors(events []Event, snapshotAfter uint64) map[string]uint64 {
+	covered := map[string]uint64{}
+	for _, event := range events {
+		if event.ID > snapshotAfter {
+			break
+		}
+		if event.Type == "session.message" {
+			kind := eventPayloadKind(event.Payload)
+			if kind == "pi" || kind == "think" {
+				covered[kind] = event.ID
+			}
+		}
+	}
+	return covered
+}
+
+func eventPayloadKind(payload any) string {
+	switch value := payload.(type) {
+	case Message:
+		return value.Kind
+	case map[string]string:
+		return value["kind"]
+	case map[string]any:
+		kind, _ := value["kind"].(string)
+		return kind
+	default:
+		return ""
+	}
 }
 
 func isTransientRunEvent(eventType string) bool {
