@@ -7,6 +7,8 @@ import {
 } from "../input/fallback-choices";
 import { TERMINAL_SPINNER_HTML } from "../constants";
 
+const STREAMING_RENDER_MAX_PENDING_UPDATES = 32;
+
 function responseErrorText(detail) {
   if (typeof detail === "string") return detail.trim();
   if (!detail || typeof detail !== "object") return String(detail || "").trim();
@@ -125,10 +127,16 @@ export const messageMethods = {
       body.innerHTML = renderPiBody(row.dataset.streamText);
     }
     this.pendingStreamingRow = undefined;
+    this.streamingRenderPendingUpdates = 0;
   },
 
   scheduleStreamingRender(row) {
     this.pendingStreamingRow = row;
+    this.streamingRenderPendingUpdates = (this.streamingRenderPendingUpdates || 0) + 1;
+    if (this.streamingRenderPendingUpdates >= STREAMING_RENDER_MAX_PENDING_UPDATES) {
+      this.flushStreamingRender();
+      return;
+    }
     if (this.streamingRenderFrame != null) return;
     this.streamingRenderFrame = window.requestAnimationFrame(() => {
       this.streamingRenderFrame = undefined;

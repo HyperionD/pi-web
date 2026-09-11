@@ -709,6 +709,40 @@ describe("pi-app messages", () => {
     expect(body.innerHTML).toContain("<strong>bold</strong>");
   });
 
+  it("renders progress when animation frames are starved by replayed deltas", async () => {
+    vi.spyOn(window, "requestAnimationFrame").mockImplementation(() => 1);
+    vi.spyOn(window, "cancelAnimationFrame").mockImplementation(() => undefined);
+    const app = await connectPiApp();
+    app.renderMessages([]);
+
+    for (let number = 1; number <= 32; number += 1) {
+      app.appendDelta({ kind: "pi", delta: `${number}\n` });
+    }
+    const body = app.querySelector(".streaming-tail .msg.streaming .body");
+    expect(body.textContent).toContain("32");
+
+    for (let number = 33; number <= 64; number += 1) {
+      app.appendDelta({ kind: "pi", delta: `${number}\n` });
+    }
+    expect(body.textContent).toContain("64");
+  });
+
+  it("resets the forced render budget when switching transcripts", async () => {
+    vi.spyOn(window, "requestAnimationFrame").mockImplementation(() => 1);
+    vi.spyOn(window, "cancelAnimationFrame").mockImplementation(() => undefined);
+    const app = await connectPiApp();
+    app.renderMessages([]);
+    for (let update = 1; update < 32; update += 1) {
+      app.appendDelta({ kind: "pi", delta: "old" });
+    }
+
+    app.renderMessages([]);
+    app.appendDelta({ kind: "pi", delta: "new" });
+
+    const body = app.querySelector(".streaming-tail .msg.streaming .body");
+    expect(body.textContent).toBe("");
+  });
+
   it("coalesces repeated terminal scroll requests into one animation frame", async () => {
     const frames = [];
     vi.spyOn(window, "requestAnimationFrame").mockImplementation((callback) => {

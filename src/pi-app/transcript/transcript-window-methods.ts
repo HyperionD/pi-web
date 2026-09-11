@@ -161,6 +161,7 @@ export const transcriptWindowMethods = {
     this.streamingTail?.replaceChildren();
     this.streamingRows = {};
     this.pendingStreamingRow = undefined;
+    this.streamingRenderPendingUpdates = 0;
     this.piDeltaBuffer = "";
     this.piRawTextBuffer = "";
     if (this.streamingRenderFrame != null) {
