@@ -421,7 +421,7 @@ describe("workspace bootstrap coverage", () => {
     app.dataset.activeWorkspaceId = "w-old";
     app.dataset.activeSessionId = "s-old";
     let resolveModel;
-    globalThis.fetch = vi.fn(async (url) => String(url).endsWith("/runtime-model")
+    globalThis.fetch = vi.fn(async (url) => String(url).includes("/runtime-model")
       ? new Promise((resolve) => { resolveModel = resolve; })
       : okJson({ contextUsage: null }));
 
@@ -447,7 +447,7 @@ describe("workspace bootstrap coverage", () => {
       if (value.endsWith("/runtime-quota?model=CURRENT")) {
         return new Promise((resolve) => { resolveQuota = resolve; });
       }
-      if (value.endsWith("/runtime-model")) return okJson({ status: { model: "CURRENT" } });
+      if (value.includes("/runtime-model")) return okJson({ status: { model: "CURRENT" } });
       return okJson({ contextUsage: null });
     });
 
