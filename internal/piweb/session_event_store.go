@@ -82,10 +82,6 @@ type SQLiteSessionEventStore struct {
 	eventStoreFaultHook func(EventStoreFaultPoint) error
 }
 
-func (s *SQLiteSessionEventStore) OpenSession(context.Context, SessionSource) (ImportReport, error) {
-	return ImportReport{}, ErrEventStoreNotReady
-}
-
 func (s *SQLiteSessionEventStore) RecoverInterrupted(context.Context) error {
 	return ErrEventStoreNotReady
 }

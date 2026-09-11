@@ -87,6 +87,7 @@ type ProjectedSessionItem struct {
 	Attachments    []PromptAttachment `json:"attachments,omitempty"`
 	CreatedSeq     int64              `json:"createdSeq"`
 	UpdatedSeq     int64              `json:"updatedSeq"`
+	BlockIndex     int                `json:"blockIndex,omitempty"`
 	ContentRef     string             `json:"contentRef,omitempty"`
 	ContentVersion int64              `json:"contentVersion,omitempty"`
 	ContentLength  int64              `json:"contentLength,omitempty"`
