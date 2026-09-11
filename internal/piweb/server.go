@@ -90,6 +90,7 @@ type Server struct {
 	broker                  *Broker
 	events                  SessionEventStore
 	hub                     *SessionWakeHub
+	commands                *SessionCommandService
 	runner                  *Runner
 	runtimeManager          *RuntimeManager
 	mux                     *http.ServeMux
@@ -110,9 +111,30 @@ func NewServer(config Config, store *Store, broker *Broker) *Server {
 
 func NewServerWithEventStore(config Config, store *Store, broker *Broker, events SessionEventStore, hub *SessionWakeHub) *Server {
 	server := NewServer(config, store, broker)
-	server.events = events
-	server.hub = hub
+	server.attachEventStore(store, events, hub)
 	return server
+}
+
+func NewServerWithEventsAndRuntimeManager(config Config, store *Store, broker *Broker, manager *RuntimeManager, events SessionEventStore, hub *SessionWakeHub) *Server {
+	server := NewServerWithRuntimeManager(config, store, broker, manager)
+	server.attachEventStore(store, events, hub)
+	return server
+}
+
+func (s *Server) attachEventStore(store *Store, events SessionEventStore, hub *SessionWakeHub) {
+	s.events = events
+	s.hub = hub
+	s.commands = NewSessionCommandService(events, runnerPromptStarter{runner: s.runner, store: store})
+}
+
+type runnerPromptStarter struct {
+	runner   *Runner
+	store    *Store
+	settings []ModelStartupSettings
+}
+
+func (s runnerPromptStarter) StartPrompt(ctx context.Context, sessionID, runID, text string, images []PromptAttachment, adapter *RuntimeEventAdapter) error {
+	return s.runner.StartDurablePrompt(ctx, s.store, sessionID, runID, text, images, adapter, s.settings...)
 }
 
 func NewServerWithRuntimeManager(config Config, store *Store, broker *Broker, manager *RuntimeManager) *Server {

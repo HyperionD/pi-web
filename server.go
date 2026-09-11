@@ -19,6 +19,7 @@ type serverDependencies struct {
 	newAutoStore func() *piweb.Store
 	newMockStore func() *piweb.Store
 	newServer    func(piweb.Config, *piweb.Store, *piweb.Broker) *piweb.Server
+	openServer   func(piweb.Config, *piweb.Store, *piweb.Broker) (*piweb.Server, error)
 	newBroker    func() *piweb.Broker
 	staticFiles  func() fs.FS
 	listen       func(*http.Server) error
@@ -32,6 +33,7 @@ func defaultServerDependencies() serverDependencies {
 		newAutoStore: piweb.NewAutoStore,
 		newMockStore: piweb.NewMockStore,
 		newServer:    piweb.NewServer,
+		openServer:   piweb.OpenServer,
 		newBroker:    piweb.NewBroker,
 		staticFiles:  staticFiles,
 		listen:       (*http.Server).ListenAndServe,
@@ -56,13 +58,23 @@ func runServerWithDependencies(options serverOptions, deps serverDependencies) e
 		store = deps.newMockStore()
 	}
 
-	server := deps.newServer(piweb.Config{
+	serverConfig := piweb.Config{
 		Host:              options.Host,
 		Port:              options.Port,
 		EnablePiExecution: !options.Mock,
 		UserManagement:    true,
 		StaticFiles:       deps.staticFiles(),
-	}, store, deps.newBroker())
+	}
+	var server *piweb.Server
+	if deps.openServer != nil && store.DatabasePath() != "" {
+		opened, err := deps.openServer(serverConfig, store, deps.newBroker())
+		if err != nil {
+			return fmt.Errorf("open server: %w", err)
+		}
+		server = opened
+	} else {
+		server = deps.newServer(serverConfig, store, deps.newBroker())
+	}
 	httpServer := &http.Server{
 		Addr:              server.Addr(),
 		Handler:           server.Handler(),

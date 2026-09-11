@@ -92,6 +92,16 @@ func (a *RuntimeEventAdapter) Flush() error {
 	return a.flushPending()
 }
 
+func (a *RuntimeEventAdapter) Complete(eventType string) error {
+	if a.poisoned != nil {
+		return a.poisoned
+	}
+	if err := a.flushPending(); err != nil {
+		return err
+	}
+	return a.emit(eventType, "", map[string]any{})
+}
+
 func (a *RuntimeEventAdapter) Fail(err error) error {
 	if a.poisoned != nil {
 		return a.poisoned

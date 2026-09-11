@@ -64,8 +64,9 @@ type Event struct {
 }
 
 type PromptRequest struct {
-	Text        string             `json:"text"`
-	Attachments []PromptAttachment `json:"attachments,omitempty"`
+	ClientRequestID string             `json:"clientRequestId,omitempty"`
+	Text            string             `json:"text"`
+	Attachments     []PromptAttachment `json:"attachments,omitempty"`
 }
 
 type PromptAttachment struct {

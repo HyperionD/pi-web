@@ -109,6 +109,27 @@ func (s *Server) prompt(w http.ResponseWriter, r *http.Request) {
 	} else if changed {
 		s.broker.Publish(sessionID, "session.renamed", session)
 	}
+	if s.commands != nil {
+		startupSettings, err := s.modelSettingsForSession(sessionID)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, err)
+			return
+		}
+		clientRequestID := strings.TrimSpace(req.ClientRequestID)
+		if clientRequestID == "" {
+			clientRequestID = createSessionID()
+		}
+		receipt, err := s.commands.StartPromptWith(r.Context(), StartPromptCommand{
+			SessionID: sessionID, ClientRequestID: clientRequestID, DisplayText: displayText,
+			Text: promptText, Attachments: req.Attachments,
+		}, runnerPromptStarter{runner: s.runner, store: s.store, settings: []ModelStartupSettings{startupSettings}})
+		if err != nil {
+			writeError(w, http.StatusConflict, err)
+			return
+		}
+		writeJSON(w, http.StatusAccepted, map[string]any{"accepted": true, "runId": receipt.RunID, "existing": receipt.Existing, "realPi": s.config.EnablePiExecution})
+		return
+	}
 	if s.config.EnablePiExecution {
 		startupSettings, err := s.modelSettingsForSession(sessionID)
 		if err != nil {

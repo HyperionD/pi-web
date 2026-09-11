@@ -8,6 +8,7 @@ import (
 	"io/fs"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"testing/fstest"
@@ -127,9 +128,61 @@ func TestRunServerWithDependencies(t *testing.T) {
 	}
 }
 
+func TestRunServerWithOpenServer(t *testing.T) {
+	base := func() serverDependencies {
+		return serverDependencies{
+			newAutoStore: piweb.NewMockStore,
+			newMockStore: piweb.NewMockStore,
+			newServer:    piweb.NewServer,
+			newBroker:    piweb.NewBroker,
+			staticFiles:  func() fs.FS { return fstest.MapFS{"index.html": {Data: []byte("ok")}} },
+			listen:       func(*http.Server) error { return http.ErrServerClosed },
+			shutdown:     func(*http.Server, context.Context) error { return nil },
+			notify:       func(chan<- os.Signal, ...os.Signal) {},
+			stopNotify:   func(chan<- os.Signal) {},
+		}
+	}
+
+	dbPath := filepath.Join(t.TempDir(), "web.db")
+	dbStore := piweb.NewWebStore(dbPath)
+
+	deps := base()
+	deps.newAutoStore = func() *piweb.Store { return dbStore }
+	deps.openServer = func(piweb.Config, *piweb.Store, *piweb.Broker) (*piweb.Server, error) {
+		return piweb.NewServer(piweb.Config{}, piweb.NewMockStore(), piweb.NewBroker()), nil
+	}
+	if err := runServerWithDependencies(serverOptions{}, deps); err != nil {
+		t.Fatalf("openServer success path: %v", err)
+	}
+
+	openErr := errors.New("open failed")
+	deps = base()
+	deps.newAutoStore = func() *piweb.Store { return piweb.NewWebStore(dbPath) }
+	deps.openServer = func(piweb.Config, *piweb.Store, *piweb.Broker) (*piweb.Server, error) {
+		return nil, openErr
+	}
+	if err := runServerWithDependencies(serverOptions{}, deps); !errors.Is(err, openErr) {
+		t.Fatalf("expected open error, got %v", err)
+	}
+
+	mockDeps := base()
+	mockCalls := 0
+	mockDeps.openServer = func(piweb.Config, *piweb.Store, *piweb.Broker) (*piweb.Server, error) {
+		mockCalls++
+		return nil, errors.New("should not be called for mock stores")
+	}
+	if err := runServerWithDependencies(serverOptions{Mock: true}, mockDeps); err != nil {
+		t.Fatalf("mock fallback path: %v", err)
+	}
+	if mockCalls != 0 {
+		t.Fatalf("mock store unexpectedly used the durable server: %d", mockCalls)
+	}
+}
+
 func TestDefaultServerDependencies(t *testing.T) {
 	deps := defaultServerDependencies()
-	if deps.newAutoStore == nil || deps.newMockStore == nil || deps.newServer == nil || deps.newBroker == nil ||
+	if deps.newAutoStore == nil || deps.newMockStore == nil || deps.newServer == nil || deps.openServer == nil ||
+		deps.newBroker == nil ||
 		deps.staticFiles == nil || deps.listen == nil || deps.shutdown == nil ||
 		deps.notify == nil || deps.stopNotify == nil {
 		t.Fatalf("incomplete server dependencies: %+v", deps)

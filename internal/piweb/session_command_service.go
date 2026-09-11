@@ -17,7 +17,7 @@ type StartPromptCommand struct {
 }
 
 type RuntimePromptStarter interface {
-	StartPrompt(ctx context.Context, sessionID, runID string, adapter *RuntimeEventAdapter) error
+	StartPrompt(ctx context.Context, sessionID, runID, text string, images []PromptAttachment, adapter *RuntimeEventAdapter) error
 }
 
 type SessionCommandService struct {
@@ -49,6 +49,10 @@ func PromptRequestHash(command StartPromptCommand) string {
 }
 
 func (s *SessionCommandService) StartPrompt(ctx context.Context, command StartPromptCommand) (RunReceipt, error) {
+	return s.StartPromptWith(ctx, command, s.starter)
+}
+
+func (s *SessionCommandService) StartPromptWith(ctx context.Context, command StartPromptCommand, starter RuntimePromptStarter) (RunReceipt, error) {
 	if command.SessionID == "" || command.ClientRequestID == "" {
 		return RunReceipt{}, ErrInvalidSessionEvent
 	}
@@ -65,8 +69,9 @@ func (s *SessionCommandService) StartPrompt(ctx context.Context, command StartPr
 		return receipt, nil
 	}
 	adapter := NewRuntimeEventAdapter(command.SessionID, receipt.RunID, s.events)
+	images := imagePromptAttachments(command.Attachments)
 	s.launch(func() {
-		if startErr := s.starter.StartPrompt(ctx, command.SessionID, receipt.RunID, adapter); startErr != nil {
+		if startErr := starter.StartPrompt(ctx, command.SessionID, receipt.RunID, command.Text, images, adapter); startErr != nil {
 			_ = adapter.Fail(startErr)
 		}
 	})

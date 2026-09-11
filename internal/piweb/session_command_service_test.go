@@ -15,7 +15,7 @@ type fakePromptStarter struct {
 	order    *[]string
 }
 
-func (s *fakePromptStarter) StartPrompt(_ context.Context, sessionID, runID string, adapter *RuntimeEventAdapter) error {
+func (s *fakePromptStarter) StartPrompt(_ context.Context, sessionID, runID, _ string, _ []PromptAttachment, adapter *RuntimeEventAdapter) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.started = append(s.started, sessionID+"/"+runID)
