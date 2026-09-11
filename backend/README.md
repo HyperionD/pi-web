@@ -17,3 +17,5 @@ The backend is a Go server embedded into the root `pi-web` binary package.
 - Keep Go tests next to the file/feature they cover.
 
 See `../internal/piweb/README.md` for the internal package map.
+
+Release binaries are built from the Astro output embedded in `static/`. Before a release, run `bun run build:single`, verify the generated assets and execute the release checklist under `docs/releases/`.

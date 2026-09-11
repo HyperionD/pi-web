@@ -1,10 +1,10 @@
-# Pi Web Task 1–4 人工测试文档
+# JuunAI pi-web Task 1–4 人工测试文档
 
-版本：`v1.9.0-rc.1`
+版本：`v1.10.0-alpha.1`
 
-适用分支：`feat/pi-web-overall-improvement`
+适用分支：`main`
 
-适用提交：Task 1–4，当前代码 HEAD 以交接文档为准。
+适用提交：当前 GitHub Pre-release 对应的 `main` 提交。
 
 ## 1. 测试范围
 
@@ -37,14 +37,14 @@ printf 'manual-test-a\n' > "$HOME/pi-web-manual/workspace-a/README.md"
 printf 'manual-test-b\n' > "$HOME/pi-web-manual/workspace-b/README.md"
 ```
 
-## 3. 获取并校验 RC
+## 3. 获取并校验预发行版本
 
-进入 RC 目录：
+下载 `HyperionD/pi-web` 的 `v1.10.0-alpha.1` Release 资产后进入解压目录：
 
 ```bash
-cd /home/hyperion/projects/pi-web-offline/.worktrees/pi-web-overall-improvement/dist/release-candidate-v1.9.0-rc.1
+cd /path/to/pi-web-v1.10.0-alpha.1
 sha256sum -c SHA256SUMS
-file pi-web-v1.9.0-rc.1-linux-$(uname -m | sed 's/x86_64/amd64/; s/aarch64/arm64/')
+file pi-web-v1.10.0-alpha.1-linux-$(uname -m | sed 's/x86_64/amd64/; s/aarch64/arm64/')
 ```
 
 预期：
@@ -61,7 +61,7 @@ file pi-web-v1.9.0-rc.1-linux-$(uname -m | sed 's/x86_64/amd64/; s/aarch64/arm64
 ### 4.1 Mock 模式（推荐第一轮）
 
 ```bash
-./pi-web-v1.9.0-rc.1-linux-amd64 \
+./pi-web-v1.10.0-alpha.1-linux-amd64 \
   --host 127.0.0.1 --port 8732 --mock
 ```
 
@@ -72,11 +72,11 @@ arm64 使用对应的 `linux-arm64` 文件。
 ```bash
 command -v pi
 pi --version
-./pi-web-v1.9.0-rc.1-linux-amd64 \
+./pi-web-v1.10.0-alpha.1-linux-amd64 \
   --host 127.0.0.1 --port 8732
 ```
 
-当前 RC 必须显式传 `--host 127.0.0.1`。CLI 默认 host 仍是 `0.0.0.0`，因此这版不能直接作为远程部署版本。
+当前 Alpha 仍建议显式传 `--host 127.0.0.1`。CLI 默认 host 为 `0.0.0.0`，因此不要未经网络隔离直接暴露到公网。
 
 服务启动后先执行：
 
@@ -329,7 +329,7 @@ Network 请求/响应：
 
 ## 10. 当前已知限制
 
-- RC 必须显式 `--host 127.0.0.1`，Task 7 才会修复 CLI 默认 host。
-- 当前 release candidate 在临时源码树中嵌入了最新 Astro 资源；仓库 `static/` 未修改、未提交。
-- 前端 coverage gate 延后到 Task 12/13；本轮不能据人工测试宣称 coverage 完成。
-- Task 5–13 尚未执行。
+- Alpha 建议显式 `--host 127.0.0.1`；默认监听地址仍是 `0.0.0.0`。
+- Alpha 使用仓库 `static/` 中提交的 Astro 资源；发布前必须重新执行 `bun run build:single`。
+- 前端 coverage gate 尚未作为本轮 Alpha 的独立发布条件；不得据人工测试宣称覆盖率已完成。
+- PTY、Git worktree、会话搜索/导出、资源管理和 PWA 不属于本 Alpha 范围。

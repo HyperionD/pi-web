@@ -6,18 +6,19 @@
 
 **Architecture:** Go 服务继续作为部署边界，JSONL 继续保存 Pi 会话事实，SQLite 保存索引和控制面数据；不切换到 Next.js，也不把 Pi SDK 嵌入 Node。先稳定迁移、API 契约、runtime capability 和自动化测试，再按“会话 → worktree → terminal → Pi 资源 → 预览/PWA”增加纵向功能；每项新能力均通过 Go API 暴露，由前端 typed client 消费。
 
-**Tech Stack:** Go 1.26、`net/http`、SQLite (`modernc.org/sqlite`)、Astro 6、React 19、TypeScript 6、Vitest 4、Playwright、Pi RPC、SSE；PTY 使用 `github.com/creack/pty`，双向终端连接使用 `github.com/coder/websocket`，PWA 使用 `@vite-pwa/astro`，PDF/DOCX 使用本地打包的 `pdfjs-dist`/`mammoth`。
+**Tech Stack:** Go 1.26、`net/http`、SQLite (`modernc.org/sqlite`)、Astro 6、React 19、TypeScript 6、Vitest 4、Playwright、Pi RPC、SSE；Chrome 107 兼容门禁使用严格锁定的 `puppeteer@18.1.0`（官方对应 Chromium 107.0.5296.0）；PTY 使用 `github.com/creack/pty`，双向终端连接使用 `github.com/coder/websocket`，PWA 使用 `@vite-pwa/astro`，PDF/DOCX 使用本地打包的 `pdfjs-dist`/`mammoth`。
 
 **Spec:** `.pi/tasks/offline-product-improvement-roadmap.md#范围与非目标`
 
 ## Global Constraints
 
+- **Chrome 107 是不可降级的第一兼容基线：Task 0 未通过不得开始后续功能任务；任何前端变更必须通过真实 Chromium/Chrome 107 运行测试，Alpha/Beta/RC 均不得豁免。**
 - 面向离线或隔离网络部署；运行时不得依赖 CDN、远程字体、npm registry、在线 skill/plugin 市场或第三方 Web 服务。
 - 不在本计划中安排监听地址、TLS、认证加固、命令沙箱、ACL 加固等安全工作。
 - 保留单 Go 可执行文件分发；目标机不要求安装 Node、Bun 或前端依赖。
 - 保留 Pi JSONL 会话兼容性；不得把会话正文迁入 SQLite，也不得重写原始历史文件来实现搜索。
 - SQLite schema 只允许 forward-only、事务化、可重复执行的迁移；每次迁移必须覆盖旧库升级测试。
-- 新增和改动源文件要求 statement/branch/function/line 100% 覆盖；前端单元测试使用 `bun:test`/Vitest 逻辑测试，浏览器流程使用 Playwright。
+- 新增和改动源文件要求 statement/branch/function/line 100% 覆盖；前端单元测试使用 `bun:test`/Vitest 逻辑测试，常规浏览器流程使用 Playwright，Chrome 107 硬门禁使用 Puppeteer 18.1.0 驱动其绑定的 Chromium 107。
 - 外部依赖在构建期锁定到 lockfile/go.sum；测试不得访问真实 provider、互联网或用户真实目录。
 - 保持当前中文默认 UI 和现有多语言机制，不另建第二套 i18n。
 - 每个任务独立提交；commit message 使用 Conventional Commits，并且只包含一次 `Co-authored-by: JuunAI <juunai.ai.i@gmail.com>`。
@@ -29,12 +30,13 @@
 
 ### 纳入范围
 
-1. 工程质量：可重复基线、SQLite migrations、API contract、runtime capabilities、TypeScript strict、coverage CI、Playwright E2E。
-2. 会话能力：全文搜索、导出、会话树、从历史消息 fork；仅当 Pi RPC capability 探测成功时提供当前会话 leaf 导航。
-3. Git 能力：worktree 创建、切换、移除、同仓库会话分组。
-4. 开发体验：真正的 PTY Web Terminal、重连回放、尺寸同步、退出状态。
-5. Pi 控制面：模型测试、会话工具预设、本地 Plugins/Skills 管理、Subagent 配置。
-6. 离线体验：丰富文件预览、PWA app shell、诊断导出、版本化预发行流程。
+1. 浏览器基线：真实 Chromium/Chrome 107 运行门禁、产物语法/API/CSS 检查，并把该门禁置于所有架构和功能任务之前。
+2. 工程质量：可重复基线、SQLite migrations、API contract、runtime capabilities、TypeScript strict、coverage CI、Playwright E2E。
+3. 会话能力：全文搜索、导出、会话树、从历史消息 fork；仅当 Pi RPC capability 探测成功时提供当前会话 leaf 导航。
+4. Git 能力：worktree 创建、切换、移除、同仓库会话分组。
+5. 开发体验：真正的 PTY Web Terminal、重连回放、尺寸同步、退出状态。
+6. Pi 控制面：模型测试、会话工具预设、本地 Plugins/Skills 管理、Subagent 配置。
+7. 离线体验：丰富文件预览、PWA app shell、诊断导出、版本化预发行流程。
 
 ### 不纳入范围
 
@@ -48,6 +50,7 @@
 
 | 领域 | 当前状态 | 本计划目标 |
 | --- | --- | --- |
+| 浏览器 | Vite target 为 `chrome107`，仅有配置/CSS 静态测试 | 固定真实 Chromium 107 执行构建产物和 React 文件树核心流程 |
 | 部署 | Astro 静态资源嵌入 Go binary | 保持；增加可重复预发行、校验和、诊断信息 |
 | 数据 | `web_db.go` 启动时混合建表和 `ALTER TABLE` | `schema_migrations` + 顺序事务迁移 + 升级 fixture |
 | API | `src/lib/api.ts` 多处隐式 `any`，路由靠源码测试 | OpenAPI 文档 + Go/TS contract tests + typed request |
@@ -98,6 +101,7 @@ src/components/
   TerminalPanel.astro
   ResourceManagerDialog.astro
 docs/api/openapi.yaml          HTTP/SSE/WebSocket contract
+e2e/chrome107/                 固定 Chromium 107 兼容门禁
 e2e/                           Playwright fixtures/specs
 ```
 
@@ -106,15 +110,16 @@ e2e/                           Playwright fixtures/specs
 ## 依赖顺序与发行节点
 
 ```text
-Task 1 基线
-  ├─ Task 2 DB migration
-  └─ Task 3 API contract + capabilities
+Task 0 Chrome 107 硬门禁
+  └─ Task 1 基线
+      ├─ Task 2 DB migration
+      └─ Task 3 API contract + capabilities
           └─ Task 4 strict + coverage
-                  └─ Task 5 Playwright harness
-                          ├─ Task 6 搜索/导出
-                          ├─ Task 7 fork/branch
-                          └─ Task 8 worktree
-                                  └─ Task 9 Alpha 发行
+              └─ Task 5 Playwright harness
+                  ├─ Task 6 搜索/导出
+                  ├─ Task 7 会话树/fork
+                  └─ Task 8 worktree
+                      └─ Task 9 Alpha 发行
 
 Task 9 Alpha
   ├─ Task 10 PTY
@@ -125,11 +130,87 @@ Task 9 Alpha
                           └─ Task 15 Beta/RC 收口
 ```
 
-**最早可供用户手动测试的版本：完成 Task 1–8，并通过 Task 9 的全部发行门禁后，发行 `v1.10.0-alpha.1`。**
+**最早可供用户手动测试的版本：完成 Task 0–8，并通过 Task 9 的全部发行门禁后，发行 `v1.10.0-alpha.1`；其中 Chrome 107 门禁失败时无条件禁止发行。**
 
 该 Alpha 明确包含：现有主链路、稳定迁移/契约/capability、严格类型和自动化门禁、会话搜索/导出/会话树/fork、Git worktree；`navigate_tree` 仅在 Pi RPC capability 可用时启用，不作为 Alpha 阻塞项；明确不包含 PTY、资源安装管理、PWA 和高级预览。
 
 ---
+
+### Task 0: Chrome 107 不可降级兼容门禁
+
+**Files:**
+- Modify: `package.json`
+- Modify: `bun.lock`
+- Modify: `astro.config.ts`
+- Modify: `src/browser-compatibility.test.ts`
+- Create: `scripts/assert-chrome107-build.mjs`
+- Create: `e2e/chrome107/server.mjs`
+- Create: `e2e/chrome107/smoke.mjs`
+- Modify: `.github/workflows/frontend.yml`
+- Create: `docs/chrome107-compatibility.md`
+
+**Interfaces:**
+- Consumes: 当前 `vite.build.target="chrome107"`、Astro `dist/`、Go `--mock` backend、React `WorkspaceFileTree` island。
+- Produces: `bun run test:chrome107`；该命令必须验证浏览器 major version 恰为 107，并在最终构建产物上执行核心流程。
+
+- [ ] **Step 1: 写门禁契约失败测试**
+
+扩展 `src/browser-compatibility.test.ts`：断言 `package.json` 将 `puppeteer` 精确锁定为 `18.1.0`，存在 `test:chrome107` script，`astro.config.ts` target 精确为 `chrome107`，前端 CI 和 `verify:release` 均执行该 script；禁止 `^`/`~` 浮动版本。
+
+- [ ] **Step 2: 验证契约先失败**
+
+Run: `bunx vitest run src/browser-compatibility.test.ts`
+Expected: FAIL，指出缺少 `test:chrome107` 或 Puppeteer 18.1.0。
+
+- [ ] **Step 3: 固定 Chromium 107 测试运行时**
+
+Run: `bun add -d --exact puppeteer@18.1.0`
+Expected: `bun.lock` 固定 Puppeteer 18.1.0 及其 Chromium revision；执行 `browser.version()` 必须匹配 `/Chrome\/107\./`，否则 `test:chrome107` 立即失败。允许 `CHROME107_EXECUTABLE` 覆盖 executable path，但覆盖后的 browser major 仍必须为 107。
+
+`package.json` 增加：
+
+```json
+{
+  "scripts": {
+    "test:chrome107": "bun run build && node scripts/assert-chrome107-build.mjs && node e2e/chrome107/smoke.mjs"
+  }
+}
+```
+
+- [ ] **Step 4: 检查构建产物而不是只检查源码**
+
+`assert-chrome107-build.mjs` 读取 `dist/**/*.js`/`dist/**/*.css`：确认存在构建文件、禁止远程静态 URL；使用 TypeScript AST 拒绝未带显式 polyfill import 的 `Promise.withResolvers`、`Object.groupBy`、`Map.groupBy`、`Array.fromAsync`、`toSorted`、`toReversed`、`toSpliced`、`Array.prototype.with`、`URL.canParse`、`RegExp.escape`、`startViewTransition`、`showPopover`/`hidePopover`；CSS 拒绝 `color-mix(`、`light-dark(`、`@starting-style`、`@scope` 和原生 nesting。保留现有 `100vh` fallback/`100dvh` feature query 检查。脚本只做静态快速失败，真实浏览器执行结果为最终依据。
+
+- [ ] **Step 5: 在真实 Chromium 107 执行核心 smoke**
+
+`server.mjs` 启动随机端口的 Go `--mock` backend，并用本地 Node server 提供 `dist/`、反向代理 `/api`/SSE，确保测试的是 production bundle 而非仓库中可能陈旧的 `static/`。`smoke.mjs` 必须：
+
+```text
+1. 断言 browser.version() major = 107
+2. 首次设置 admin 并登录
+3. 打开临时 workspace
+4. 等待 React WorkspaceFileTree 完成 client:load hydration
+5. 展开目录、搜索文件并触发文件打开
+6. 创建 session、发送 mock prompt、收到流式结果
+7. 刷新页面并恢复 workspace/session
+8. 捕获 pageerror、console.error、requestfailed；任一出现即失败
+```
+
+该流程直接覆盖 React 19 + `react-arborist`；只有真实失败且无法通过局部 polyfill/降级修复时，才另立任务替换 React 文件树，不能预先重写。
+
+- [ ] **Step 6: 把 Chrome 107 放到 CI 第一质量门**
+
+`.github/workflows/frontend.yml` 在普通 Playwright、coverage 和 build 之前执行 `bun run test:chrome107`。CI 安装阶段可以下载锁定浏览器；测试执行阶段断网运行。`docs/chrome107-compatibility.md` 记录 Chromium 107.0.5296.0、React island 范围、允许 API、polyfill 策略和手测矩阵。
+
+- [ ] **Step 7: 验证并提交**
+
+Run: `bun run test:chrome107 && bun run lint && bun run typecheck && git diff --check`
+Expected: Chromium major 107、production bundle smoke 全部 PASS，且无 browser/page/console error。
+
+```bash
+git add package.json bun.lock astro.config.ts src/browser-compatibility.test.ts scripts/assert-chrome107-build.mjs e2e/chrome107 .github/workflows/frontend.yml docs/chrome107-compatibility.md
+git commit -m "test: enforce chrome 107 compatibility" -m "Co-authored-by: JuunAI <juunai.ai.i@gmail.com>"
+```
 
 ### Task 1: 冻结基线与统一验证入口
 
@@ -148,7 +229,7 @@ Task 9 Alpha
 
 - [ ] **Step 1: 写失败的仓库契约测试**
 
-在 `coverage_test.go` 增加断言：`package.json` 必须包含 `test:e2e`、`test:coverage`、`verify:release`；两个 CI workflow 必须调用对应 coverage/race 命令；`scripts/verify-release.sh` 必须存在且可执行。
+在 `coverage_test.go` 增加断言：`package.json` 必须包含 `test:chrome107`、`test:e2e`、`test:coverage`、`verify:release`；两个 CI workflow 必须调用对应 Chrome 107/coverage/race 命令；`scripts/verify-release.sh` 必须存在且可执行。
 
 - [ ] **Step 2: 验证测试先失败**
 
@@ -170,6 +251,7 @@ go test ./...
 go test -race ./...
 bun run backend:test:coverage
 bun run build
+bun run test:chrome107
 bun run test:e2e
 ```
 
@@ -188,11 +270,11 @@ Task 5 加入 Playwright 前，创建 `e2e/not-configured.mjs`，输出“Playwr
 
 - [ ] **Step 4: CI 改用同一组质量命令**
 
-前端 CI 执行 lint、typecheck、`test:coverage`、build；后端 CI 执行 `go test ./...`、`go test -race ./...`、`backend:test:coverage`。`docs/testing.md` 记录本地命令、临时目录要求和 mock-only 原则。
+前端 CI 首先执行 `test:chrome107`，随后执行 lint、typecheck、`test:coverage`、build；后端 CI 执行 `go test ./...`、`go test -race ./...`、`backend:test:coverage`。`docs/testing.md` 记录本地命令、临时目录要求和 mock-only 原则。
 
 - [ ] **Step 5: 验证基线并记录真实失败项**
 
-Run: `bun run lint && bun run typecheck && bun run test && go test ./... && bun run build`
+Run: `bun run test:chrome107 && bun run lint && bun run typecheck && bun run test && go test ./... && bun run build`
 Expected: 全部 exit 0；若 `test:coverage` 失败，只把精确覆盖率记入 Task 4，不降低阈值。
 
 - [ ] **Step 6: Commit**
@@ -644,7 +726,7 @@ git commit -m "feat: add git worktree workflows" -m "Co-authored-by: JuunAI <juu
 - Modify: `bun.lock`
 
 **Interfaces:**
-- Consumes: Task 1–8 的全部验证命令和功能。
+- Consumes: Task 0–8 的全部验证命令和功能。
 - Produces: GitHub prerelease、四个平台架构压缩包、SHA256SUMS、人工测试清单与反馈格式。
 
 - [ ] **Step 1: 增加预发行 workflow 契约测试**
@@ -697,14 +779,14 @@ Expected: `isPrerelease=true`，包含 4 个 archives 和 `SHA256SUMS`。
 
 必须同时满足：
 
-- Task 1–8 已各自独立提交并通过任务内测试。
+- Task 0–8 已各自独立提交并通过任务内测试；`test:chrome107` 必须报告 browser major 107。
 - `bun run verify:release` 在 clean checkout 通过。
 - Linux amd64 与 Linux arm64 archive 至少各完成一次空 HOME smoke test。
 - 旧数据库 fixture 升级后账号、workspace、session owner 和设置数量一致。
 - mock 模式完整 E2E 通过；真实 Pi prompt 作为人工测试项，不作为 CI 的互联网依赖。
 - 已知问题写入 release notes；PTY、资源管理、PWA/高级预览明确标记为后续版本。
 
-**结论：只有完成 Task 1–8 且 Task 9 Step 1–6 全部通过后，才可以发行第一个用户手动测试版。**
+**结论：只有完成 Task 0–8、Chrome 107 硬门禁通过，且 Task 9 Step 1–6 全部通过后，才可以发行第一个用户手动测试版。**
 
 ### Task 10: PTY Web Terminal 与断线回放
 
@@ -1033,7 +1115,7 @@ git tag -a v1.10.0-rc.1 -m "v1.10.0-rc.1"
 
 ### `v1.10.0-alpha.1`（首个用户手测版本）
 
-- 完成 Task 1–8。
+- 完成 Task 0–8；真实 Chromium 107 production bundle smoke 通过，且 browser major 校验不可跳过。
 - 完成 Task 9 Step 1–6，自动门禁、跨架构 archive smoke 与内部人工清单均通过。
 - 可测试：会话搜索/导出/tree/fork、worktree，以及现有 workspace/session/file/Git/runtime 主链路；leaf navigate 仅在 capability 可用时纳入。
 
@@ -1051,6 +1133,7 @@ git tag -a v1.10.0-rc.1 -m "v1.10.0-rc.1"
 
 | 检查 | 每个任务 | Alpha | Beta/RC |
 | --- | --- | --- | --- |
+| `bun run test:chrome107` | 所有前端变更 | 硬门禁 | 硬门禁 |
 | `bun run lint` | 是 | 是 | 是 |
 | `bun run typecheck` | 是 | 是 | 是 |
 | `bun run test:coverage` | 涉及前端时 | 是 | 是 |
@@ -1066,6 +1149,7 @@ git tag -a v1.10.0-rc.1 -m "v1.10.0-rc.1"
 
 ## 实施注意事项
 
+- Task 0 必须最先完成；后续任何任务造成 `test:chrome107` 失败时立即停止，不得以最新 Chromium 的 Playwright 通过替代。
 - Task 6–8 可以在 Task 5 后由不同 worktree 并行实现，但 `server.go`、`src/lib/api-*`、OpenAPI 和 capability 由集成者统一合并，避免多写入者冲突。
 - Task 10、11 可以在 Alpha 后并行；Task 12 依赖 Task 11，Task 13 依赖 Task 11/12 的资源模型。
 - 每次新增 capability 时，先后端返回 false 和前端隐藏，再随功能提交切换为 true；避免新前端连旧后端时出现死入口。

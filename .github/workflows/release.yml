@@ -69,3 +69,5 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: release/pi-web_*
+          generate_release_notes: true
+          prerelease: ${{ contains(github.ref_name, '-') }}

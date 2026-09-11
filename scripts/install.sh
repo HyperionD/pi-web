@@ -1,7 +1,7 @@
 #!/usr/bin/env sh
 set -eu
 
-REPO="${PI_WEB_REPO:-Epsilondelta-ai/pi-web}"
+REPO="${PI_WEB_REPO:-HyperionD/pi-web}"
 VERSION="${PI_WEB_VERSION:-latest}"
 INSTALL_DIR="${PI_WEB_INSTALL_DIR:-$HOME/.local/bin}"
 BIN_NAME="pi-web"
@@ -16,13 +16,13 @@ Environment variables:
   PI_WEB_VERSION      Release tag to install. Default: latest
                       Example: PI_WEB_VERSION=v1.0.0
   PI_WEB_INSTALL_DIR  Install directory. Default: $HOME/.local/bin
-  PI_WEB_REPO         GitHub repo. Default: Epsilondelta-ai/pi-web
+  PI_WEB_REPO         GitHub repo. Default: HyperionD/pi-web
   PI_WEB_INSTALL_PI   Install pi when missing: auto, always, or never. Default: auto
   PI_WEB_PI_INSTALL_URL
                       pi installer URL. Default: https://pi.dev/install.sh
 
 Examples:
-  curl -fsSL https://raw.githubusercontent.com/Epsilondelta-ai/pi-web/main/scripts/install.sh | sh
+  curl -fsSL https://raw.githubusercontent.com/HyperionD/pi-web/main/scripts/install.sh | sh
   PI_WEB_VERSION=v1.0.0 sh scripts/install.sh
   PI_WEB_INSTALL_DIR=/usr/local/bin sh scripts/install.sh
 USAGE

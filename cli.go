@@ -6,7 +6,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var version = "v1.5.4"
+var version = "v1.10.0-alpha.1"
 
 type rootDependencies struct {
 	stdout io.Writer

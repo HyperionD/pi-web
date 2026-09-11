@@ -10,7 +10,7 @@ This repository keeps the root focused on entry points, tool configuration, and 
 ├── backend/                    # backend layout notes
 ├── internal/piweb/             # server, sessions, workspace, runner, store code
 ├── static/                     # committed embedded Astro assets
-├── docs/                       # durable documentation, plans, and screenshots
+├── docs/                       # durable documentation, release notes, and screenshots
 ├── public/                     # Astro static assets
 ├── scripts/                    # install/release/dev helper scripts
 ├── src/                        # Astro/React frontend source
@@ -35,10 +35,10 @@ Keep only files that are expected at repository root:
 
 Everything else should live under a purpose-specific directory:
 
-- durable docs and screenshots -> `docs/`
+- durable docs and release notes -> `docs/`
 - helper scripts -> `scripts/`
 - generated output -> ignored build directories
-- temporary task notes -> `.pi/tasks/`; durable plans -> `docs/plans/`
+- temporary task notes -> `.pi/tasks/`; release checklists -> `docs/releases/`
 
 ## Generated output
 
