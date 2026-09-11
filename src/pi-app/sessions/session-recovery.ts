@@ -1,6 +1,6 @@
 export type SessionEventCursor = string;
 
-const MAX_EVENT_CURSOR = "18446744073709551615";
+const MAX_EVENT_CURSOR = "9223372036854775807";
 
 export type SessionEventEnvelope = {
   id: SessionEventCursor | number;

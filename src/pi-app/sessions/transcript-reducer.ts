@@ -1,0 +1,241 @@
+import {
+  type DurableSessionEvent,
+  type SessionStateSnapshot,
+  type TranscriptItem,
+  type TranscriptState,
+  compareSessionSeq,
+  nextSessionSeq,
+  normalizeSessionSeq,
+} from "./transcript-state";
+
+export class TranscriptResetError extends Error {
+  readonly reason: "gap" | "rebase" | "invalid";
+
+  constructor(reason: "gap" | "rebase" | "invalid", message: string) {
+    super(message);
+    this.name = "TranscriptResetError";
+    this.reason = reason;
+  }
+}
+
+function cloneItem(item: TranscriptItem): TranscriptItem {
+  return { ...item };
+}
+
+function upsertItem(state: TranscriptState, item: TranscriptItem): TranscriptState {
+  const itemsById = new Map(state.itemsById);
+  itemsById.set(item.id, item);
+  const itemOrder = state.itemOrder.includes(item.id) ? state.itemOrder : [...state.itemOrder, item.id];
+  return { ...state, itemsById, itemOrder };
+}
+
+function terminalItem(item: TranscriptItem, status: string): TranscriptItem {
+  if (!item.status || item.status === "ok" || item.status === "err" || item.status === "cancelled" || item.status === "interrupted") {
+    return item;
+  }
+  return { ...item, status: item.kind === "tool" ? status : "committed" };
+}
+
+export function installSessionSnapshot(state: TranscriptState, snapshot: SessionStateSnapshot): TranscriptState {
+  const itemsById = new Map<string, TranscriptItem>();
+  const itemOrder: string[] = [];
+  const toolsByCallId = new Map<string, string>();
+  for (const raw of snapshot.items || []) {
+    const item = cloneItem({ ...raw, bodyPreview: raw.bodyPreview ?? "" });
+    itemsById.set(item.id, item);
+    itemOrder.push(item.id);
+    if (item.kind === "tool" && item.runId && item.toolCallId) {
+      toolsByCallId.set(`${item.runId}:${item.toolCallId}`, item.id);
+    }
+  }
+  return {
+    ...state,
+    sessionId: snapshot.sessionId || state.sessionId,
+    projectionGeneration: snapshot.projectionGeneration || state.projectionGeneration,
+    appliedSeq: snapshot.seq,
+    status: (snapshot.status as TranscriptState["status"]) || "idle",
+    runId: snapshot.runId,
+    itemOrder,
+    itemsById,
+    toolsByCallId,
+    activeSegments: new Map(),
+    historyCursor: snapshot.cursor,
+    historyHasMore: !!snapshot.hasMore,
+  };
+}
+
+export function mergeHistoryPage(state: TranscriptState, snapshot: SessionStateSnapshot): TranscriptState {
+  if (snapshot.projectionGeneration && snapshot.projectionGeneration !== state.projectionGeneration) {
+    throw new TranscriptResetError("rebase", "projection generation changed");
+  }
+  const itemsById = new Map(state.itemsById);
+  const older: string[] = [];
+  for (const raw of snapshot.items || []) {
+    if (itemsById.has(raw.id)) continue;
+    itemsById.set(raw.id, cloneItem({ ...raw, bodyPreview: raw.bodyPreview ?? "" }));
+    older.push(raw.id);
+  }
+  return {
+    ...state,
+    itemsById,
+    itemOrder: [...older, ...state.itemOrder],
+    historyCursor: snapshot.cursor,
+    historyHasMore: !!snapshot.hasMore,
+  };
+}
+
+export function reduceSessionEvent(state: TranscriptState, event: DurableSessionEvent): TranscriptState {
+  if (event.sessionId && event.sessionId !== state.sessionId) return state;
+  const expected = nextSessionSeq(state.appliedSeq);
+  const incoming = normalizeSessionSeq(event.seq);
+  if (incoming === undefined) throw new TranscriptResetError("invalid", "invalid session sequence");
+  if (compareSessionSeq(incoming, state.appliedSeq) <= 0) return state;
+  if (expected === undefined || incoming !== expected) {
+    throw new TranscriptResetError("gap", `sequence gap: expected ${expected}, got ${incoming}`);
+  }
+  if (event.type === "session.rebased") {
+    throw new TranscriptResetError("rebase", "session projection was rebased");
+  }
+  const next = applyEvent(state, event);
+  return { ...next, appliedSeq: incoming };
+}
+
+function applyEvent(state: TranscriptState, event: DurableSessionEvent): TranscriptState {
+  const payload = (event.payload || {}) as Record<string, any>;
+  switch (event.type) {
+    case "user.message.created":
+      return upsertItem(state, {
+        id: `user:${event.sourceId || event.seq}`,
+        ordinal: state.itemOrder.length + 1,
+        kind: "user",
+        origin: "runtime",
+        text: payload.text || "",
+        bodyPreview: "",
+        attachments: payload.attachments || [],
+      });
+    case "run.started":
+      return { ...state, status: "running", runId: event.runId };
+    case "assistant.segment.started": {
+      const item = ensureSegmentItem(state, event, payload.kind);
+      const activeSegments = new Map(state.activeSegments);
+      activeSegments.set(payload.kind || "pi", item.id);
+      return { ...upsertItem(state, item), activeSegments };
+    }
+    case "assistant.segment.delta": {
+      const itemId = event.entityId as string;
+      const existing = state.itemsById.get(itemId);
+      const item = existing ? cloneItem(existing) : segmentFallbackItem(state, event, payload.kind);
+      item.text = `${item.text || ""}${payload.delta || ""}`;
+      item.status = item.status || "streaming";
+      return upsertItem(state, item);
+    }
+    case "assistant.segment.committed": {
+      const itemId = event.entityId as string;
+      const existing = state.itemsById.get(itemId);
+      const item = existing ? cloneItem(existing) : segmentFallbackItem(state, event, payload.kind);
+      item.text = payload.text !== undefined && payload.text !== "" ? payload.text : item.text;
+      item.status = "committed";
+      const activeSegments = new Map(state.activeSegments);
+      activeSegments.delete(payload.kind || item.kind);
+      return { ...upsertItem(state, item), activeSegments };
+    }
+    case "tool.started": {
+      const item: TranscriptItem = {
+        id: event.entityId as string,
+        ordinal: state.itemOrder.length + 1,
+        kind: "tool",
+        origin: "runtime",
+        runId: event.runId,
+        entityId: event.entityId,
+        tool: payload.tool || "tool",
+        toolCallId: payload.toolCallId || "",
+        args: payload.args || "",
+        text: "",
+        bodyPreview: "",
+        status: "running",
+      };
+      const toolsByCallId = new Map(state.toolsByCallId);
+      if (item.runId && item.toolCallId) toolsByCallId.set(`${item.runId}:${item.toolCallId}`, item.id);
+      return { ...upsertItem(state, item), toolsByCallId };
+    }
+    case "tool.args.delta": {
+      const item = toolItemFor(state, event);
+      item.args = `${item.args || ""}${payload.delta || ""}`;
+      return upsertItem(state, item);
+    }
+    case "tool.output": {
+      const item = toolItemFor(state, event);
+      item.bodyPreview = payload.mode === "replace" ? payload.chunk || "" : `${item.bodyPreview || ""}${payload.chunk || ""}`;
+      return upsertItem(state, item);
+    }
+    case "tool.finished": {
+      const item = toolItemFor(state, event);
+      if (item.bodyPreview !== payload.body && payload.body !== undefined) item.bodyPreview = payload.body || "";
+      item.status = payload.status || "ok";
+      item.resultMeta = payload.resultMeta;
+      item.durationMs = payload.durationMs;
+      return upsertItem(state, item);
+    }
+    case "run.finished":
+      return terminalizeRun(state, "ok", "idle");
+    case "run.failed":
+      return terminalizeRun(state, "err", "error");
+    case "run.cancelled":
+      return terminalizeRun(state, "cancelled", "cancelled");
+    case "run.interrupted":
+      return terminalizeRun(state, "interrupted", "interrupted");
+    default:
+      return state;
+  }
+}
+
+function ensureSegmentItem(state: TranscriptState, event: DurableSessionEvent, kind: string): TranscriptItem {
+  const existing = state.itemsById.get(event.entityId as string);
+  if (existing) return cloneItem(existing);
+  return segmentFallbackItem(state, event, kind);
+}
+
+function segmentFallbackItem(state: TranscriptState, event: DurableSessionEvent, kind: string): TranscriptItem {
+  return {
+    id: event.entityId as string,
+    ordinal: state.itemOrder.length + 1,
+    kind: kind === "think" ? "think" : "pi",
+    origin: "runtime",
+    runId: event.runId,
+    entityId: event.entityId,
+    text: "",
+    bodyPreview: "",
+    status: "streaming",
+  };
+}
+
+function toolItemFor(state: TranscriptState, event: DurableSessionEvent): TranscriptItem {
+  const existing = state.itemsById.get(event.entityId as string);
+  if (existing) return cloneItem(existing);
+  const itemId = event.entityId as string;
+  const parts = itemId.split(":");
+  const toolCallId = parts.length >= 3 ? parts.slice(2).join(":") : "";
+  return {
+    id: itemId,
+    ordinal: state.itemOrder.length + 1,
+    kind: "tool",
+    origin: "runtime",
+    runId: event.runId,
+    entityId: event.entityId,
+    tool: "tool",
+    toolCallId,
+    text: "",
+    bodyPreview: "",
+    status: "running",
+  };
+}
+
+function terminalizeRun(state: TranscriptState, toolStatus: string, status: TranscriptState["status"]): TranscriptState {
+  const itemsById = new Map(state.itemsById);
+  for (const [id, item] of itemsById) {
+    if (!item.status) continue;
+    const next = terminalItem(item, toolStatus);
+    if (next !== item) itemsById.set(id, next);
+  }
+  return { ...state, itemsById, status, runId: undefined, activeSegments: new Map() };
+}
