@@ -95,6 +95,9 @@ func (s *SQLiteSessionEventStore) withImmediateTx(ctx context.Context, fn func(*
 	if err = fn(conn); err != nil {
 		return err
 	}
+	if err = s.injectFault(FaultBeforeCommit); err != nil {
+		return err
+	}
 	_, err = conn.ExecContext(ctx, "COMMIT")
 	return err
 }

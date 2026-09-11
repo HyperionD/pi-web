@@ -21,6 +21,11 @@ func ReduceSessionEvent(view ProjectionView, event StoredSessionEvent) (Projecti
 	switch event.Type {
 	case EventUserMessageCreated:
 		return reduceUserMessage(view, event)
+	case EventRunStarted:
+		change := ProjectionChange{Stream: view.Stream}
+		change.Stream.Status = SessionStatusRunning
+		change.Stream.CurrentRunID = event.RunID
+		return change, nil
 	case EventAssistantSegmentStarted, EventAssistantSegmentDelta, EventAssistantSegmentCommit:
 		return reduceAssistantSegment(view, event)
 	case EventToolStarted, EventToolArgsDelta, EventToolOutput, EventToolFinished:
@@ -37,6 +42,12 @@ func ReduceSessionEvent(view ProjectionView, event StoredSessionEvent) (Projecti
 func validateProjectionEvent(stream SessionStreamState, event StoredSessionEvent) error {
 	if event.Seq <= 0 || event.SessionID == "" || event.Type == "" || event.SourceID == "" {
 		return ErrInvalidSessionEvent
+	}
+	if event.Type == EventRunStarted {
+		if event.RunID == "" || stream.CurrentRunID != "" {
+			return ErrStaleSessionRun
+		}
+		return nil
 	}
 	if runEvents[event.Type] {
 		if event.RunID == "" || stream.CurrentRunID != event.RunID {

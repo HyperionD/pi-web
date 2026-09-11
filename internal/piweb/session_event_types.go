@@ -60,6 +60,7 @@ type StoredSessionEvent struct {
 
 type SessionStreamState struct {
 	SessionID         string
+	CurrentSeq        int64
 	Status            string
 	CurrentRunID      string
 	ProjectionVersion int64
@@ -109,4 +110,6 @@ var (
 	ErrStaleSessionRun       = errors.New("stale session run")
 	ErrActiveToolAtRunFinish = errors.New("active tool at run finish")
 	ErrConflictingToolFinish = errors.New("conflicting tool finish")
+	ErrCommandHashConflict   = errors.New("command request hash conflict")
+	ErrInvalidSourceOrdinal  = errors.New("invalid source ordinal")
 )

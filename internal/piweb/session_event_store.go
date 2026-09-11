@@ -3,7 +3,6 @@ package piweb
 import (
 	"context"
 	"database/sql"
-	"encoding/json"
 	"errors"
 	"sync"
 )
@@ -75,18 +74,11 @@ type ImportReport struct {
 }
 
 type SQLiteSessionEventStore struct {
-	db      *sql.DB
-	hub     *SessionWakeHub
-	closeMu sync.Mutex
-	closed  bool
-}
-
-func (s *SQLiteSessionEventStore) StartRun(context.Context, StartRunCommand) (RunReceipt, error) {
-	return RunReceipt{}, ErrEventStoreNotReady
-}
-
-func (s *SQLiteSessionEventStore) Append(context.Context, string, SessionEventDraft) (StoredSessionEvent, error) {
-	return StoredSessionEvent{}, ErrEventStoreNotReady
+	db                  *sql.DB
+	hub                 *SessionWakeHub
+	closeMu             sync.Mutex
+	closed              bool
+	eventStoreFaultHook func(EventStoreFaultPoint) error
 }
 
 func (s *SQLiteSessionEventStore) Snapshot(context.Context, string, SessionPageRequest) (SessionStateSnapshot, error) {
@@ -107,8 +99,4 @@ func (s *SQLiteSessionEventStore) RecoverInterrupted(context.Context) error {
 
 func (s *SQLiteSessionEventStore) DeleteSession(context.Context, string) error {
 	return ErrEventStoreNotReady
-}
-
-func (s *SQLiteSessionEventStore) jsonValue(value any) ([]byte, error) {
-	return json.Marshal(value)
 }
