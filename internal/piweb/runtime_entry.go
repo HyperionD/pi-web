@@ -78,9 +78,7 @@ func (entry *runtimeEntry) acceptEvent(event PiEvent) bool {
 func (entry *runtimeEntry) enqueueEvent(event PiEvent) {
 	select {
 	case entry.events <- event:
-		return
-	default:
-		entry.poison(errors.New("pi runtime entry event channel is full"))
+	case <-entry.stop:
 	}
 }
 
@@ -89,12 +87,13 @@ func (entry *runtimeEntry) poison(err error) {
 	if alreadyClosed {
 		return
 	}
+	entry.stopEvents()
 	go func() {
 		if !entry.steerGate.acquire(context.Background()) {
 			return
 		}
 		defer entry.steerGate.release()
-		entry.stopOnce.Do(func() { close(entry.stop) })
+		entry.stopEvents()
 		closeCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		closeErr := entry.runtime.Close(closeCtx)
 		cancel()
@@ -171,15 +170,24 @@ func (entry *runtimeEntry) Close(ctx context.Context) error {
 	if alreadyClosed {
 		return entry.waitClose(ctx, done)
 	}
+	entry.stopEvents()
 	if !entry.steerGate.acquire(ctx) {
 		entry.finishClose(done, ctx.Err())
 		return ctx.Err()
 	}
 	defer entry.steerGate.release()
-	entry.stopOnce.Do(func() { close(entry.stop) })
+	entry.stopEvents()
 	err := entry.runtime.Close(ctx)
 	entry.finishClose(done, err)
 	return err
+}
+
+func (entry *runtimeEntry) stopEvents() {
+	entry.stopOnce.Do(func() {
+		if entry.stop != nil {
+			close(entry.stop)
+		}
+	})
 }
 
 func (entry *runtimeEntry) beginClose() (chan struct{}, bool) {

@@ -25,6 +25,7 @@ type processPiRuntime struct {
 	stdinOnce   sync.Once
 	pipesOnce   sync.Once
 	poisonOnce  sync.Once
+	stopOnce    sync.Once
 	finishOnce  sync.Once
 	mu          sync.Mutex
 	pending     map[string]chan runtimeResponse
@@ -39,6 +40,7 @@ type processPiRuntime struct {
 
 	stdoutDone chan struct{}
 	stderrDone chan struct{}
+	stop       chan struct{}
 }
 
 type runtimeResponse struct {
@@ -86,7 +88,7 @@ func newPiRuntime(ctx context.Context, sessionFile, cwd string) (PiRuntime, erro
 	runtime := &processPiRuntime{
 		cmd: cmd, stdin: stdin, stdout: stdout, stderr: stderr, events: make(chan PiEvent, 64),
 		running: true, lastUse: time.Now(), activity: map[string]int{}, pending: map[string]chan runtimeResponse{}, quarantined: map[string]struct{}{}, done: make(chan struct{}), stdoutDone: make(chan struct{}),
-		stderrDone: make(chan struct{}),
+		stderrDone: make(chan struct{}), stop: make(chan struct{}),
 	}
 	go runtime.readStdout(stdout)
 	go runtime.readStderr(stderr)
@@ -152,13 +154,8 @@ func (runtime *processPiRuntime) handleLine(raw []byte) error {
 func (runtime *processPiRuntime) enqueueEvent(event PiEvent) {
 	select {
 	case runtime.events <- event:
-		return
-	default:
+	case <-runtime.stop:
 	}
-	// Never evict an older event to make room: that silently changes the
-	// protocol stream and can lose agent_end. Closing the runtime makes the
-	// overflow observable to waiters and the event consumer as a terminal error.
-	runtime.poison(fmt.Errorf("pi event channel is full while reporting %s", event.Type))
 }
 
 func (runtime *processPiRuntime) deliverResponse(response RPCResponse) bool {
@@ -189,6 +186,7 @@ func (runtime *processPiRuntime) poison(err error) {
 		pending := runtime.pending
 		runtime.pending = map[string]chan runtimeResponse{}
 		runtime.mu.Unlock()
+		runtime.stopEvents()
 		for _, waiter := range pending {
 			waiter <- runtimeResponse{err: err}
 		}
@@ -345,7 +343,12 @@ func (runtime *processPiRuntime) closePipes() {
 
 func (runtime *processPiRuntime) waitForProcess() {
 	err := runtime.cmd.Wait()
-	if !waitForPipe(runtime.stdoutDone, 100*time.Millisecond) || !waitForPipe(runtime.stderrDone, 100*time.Millisecond) {
+	stdoutFinished := waitForPipe(runtime.stdoutDone, 100*time.Millisecond)
+	stderrFinished := waitForPipe(runtime.stderrDone, 100*time.Millisecond)
+	if !stdoutFinished || !stderrFinished {
+		// A reader can be waiting for event-channel capacity after the process
+		// exits. Stop that wait before joining the reader goroutines.
+		runtime.stopEvents()
 		runtime.closePipes()
 	}
 	<-runtime.stdoutDone
@@ -375,6 +378,7 @@ func (runtime *processPiRuntime) finish(err error) {
 		pending := runtime.pending
 		runtime.pending = map[string]chan runtimeResponse{}
 		runtime.mu.Unlock()
+		runtime.stopEvents()
 		for _, waiter := range pending {
 			waiter <- runtimeResponse{err: err}
 		}
@@ -427,6 +431,14 @@ func (runtime *processPiRuntime) touchEvent(eventType, toolCallID string) {
 	}
 }
 
+func (runtime *processPiRuntime) stopEvents() {
+	runtime.stopOnce.Do(func() {
+		if runtime.stop != nil {
+			close(runtime.stop)
+		}
+	})
+}
+
 func (runtime *processPiRuntime) Close(ctx context.Context) error {
 	runtime.mu.Lock()
 	if runtime.closed && !runtime.running {
@@ -435,6 +447,7 @@ func (runtime *processPiRuntime) Close(ctx context.Context) error {
 	}
 	runtime.closed = true
 	runtime.mu.Unlock()
+	runtime.stopEvents()
 	runtime.closeStdin()
 	if runtime.cmd == nil {
 		runtime.finish(errors.New("runtime closed"))

@@ -127,22 +127,72 @@ sleep 10
 	}
 }
 
-func TestProcessRuntimeEventBackpressureDoesNotBlockReader(t *testing.T) {
+func TestProcessRuntimeEventBackpressureWaitsForConsumer(t *testing.T) {
 	runtime := &processPiRuntime{events: make(chan PiEvent, 1), done: make(chan struct{}), pending: map[string]chan runtimeResponse{}}
 	runtime.events <- PiEvent{Type: "already-buffered"}
 	done := make(chan struct{})
 	go func() {
-		runtime.handleLine([]byte(`{"type":"message_update"}`))
+		if err := runtime.handleLine([]byte(`{"type":"message_update"}`)); err != nil {
+			t.Errorf("handleLine returned error: %v", err)
+		}
 		close(done)
 	}()
 	select {
 	case <-done:
+		t.Fatal("stdout reader discarded backpressure instead of waiting for consumer")
 	case <-time.After(100 * time.Millisecond):
-		t.Fatal("stdout reader blocked on full event channel")
+	}
+	<-runtime.events
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("stdout reader did not resume after consumer drained the channel")
+	}
+	select {
+	case event := <-runtime.events:
+		if event.Type != "message_update" {
+			t.Fatalf("event type = %q, want message_update", event.Type)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("backpressured event was not delivered")
 	}
 }
 
-func TestProcessRuntimeRealProcessBackpressureFailsPendingRPC(t *testing.T) {
+func TestRuntimeEntryEventBackpressureWaitsForConsumer(t *testing.T) {
+	runtime := newFakePiRuntime()
+	entry := &runtimeEntry{runtime: runtime, manager: &RuntimeManager{now: time.Now}, events: make(chan PiEvent, 1), stop: make(chan struct{}), activity: map[string]int{}, closeDone: make(chan struct{})}
+	entry.events <- PiEvent{Type: "already-buffered"}
+	defer entry.Close(context.Background())
+	done := make(chan struct{})
+	go func() {
+		entry.enqueueEvent(PiEvent{Type: "message_update", Raw: json.RawMessage(`{"type":"message_update"}`)})
+		close(done)
+	}()
+	select {
+	case <-done:
+		t.Fatal("entry discarded backpressure instead of waiting for consumer")
+	case <-time.After(100 * time.Millisecond):
+	}
+	if !entry.IsRunning() {
+		t.Fatal("entry closed while waiting for consumer")
+	}
+	<-entry.events
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("entry did not resume after consumer drained the channel")
+	}
+	select {
+	case event := <-entry.events:
+		if event.Type != "message_update" {
+			t.Fatalf("event type = %q, want message_update", event.Type)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("backpressured event was not delivered")
+	}
+}
+
+func TestProcessRuntimeRealProcessBackpressureWaitsForConsumer(t *testing.T) {
 	root := t.TempDir()
 	writeFakePi(t, root, `#!/bin/sh
 read request
@@ -151,7 +201,7 @@ while [ "$i" -lt 65 ]; do
   printf '%s\n' '{"type":"message_update"}'
   i=$((i + 1))
 done
-sleep 30
+printf '%s\n' '{"id":"request-1","type":"response","command":"prompt","success":true}'
 `)
 	runtimeValue, err := newPiRuntime(context.Background(), filepath.Join(root, "session.jsonl"), root)
 	if err != nil {
@@ -159,11 +209,55 @@ sleep 30
 	}
 	runtime := runtimeValue.(*processPiRuntime)
 	defer runtime.Close(context.Background())
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	result := make(chan error, 1)
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+		defer cancel()
+		_, sendErr := runtime.Send(ctx, RPCCommand{ID: "request-1", Type: "prompt"})
+		result <- sendErr
+	}()
+	for index := 0; index < 65; index++ {
+		select {
+		case event := <-runtime.Events():
+			if event.Type != "message_update" {
+				t.Fatalf("event %d type = %q, want message_update", index, event.Type)
+			}
+		case <-time.After(time.Second):
+			t.Fatalf("event %d was not delivered", index)
+		}
+	}
+	select {
+	case err := <-result:
+		if err != nil {
+			t.Fatalf("prompt failed after consumer resumed: %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("prompt did not resume after consumer drained the channel")
+	}
+}
+
+func TestProcessRuntimeNaturalExitUnblocksBackpressuredReader(t *testing.T) {
+	root := t.TempDir()
+	writeFakePi(t, root, `#!/bin/sh
+read request
+i=0
+while [ "$i" -lt 65 ]; do
+  printf '%s\n' '{"type":"message_update"}'
+  i=$((i + 1))
+done
+exit 0
+`)
+	runtimeValue, err := newPiRuntime(context.Background(), filepath.Join(root, "session.jsonl"), root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	runtime := runtimeValue.(*processPiRuntime)
+	defer runtime.Close(context.Background())
+	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
 	defer cancel()
 	_, err = runtime.Send(ctx, RPCCommand{ID: "request-1", Type: "prompt"})
-	if err == nil || !strings.Contains(err.Error(), "event channel is full") {
-		t.Fatalf("real process backpressure error = %v", err)
+	if errors.Is(err, context.DeadlineExceeded) {
+		t.Fatal("natural process exit did not unblock the backpressured reader")
 	}
 }
 
@@ -209,35 +303,57 @@ exit 0
 	}
 }
 
-func TestRuntimeEntryBackpressurePoisonsEntry(t *testing.T) {
+func TestRuntimeEntryCloseTimeoutUnblocksBackpressure(t *testing.T) {
 	runtime := newFakePiRuntime()
 	entry := &runtimeEntry{runtime: runtime, manager: &RuntimeManager{now: time.Now}, events: make(chan PiEvent, 1), stop: make(chan struct{}), activity: map[string]int{}, closeDone: make(chan struct{})}
 	entry.events <- PiEvent{Type: "already-buffered"}
-	entry.Events()
-	entry.enqueueEvent(PiEvent{Type: "message_update", Raw: json.RawMessage(`{"type":"message_update"}`)})
-	if entry.IsRunning() {
-		t.Fatal("entry remained usable after event backpressure")
+	if !entry.steerGate.acquire(context.Background()) {
+		t.Fatal("failed to hold entry command gate")
+	}
+	defer entry.steerGate.release()
+	done := make(chan struct{})
+	go func() {
+		entry.enqueueEvent(PiEvent{Type: "message_update", Raw: json.RawMessage(`{"type":"message_update"}`)})
+		close(done)
+	}()
+	select {
+	case <-done:
+		t.Fatal("entry did not wait while event channel was full")
+	case <-time.After(100 * time.Millisecond):
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+	defer cancel()
+	if err := entry.Close(ctx); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("close error = %v, want context deadline exceeded", err)
 	}
 	select {
-	case <-entry.closeDone:
+	case <-done:
 	case <-time.After(time.Second):
-		t.Fatal("entry close waiter was not released after backpressure")
+		t.Fatal("entry backpressure remained blocked after close timeout")
+	}
+}
+
+func TestRuntimeEntryBackpressureUnblocksOnClose(t *testing.T) {
+	runtime := newFakePiRuntime()
+	entry := &runtimeEntry{runtime: runtime, manager: &RuntimeManager{now: time.Now}, events: make(chan PiEvent, 1), stop: make(chan struct{}), activity: map[string]int{}, closeDone: make(chan struct{})}
+	entry.events <- PiEvent{Type: "already-buffered"}
+	done := make(chan struct{})
+	go func() {
+		entry.enqueueEvent(PiEvent{Type: "message_update", Raw: json.RawMessage(`{"type":"message_update"}`)})
+		close(done)
+	}()
+	select {
+	case <-done:
+		t.Fatal("entry did not wait while event channel was full")
+	case <-time.After(100 * time.Millisecond):
+	}
+	if err := entry.Close(context.Background()); err != nil {
+		t.Fatalf("close entry: %v", err)
 	}
 	select {
-	case _, ok := <-entry.Events():
-		if !ok {
-			t.Fatal("poisoned entry dropped the buffered event")
-		}
+	case <-done:
 	case <-time.After(time.Second):
-		t.Fatal("poisoned entry did not expose the buffered event")
-	}
-	select {
-	case _, ok := <-entry.Events():
-		if ok {
-			t.Fatal("poisoned entry event channel remained open")
-		}
-	case <-time.After(time.Second):
-		t.Fatal("poisoned entry event channel did not close")
+		t.Fatal("entry backpressure did not unblock after close")
 	}
 }
 
@@ -260,26 +376,29 @@ func TestProcessRuntimeCancelsBlockedStdinWrite(t *testing.T) {
 	}
 }
 
-func TestProcessRuntimePoisonsOnEventBackpressure(t *testing.T) {
+func TestProcessRuntimeEventBackpressureUnblocksOnClose(t *testing.T) {
 	runtime := &processPiRuntime{
-		events: make(chan PiEvent, 1), done: make(chan struct{}),
+		events: make(chan PiEvent, 1), done: make(chan struct{}), stop: make(chan struct{}),
 		pending: map[string]chan runtimeResponse{}, running: true,
 	}
 	runtime.events <- PiEvent{Type: "already-buffered"}
-	if err := runtime.handleLine([]byte(`{"type":"message_update"}`)); err != nil {
-		t.Fatal(err)
+	done := make(chan struct{})
+	go func() {
+		if err := runtime.handleLine([]byte(`{"type":"message_update"}`)); err != nil {
+			t.Errorf("handleLine returned error: %v", err)
+		}
+		close(done)
+	}()
+	select {
+	case <-done:
+		t.Fatal("runtime did not wait while event channel was full")
+	case <-time.After(100 * time.Millisecond):
 	}
-	if runtime.IsRunning() {
-		t.Fatal("runtime remained usable after event backpressure")
-	}
-	runtime.mu.Lock()
-	poisonErr := runtime.poisonErr
-	runtime.mu.Unlock()
-	if poisonErr == nil || !strings.Contains(poisonErr.Error(), "event channel is full") {
-		t.Fatalf("backpressure poison was not observable: %v", poisonErr)
-	}
-	if _, err := runtime.Send(context.Background(), RPCCommand{Type: "prompt"}); err == nil {
-		t.Fatal("poisoned runtime accepted a new command")
+	runtime.stopEvents()
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("runtime backpressure did not unblock after close")
 	}
 }
 
