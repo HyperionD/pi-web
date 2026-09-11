@@ -387,6 +387,49 @@ export function steerSession(sessionId, text, attachments = []) {
   });
 }
 
+export function getSessionState(sessionId: string, options: { limit?: number; before?: string } = {}) {
+  const params = new URLSearchParams();
+  if (options.limit) params.set("limit", String(options.limit));
+  if (options.before) params.set("before", options.before);
+  const query = params.toString() ? `?${params}` : "";
+  return request(`/api/sessions/${encodeURIComponent(sessionId)}/state${query}`);
+}
+
+export function getSessionItemContent(sessionId: string, itemId: string, version = 0) {
+  const params = new URLSearchParams();
+  if (version) params.set("version", String(version));
+  const query = params.toString() ? `?${params}` : "";
+  return request(`/api/sessions/${encodeURIComponent(sessionId)}/items/${encodeURIComponent(itemId)}/content${query}`);
+}
+
+const SESSION_STREAM_EVENT_TYPES = ["session.event", "stream.reset", "heartbeat"];
+
+export function sessionEventsV2(
+  sessionId: string,
+  { after, onEvent, onOpen, onError }: any = {},
+) {
+  const params = new URLSearchParams();
+  const cursor = normalizeEventCursor(after);
+  if (cursor) params.set("after", cursor);
+  const query = params.toString() ? `?${params}` : "";
+  const source = new EventSource(
+    `${apiBase()}/api/sessions/${encodeURIComponent(sessionId)}/events-v2${query}`,
+  );
+  source.onopen = () => onOpen?.();
+  source.onerror = (event) => onError?.(event);
+  for (const type of SESSION_STREAM_EVENT_TYPES) {
+    source.addEventListener(type, (message: MessageEvent) => {
+      try {
+        const event = JSON.parse(String(message.data || "{}"));
+        if (type !== "heartbeat") onEvent?.(event);
+      } catch (error) {
+        onError?.(error);
+      }
+    });
+  }
+  return source;
+}
+
 export function sessionEvents(sessionId: string, { onEvent, onOpen, onError, replay = true, after, snapshotAfter }: any = {}) {
   const params = new URLSearchParams();
   if (replay === "active") params.set("replay", "active");
