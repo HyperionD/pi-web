@@ -209,6 +209,21 @@ describe("pi-app messages", () => {
     expect(app.querySelector(".msg.loading")).toBeNull();
   });
 
+  it("clears the streaming tail when rendering another session", async () => {
+    const app = await connectPiApp();
+    app.renderMessages([]);
+    app.appendDelta({ kind: "pi", delta: "session-a" });
+    app.flushStreamingRender();
+
+    app.renderMessages([{ kind: "user", text: "session-b" }]);
+    app.appendDelta({ kind: "pi", delta: "session-b" });
+    app.flushStreamingRender();
+
+    const streams = app.streamingTail.querySelectorAll(".msg.streaming[data-kind='pi']");
+    expect(streams).toHaveLength(1);
+    expect(streams[0].querySelector(".body").textContent).toBe("session-b");
+  });
+
   it("does not duplicate persisted tools during active stream replay", async () => {
     const app = await connectPiApp();
     app.renderMessages([{

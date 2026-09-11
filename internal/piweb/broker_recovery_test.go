@@ -56,6 +56,24 @@ func TestActiveRunReplaySurvivesHistoryWindow(t *testing.T) {
 	}
 }
 
+func TestRepeatedActiveStatusPreservesRunRecovery(t *testing.T) {
+	broker := NewBroker()
+	running := broker.Publish("s1", "session.status", map[string]string{"status": "running"})
+	firstDelta := broker.Publish("s1", "session.delta", map[string]string{"kind": "pi", "delta": "first"})
+	broker.Publish("s1", "session.status", map[string]string{"status": "thinking"})
+	secondDelta := broker.Publish("s1", "session.delta", map[string]string{"kind": "pi", "delta": "second"})
+	boundary := broker.Publish("s1", "tool.finished", Message{ID: "tool-1", Kind: "tool", Status: "ok"})
+
+	if got := broker.ActiveRunAfter("s1"); got != running.ID {
+		t.Fatalf("active run cursor changed = %d, want %d", got, running.ID)
+	}
+	subscription := broker.SubscribeFromActive("s1", running.ID, boundary.ID)
+	defer subscription.Close()
+	if len(subscription.Replay) != 2 || subscription.Replay[0].ID != firstDelta.ID || subscription.Replay[1].ID != secondDelta.ID {
+		t.Fatalf("active replay after repeated status = %#v, want deltas %d and %d", subscription.Replay, firstDelta.ID, secondDelta.ID)
+	}
+}
+
 func TestThinkingStatusStartsActiveRunRecovery(t *testing.T) {
 	broker := NewBroker()
 	thinking := broker.Publish("s1", "session.status", map[string]string{"status": "thinking"})

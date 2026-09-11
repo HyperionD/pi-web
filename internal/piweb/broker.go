@@ -425,17 +425,15 @@ func (b *Broker) Publish(sessionID, eventType string, payload any) Event {
 	status := ""
 	if event.Type == "session.status" {
 		status = eventStatus(event)
-		if isActiveSessionStatus(status) {
+		if isActiveSessionStatus(status) && !b.running[sessionID] {
 			b.running[sessionID] = true
 			b.activeRunHistory[sessionID] = nil
+			b.activeRunAfter[sessionID] = event.ID
 		}
 	}
 	b.appendHistoryLocked(sessionID, event)
 	if b.running[sessionID] || (runWasActive && (status == "idle" || status == "cancelled")) {
 		b.activeRunHistory[sessionID] = append(b.activeRunHistory[sessionID], event)
-	}
-	if isActiveSessionStatus(status) {
-		b.activeRunAfter[sessionID] = event.ID
 	}
 	if status == "idle" || status == "cancelled" {
 		b.running[sessionID] = false
