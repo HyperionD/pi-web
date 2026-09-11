@@ -61,14 +61,36 @@ const (
 	retentionFinalBytes  = 8 * 1024 * 1024
 )
 
-func enforceEventRetention(conn *sql.Conn, sessionID string) error {
+func (s *SQLiteSessionEventStore) activeRetentionLimits() (int, int) {
+	rows, bytes := s.retention.ActiveRows, s.retention.ActiveBytes
+	if rows <= 0 {
+		rows = retentionActiveRows
+	}
+	if bytes <= 0 {
+		bytes = retentionActiveBytes
+	}
+	return rows, bytes
+}
+
+func (s *SQLiteSessionEventStore) finalRetentionLimits() (int, int) {
+	rows, bytes := s.retention.FinalRows, s.retention.FinalBytes
+	if rows <= 0 {
+		rows = retentionFinalRows
+	}
+	if bytes <= 0 {
+		bytes = retentionFinalBytes
+	}
+	return rows, bytes
+}
+
+func (s *SQLiteSessionEventStore) enforceEventRetention(conn *sql.Conn, sessionID string) error {
 	var status string
 	if err := conn.QueryRowContext(context.Background(), `SELECT status FROM session_streams WHERE session_id=?`, sessionID).Scan(&status); err != nil {
 		return err
 	}
-	maxRows, maxBytes := retentionFinalRows, retentionFinalBytes
+	maxRows, maxBytes := s.finalRetentionLimits()
 	if isActiveStatus(status) {
-		maxRows, maxBytes = retentionActiveRows, retentionActiveBytes
+		maxRows, maxBytes = s.activeRetentionLimits()
 	}
 	rows, err := conn.QueryContext(context.Background(), `SELECT seq, length(payload_json) FROM session_events WHERE session_id=? ORDER BY seq ASC`, sessionID)
 	if err != nil {
@@ -111,6 +133,10 @@ func enforceEventRetention(conn *sql.Conn, sessionID string) error {
 	}
 	_, err = conn.ExecContext(context.Background(), `UPDATE session_streams SET min_retained_seq=? WHERE session_id=?`, cutoff, sessionID)
 	return err
+}
+
+func (s *SQLiteSessionEventStore) SetRetentionLimits(limits RetentionLimits) {
+	s.retention = limits
 }
 
 func (s *SQLiteSessionEventStore) DeleteSession(ctx context.Context, sessionID string) error {

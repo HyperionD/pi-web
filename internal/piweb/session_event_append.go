@@ -146,7 +146,7 @@ func (s *SQLiteSessionEventStore) Append(ctx context.Context, sessionID string, 
 		if err := s.injectFault(FaultAfterProjectionWrite); err != nil {
 			return err
 		}
-		if err := enforceEventRetention(conn, sessionID); err != nil {
+		if err := s.enforceEventRetention(conn, sessionID); err != nil {
 			return err
 		}
 		change.Stream.CurrentSeq = stored.Seq

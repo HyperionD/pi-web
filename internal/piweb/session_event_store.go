@@ -74,10 +74,18 @@ type ImportReport struct {
 	Warning  string
 }
 
+type RetentionLimits struct {
+	ActiveRows  int
+	ActiveBytes int
+	FinalRows   int
+	FinalBytes  int
+}
+
 type SQLiteSessionEventStore struct {
 	db                  *sql.DB
 	hub                 *SessionWakeHub
 	closeMu             sync.Mutex
 	closed              bool
 	eventStoreFaultHook func(EventStoreFaultPoint) error
+	retention           RetentionLimits
 }

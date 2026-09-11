@@ -10,3 +10,5 @@ coverage/
 docs/superpowers/
 
 .pi/settings.json
+test-results/
+playwright-report/
