@@ -478,6 +478,12 @@ export const settingsMethods = {
       if (settingsResult.status === "fulfilled" && settingsResult.value) {
         try {
           this.settingsState = parseWorkspaceSettings(settingsResult.value.settings);
+          const modelWasSavedToPersonalScope = scope !== "personal"
+            && MODEL_SETTING_PATHS.some((path) => Object.prototype.hasOwnProperty.call(patch, path));
+          if (modelWasSavedToPersonalScope) {
+            form.querySelector("[name='scope']").value = "personal";
+            form.querySelector("[name='location']").value = scope;
+          }
           this.fillSettingsForm();
           void this.loadRuntimeStatus?.(workspaceId);
           if ("defaultProvider" in patch || "defaultModel" in patch || "defaultThinkingLevel" in patch) {

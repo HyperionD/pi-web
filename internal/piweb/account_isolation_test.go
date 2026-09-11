@@ -145,6 +145,26 @@ func TestAccountModelSettingsAreIsolated(t *testing.T) {
 	}
 }
 
+func TestAdminModelSettingsFromSharedScopeBecomePersonal(t *testing.T) {
+	s, admin := accountServer(t)
+	workspace, err := s.store.OpenWorkspace(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	response := accountRequest(s, http.MethodPut, "/api/workspaces/"+workspace.ID+"/settings", `{"scope":"project","settings":{"defaultProvider":"zai","defaultModel":"admin-model"}}`, admin)
+	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), `"defaultModel":"admin-model"`) {
+		t.Fatalf("save admin model settings: %d %s", response.Code, response.Body.String())
+	}
+	root, err := s.store.WorkspacePath(workspace.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	shared, err := os.ReadFile(filepath.Join(root, ".pi", "settings.json"))
+	if err == nil && strings.Contains(string(shared), "admin-model") {
+		t.Fatalf("admin model leaked into shared settings: %s", shared)
+	}
+}
+
 func TestRuntimeModelStatusUsesSessionOwnerSettings(t *testing.T) {
 	s, admin := accountServer(t)
 	workspace, err := s.store.OpenWorkspace(t.TempDir())

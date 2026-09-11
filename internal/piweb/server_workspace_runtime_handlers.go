@@ -154,8 +154,24 @@ func (s *Server) saveWorkspaceSettings(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]any{"settings": settings})
 		return
 	}
-	if containsModelSettings(req.Settings) && actor != nil && actor.Role == "admin" {
-		writeError(w, http.StatusBadRequest, errors.New("shared settings cannot contain personal model fields"))
+	if actor != nil && actor.Role == "admin" && containsModelSettings(req.Settings) {
+		modelPatch, sharedPatch := splitModelSettings(req.Settings)
+		if len(sharedPatch) > 0 {
+			if _, err := SaveWorkspaceSettings(root, SettingsPatchRequest{Scope: req.Scope, Settings: sharedPatch}); err != nil {
+				writeError(w, http.StatusBadRequest, err)
+				return
+			}
+		}
+		if err := savePersonalModelSettings(actor.ID, req.Scope, workspaceID, modelPatch); err != nil {
+			writeError(w, http.StatusBadRequest, err)
+			return
+		}
+		settings, err := WorkspaceSettingsForUser(root, workspaceID, actor.ID)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"settings": settings})
 		return
 	}
 	settings, err := SaveWorkspaceSettings(root, req)
@@ -181,4 +197,17 @@ func containsModelSettings(settings map[string]any) bool {
 		}
 	}
 	return false
+}
+
+func splitModelSettings(settings map[string]any) (map[string]any, map[string]any) {
+	modelSettings := map[string]any{}
+	sharedSettings := map[string]any{}
+	for key, value := range settings {
+		if _, ok := modelSettingKeys[key]; ok {
+			modelSettings[key] = value
+		} else {
+			sharedSettings[key] = value
+		}
+	}
+	return modelSettings, sharedSettings
 }
