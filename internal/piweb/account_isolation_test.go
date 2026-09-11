@@ -145,6 +145,31 @@ func TestAccountModelSettingsAreIsolated(t *testing.T) {
 	}
 }
 
+func TestRuntimeModelStatusUsesSessionOwnerSettings(t *testing.T) {
+	s, admin := accountServer(t)
+	workspace, err := s.store.OpenWorkspace(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	alice := addAccount(t, s, admin, "alice-runtime", workspace.ID)
+	session := createAccountSession(t, s, alice, workspace.ID)
+	body := `{"scope":"personal","location":"project","settings":{"defaultProvider":"zai","defaultModel":"alice-model","defaultThinkingLevel":"high"}}`
+	if response := accountRequest(s, http.MethodPut, "/api/workspaces/"+workspace.ID+"/settings", body, alice); response.Code != http.StatusOK {
+		t.Fatalf("save model settings: %d %s", response.Code, response.Body.String())
+	}
+	root, err := s.store.WorkspacePath(workspace.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	status, err := s.overlayPersonalRuntimeModel(RuntimeStatus{}, root, workspace.ID, session.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if status.ModelProvider != "zai" || status.Model != "alice-model" || status.ThinkingLevel != "high" {
+		t.Fatalf("unexpected session owner model status: %+v", status)
+	}
+}
+
 func containsSession(body, id string) bool {
 	var value any
 	if json.Unmarshal([]byte(body), &value) != nil {

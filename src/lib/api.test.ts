@@ -139,10 +139,14 @@ describe("api adapter", () => {
     expect(status.url).toBe("http://backend.test/api/workspaces/w1/runtime-status");
     const model = await getWorkspaceRuntimeModel("w1");
     expect(model.url).toBe("http://backend.test/api/workspaces/w1/runtime-model");
+    const personalModel = await getWorkspaceRuntimeModel("w1", "session/1");
+    expect(personalModel.url).toBe("http://backend.test/api/workspaces/w1/runtime-model?sessionID=session%2F1");
     const quota = await getWorkspaceRuntimeQuota("w1", "GPT-5.5");
     expect(quota.url).toBe("http://backend.test/api/workspaces/w1/runtime-quota?model=GPT-5.5");
     const quotaDefault = await getWorkspaceRuntimeQuota("w1");
     expect(quotaDefault.url).toBe("http://backend.test/api/workspaces/w1/runtime-quota");
+    const personalStatus = await getWorkspaceRuntimeStatus("w1", "session/1");
+    expect(personalStatus.url).toBe("http://backend.test/api/workspaces/w1/runtime-status?sessionID=session%2F1");
   });
 
   it("reads and saves workspace settings and files", async () => {

@@ -20,11 +20,22 @@ func (s *Server) modelSettingsForSession(sessionID string) (ModelStartupSettings
 	return modelStartupSettings(settings.Effective), nil
 }
 
-func (s *Server) overlayPersonalRuntimeModel(status RuntimeStatus, root, workspaceID string, actor *Account) (RuntimeStatus, error) {
-	if actor == nil {
+func (s *Server) overlayPersonalRuntimeModel(status RuntimeStatus, root, workspaceID, sessionID string) (RuntimeStatus, error) {
+	if sessionID == "" || s.accounts == nil {
 		return status, nil
 	}
-	settings, err := WorkspaceSettingsForUser(root, workspaceID, actor.ID)
+	session, _, err := s.store.Session(sessionID)
+	if err != nil {
+		return RuntimeStatus{}, err
+	}
+	if session.Workspace != workspaceID {
+		return RuntimeStatus{}, ErrNotFound
+	}
+	userID, ok := s.accounts.sessionOwnerID(sessionID)
+	if !ok {
+		return status, nil
+	}
+	settings, err := WorkspaceSettingsForUser(root, workspaceID, userID)
 	if err != nil {
 		return RuntimeStatus{}, err
 	}

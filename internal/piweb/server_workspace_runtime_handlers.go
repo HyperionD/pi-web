@@ -55,9 +55,10 @@ func (s *Server) workspaceRuntimeStatus(w http.ResponseWriter, r *http.Request) 
 			writeError(w, http.StatusBadGateway, err)
 			return
 		}
-		status, err = s.overlayPersonalRuntimeModel(status, root, r.PathValue("workspaceID"), requestActor(r))
+		sessionID := r.URL.Query().Get("sessionID")
+		status, err = s.overlayPersonalRuntimeModel(status, root, r.PathValue("workspaceID"), sessionID)
 		if err != nil {
-			writeError(w, http.StatusInternalServerError, err)
+			writeRuntimeModelError(w, err)
 			return
 		}
 	}
@@ -76,9 +77,10 @@ func (s *Server) workspaceRuntimeModel(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusBadGateway, err)
 			return
 		}
-		status, err = s.overlayPersonalRuntimeModel(status, root, r.PathValue("workspaceID"), requestActor(r))
+		sessionID := r.URL.Query().Get("sessionID")
+		status, err = s.overlayPersonalRuntimeModel(status, root, r.PathValue("workspaceID"), sessionID)
 		if err != nil {
-			writeError(w, http.StatusInternalServerError, err)
+			writeRuntimeModelError(w, err)
 			return
 		}
 	}
@@ -162,6 +164,14 @@ func (s *Server) saveWorkspaceSettings(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"settings": settings})
+}
+
+func writeRuntimeModelError(w http.ResponseWriter, err error) {
+	if errors.Is(err, ErrNotFound) {
+		writeStoreError(w, err)
+		return
+	}
+	writeError(w, http.StatusInternalServerError, err)
 }
 
 func containsModelSettings(settings map[string]any) bool {

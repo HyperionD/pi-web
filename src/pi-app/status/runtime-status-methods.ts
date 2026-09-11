@@ -26,7 +26,7 @@ export const runtimeStatusMethods = {
       openGeneration: expectedOpenGeneration,
     });
     try {
-      const { status } = await getWorkspaceRuntimeModel(workspaceId);
+      const { status } = await getWorkspaceRuntimeModel(workspaceId, sessionId);
       if (!isCurrent()) return;
       this.applyRuntimeStatus(status);
       void this.loadRuntimeQuota(workspaceId, status?.model, {
@@ -37,7 +37,7 @@ export const runtimeStatusMethods = {
     } catch {
       if (!isCurrent()) return;
       try {
-        const { status } = await getWorkspaceRuntimeStatus(workspaceId);
+        const { status } = await getWorkspaceRuntimeStatus(workspaceId, sessionId);
         if (!isCurrent()) return;
         this.applyRuntimeStatus(status);
       } catch {}

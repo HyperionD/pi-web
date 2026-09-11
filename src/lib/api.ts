@@ -170,12 +170,14 @@ export function getWorkspaceModels(workspaceId) {
   return request(`/api/workspaces/${encodeURIComponent(workspaceId)}/models`);
 }
 
-export function getWorkspaceRuntimeStatus(workspaceId) {
-  return request(`/api/workspaces/${encodeURIComponent(workspaceId)}/runtime-status`);
+export function getWorkspaceRuntimeStatus(workspaceId, sessionId = "") {
+  const query = sessionId ? `?sessionID=${encodeURIComponent(sessionId)}` : "";
+  return request(`/api/workspaces/${encodeURIComponent(workspaceId)}/runtime-status${query}`);
 }
 
-export function getWorkspaceRuntimeModel(workspaceId) {
-  return request(`/api/workspaces/${encodeURIComponent(workspaceId)}/runtime-model`);
+export function getWorkspaceRuntimeModel(workspaceId, sessionId = "") {
+  const query = sessionId ? `?sessionID=${encodeURIComponent(sessionId)}` : "";
+  return request(`/api/workspaces/${encodeURIComponent(workspaceId)}/runtime-model${query}`);
 }
 
 export function getWorkspaceRuntimeQuota(workspaceId, model = "") {
