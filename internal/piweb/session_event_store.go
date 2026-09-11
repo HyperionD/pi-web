@@ -81,7 +81,3 @@ type SQLiteSessionEventStore struct {
 	closed              bool
 	eventStoreFaultHook func(EventStoreFaultPoint) error
 }
-
-func (s *SQLiteSessionEventStore) RecoverInterrupted(context.Context) error {
-	return ErrEventStoreNotReady
-}

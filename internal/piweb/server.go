@@ -253,11 +253,16 @@ func (s *Server) Shutdown(ctx context.Context) error {
 	// shutdown, so no new handler can recreate a resource while it closes.
 	brokerErr := s.broker.Shutdown(brokerCtx)
 	lifecycleErr := s.lifecycle.waitForZero(ctx, zero)
+	var eventsErr error
+	if s.events != nil {
+		eventsErr = s.events.Close(storeCtx)
+	}
 	return errors.Join(
 		lifecycleErr,
 		brokerErr,
 		s.runtimeManager.Shutdown(runtimeCtx),
 		s.store.Shutdown(storeCtx),
+		eventsErr,
 	)
 }
 
