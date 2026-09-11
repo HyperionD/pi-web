@@ -17,7 +17,6 @@ The repository now has clear ownership boundaries. The remaining large flat area
 | `.github/workflows/` | CI split by backend/frontend checks | OK |
 | `.pi/` | Pi harness settings, prompts, local extensions, npm sandbox placeholder | OK; generated sessions/tasks/npm contents ignored |
 | `.pi/extensions/` | Project-local Pi footer/quota/web-status extensions | OK; entrypoints at root, implementation under `src/` |
-| `.storybook/` | Storybook config and fixtures | OK |
 | root Go files | CLI/binary entrypoint and version command | OK |
 | `internal/piweb/` | Go HTTP/session/workspace/store/runner package | OK; documented in `internal/piweb/README.md` |
 | `static/` | Committed embedded Astro assets for release binaries | OK |
@@ -38,7 +37,7 @@ The repository now has clear ownership boundaries. The remaining large flat area
 - Moved documentation images from `docs/` to `docs/assets/`.
 - Folded `src/extras.css` into `src/styles/parts/empty-shell.css` and imported it from `src/styles.css`.
 - Renamed `src/design-system/colors_and_type.css` to `src/design-system/tokens.css`.
-- Confirmed ignored generated folders are not tracked: `.astro/`, `dist/`, `storybook-static/`, `storybook-server/`, `.pi/tasks/`, `.pi/npm/*`, `node_modules/`.
+- Confirmed ignored generated folders are not tracked: `.astro/`, `dist/`, `.pi/tasks/`, `.pi/npm/*`, `node_modules/`.
 
 ## Follow-up only if the codebase grows
 

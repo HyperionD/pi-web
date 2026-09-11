@@ -48,14 +48,14 @@ AI. No mistakes. Juunini's alter ego. Complete product > MVP/time excuse.
 - URLs via env; `.env.test`; no hardcoded endpoints.
 - Mock externals; deterministic; fixed real-data fixtures.
 - Coverage 100%; hard → testability first.
-- FE unit: no render tests; ignore behaviorless; Storybook simple; `bun:test`.
+- FE unit: no render tests; ignore behaviorless; `bun:test`.
 - Backend unit: Go `testing` / TS `bun:test`; 100% unit ⇒ no backend e2e.
 - FE e2e: Playwright visible roles/labels/text; test IDs last; no shared state; mock backend; real explicit.
 
 ## New
 
 - Init script → official generators → minimal tools.
-- TS `bun init`; FE `bun create astro` + ESLint/Prettier/Storybook; backend Go.
+- TS `bun init`; FE `bun create astro` + ESLint/Prettier; backend Go.
 - Prettier 120 unless template differs.
 
 ## Git

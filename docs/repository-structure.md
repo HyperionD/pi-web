@@ -20,7 +20,6 @@ This repository keeps the root focused on entry points, tool configuration, and 
 │   ├── pages/                  # Astro pages
 │   └── pi-app/                 # custom element shell plus feature folders and tests
 ├── .github/                    # GitHub workflows
-├── .storybook/                 # Storybook configuration
 └── package.json                # top-level build/test/dev commands
 ```
 
@@ -32,7 +31,7 @@ Keep only files that are expected at repository root:
 - root Go command files: `*.go`, required for the release binary
 - package/module manifests and lockfiles: `package.json`, `bun.lock`, `go.mod`, `go.sum`
 - tool configuration: `astro.config.ts`, `tsconfig.json`, `vitest.config.ts`, `vitest.setup.ts`
-- VCS/editor configuration: `.gitignore`, `.github/`, `.storybook/`
+- VCS/editor configuration: `.gitignore`, `.github/`
 
 Everything else should live under a purpose-specific directory:
 
@@ -47,8 +46,6 @@ These paths are generated locally and intentionally ignored:
 
 - `.astro/`
 - `dist/`
-- `storybook-static/`
-- `storybook-server/`
 
 Committed static embed assets live in `static/` so release binaries include a complete UI.
 
@@ -56,7 +53,6 @@ Regenerate them with:
 
 ```bash
 bun run build
-bun run build-storybook
 bun run embed:assets
 ```
 

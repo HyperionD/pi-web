@@ -47,7 +47,7 @@ func fileNodes(root, parent string, entries []os.DirEntry, depth, maxDepth int) 
 }
 
 func shouldSkipFile(name string) bool {
-	if name == ".git" || name == "node_modules" || name == "dist" || name == "storybook-static" || name == ".astro" {
+	if name == ".git" || name == "node_modules" || name == "dist" || name == ".astro" {
 		return true
 	}
 	return false

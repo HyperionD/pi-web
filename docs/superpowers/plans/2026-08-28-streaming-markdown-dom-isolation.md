@@ -309,7 +309,7 @@ Expected: PASS。
 
 Run: `bun run check`
 
-Expected: typecheck、前端测试、Go 测试、Astro build 和 Storybook build 全部退出码为 0。
+Expected: typecheck、前端测试、Go 测试和 Astro build 全部退出码为 0。
 
 - [ ] **Step 6: 检查生成物和工作区**
 

@@ -2,8 +2,6 @@
 node_modules/
 .astro/
 dist/
-storybook-static/
-storybook-server/
 .worktrees/
 coverage/
 .pi/sessions

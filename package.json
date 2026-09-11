@@ -26,8 +26,6 @@
     "build:binary": "bun run build && bun run embed:assets && CGO_ENABLED=0 go build -trimpath -ldflags \"-s -w -X main.version=v$(node -p 'require(\"./package.json\").version')\" -o dist/pi-web .",
     "build:single": "bun run build:binary",
     "preview": "astro preview --host 0.0.0.0",
-    "storybook": "storybook dev -p 6006",
-    "build-storybook": "storybook build",
     "lint": "eslint .",
     "backend": "go run .",
     "backend:mock": "go run . --mock",
@@ -37,7 +35,7 @@
     "test:coverage": "vitest run --coverage",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit",
-    "check": "bun run typecheck && bun run test && bun run backend:test && bun run build && bun run build-storybook"
+    "check": "bun run typecheck && bun run test && bun run backend:test && bun run build"
   },
   "dependencies": {
     "@ag-ui/client": "^0.0.53",
@@ -68,9 +66,6 @@
     "zod": "^4.4.3"
   },
   "devDependencies": {
-    "@storybook-astro/framework": "1.2.0",
-    "@storybook/addon-docs": "10.4.0",
-    "@storybook/builder-vite": "10.4.0",
     "@testing-library/jest-dom": "6.9.1",
     "@types/markdown-it": "^14.1.2",
     "@types/react": "^19.2.15",
@@ -79,7 +74,6 @@
     "eslint": "^10.10.0",
     "eslint-plugin-astro": "^3.1.0",
     "jsdom": "29.1.1",
-    "storybook": "10.4.0",
     "typescript": "6.0.3",
     "typescript-eslint": "^8.70.0",
     "vitest": "4.1.6"

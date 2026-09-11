@@ -12,8 +12,6 @@ export default [
       "dist/**",
       "node_modules/**",
       "static/**",
-      "storybook-server/**",
-      "storybook-static/**",
     ],
   },
   ...tseslint.configs.recommended,
