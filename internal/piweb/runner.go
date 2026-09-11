@@ -117,6 +117,7 @@ func (r *Runner) StartPiPrompt(
 	text string,
 	images []PromptAttachment,
 	displayText string,
+	startupSettings ...ModelStartupSettings,
 ) error {
 	manager, err := r.runtimeManager(store)
 	if err != nil {
@@ -133,7 +134,8 @@ func (r *Runner) StartPiPrompt(
 		commandCancel()
 		return err
 	}
-	runtime, ownership, err := manager.EnsureOwned(parent, sessionID, activeRun.generation)
+	initializer := runtimeModelInitializer(startupSettings)
+	runtime, ownership, err := manager.EnsureOwnedWithInitializer(parent, sessionID, activeRun.generation, initializer)
 	if err != nil {
 		r.discardRun(sessionID, activeRun)
 		eventCancel()

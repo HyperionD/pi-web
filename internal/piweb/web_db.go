@@ -45,6 +45,14 @@ CREATE TABLE IF NOT EXISTS users (id TEXT PRIMARY KEY, account TEXT NOT NULL UNI
 CREATE TABLE IF NOT EXISTS user_workspaces (user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, workspace_id TEXT NOT NULL, workspace_path TEXT NOT NULL, PRIMARY KEY(user_id, workspace_id));
 CREATE TABLE IF NOT EXISTS app_settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS session_owners (session_id TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE);
+CREATE TABLE IF NOT EXISTS user_model_settings (
+  user_id TEXT NOT NULL,
+  scope TEXT NOT NULL,
+  workspace_id TEXT NOT NULL DEFAULT '',
+  settings_json TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  PRIMARY KEY(user_id, scope, workspace_id)
+);
 `); err != nil {
 		_ = db.Close()
 		return nil, err

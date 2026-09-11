@@ -110,7 +110,12 @@ func (s *Server) prompt(w http.ResponseWriter, r *http.Request) {
 		s.broker.Publish(sessionID, "session.renamed", session)
 	}
 	if s.config.EnablePiExecution {
-		err := s.runner.StartPiPrompt(
+		startupSettings, err := s.modelSettingsForSession(sessionID)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, err)
+			return
+		}
+		err = s.runner.StartPiPrompt(
 			s.context(),
 			s.broker,
 			s.store,
@@ -118,6 +123,7 @@ func (s *Server) prompt(w http.ResponseWriter, r *http.Request) {
 			promptText,
 			imageAttachments,
 			displayText,
+			startupSettings,
 		)
 		if err != nil {
 			writeError(w, http.StatusConflict, err)
@@ -138,7 +144,12 @@ func (s *Server) compactSession(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotImplemented, errors.New("pi execution is disabled"))
 		return
 	}
-	result, err := s.runner.Compact(s.context(), s.broker, s.store, sessionID)
+	startupSettings, err := s.modelSettingsForSession(sessionID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
+	result, err := s.runner.Compact(s.context(), s.broker, s.store, sessionID, startupSettings)
 	if err != nil {
 		if errors.Is(err, errSessionBusy) {
 			writeError(w, http.StatusConflict, err)

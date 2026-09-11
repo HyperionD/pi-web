@@ -31,6 +31,12 @@ func (s *Server) handleSessionContextUsage(w http.ResponseWriter, r *http.Reques
 
 func (s *Server) handleSessionSetModel(w http.ResponseWriter, r *http.Request) {
 	sessionID := r.PathValue("sessionID")
+	if actor := requestActor(r); actor != nil && s.accounts != nil {
+		if ownerID, ok := s.accounts.sessionOwnerID(sessionID); ok && ownerID != actor.ID {
+			writeError(w, http.StatusForbidden, errAccountDenied)
+			return
+		}
+	}
 	if !s.config.EnablePiExecution {
 		writeError(w, http.StatusNotImplemented, errors.New("model switching requires pi execution"))
 		return

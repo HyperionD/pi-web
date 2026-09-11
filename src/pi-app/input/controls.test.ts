@@ -251,6 +251,42 @@ describe("pi-app controls", () => {
     });
   });
 
+  it("lets regular users save model settings in their personal scope", async () => {
+    globalThis.PI_WEB_API_BASE = "http://backend.test";
+    globalThis.fetch = vi.fn(async (url, options = {}) => ({
+      ok: true,
+      status: 200,
+      statusText: "OK",
+      json: async () => {
+        if (String(url).endsWith("/settings") && options.method === "PUT") {
+          return { settings: { global: {}, project: {}, personalGlobal: {}, personalProject: JSON.parse(options.body).settings, effective: JSON.parse(options.body).settings, paths: {} } };
+        }
+        if (String(url).endsWith("/settings")) {
+          return { settings: { global: {}, project: {}, personalGlobal: {}, personalProject: {}, effective: {}, paths: {} } };
+        }
+        if (String(url).endsWith("/models")) return { providers: [{ id: "zai", models: [{ id: "gpt-5.5", provider: "zai" }] }] };
+        return { providers: [] };
+      },
+    }));
+    const app = await connectPiApp();
+    document.body.dataset.accountRole = "user";
+    app.apiConnected = true;
+    app.dataset.activeWorkspaceId = "w1";
+
+    await app.openSettingsModal();
+    expect(app.querySelector("[data-settings-scope]").value).toBe("personal");
+    app.querySelector("[data-setting='defaultProvider']").value = "zai";
+    app.querySelector("[data-setting='defaultModel']").value = "gpt-5.5";
+    await app.saveSettingsForm(new Event("submit"));
+
+    const putCall = globalThis.fetch.mock.calls.find(([, options]) => options?.method === "PUT");
+    expect(JSON.parse(putCall[1].body)).toMatchObject({
+      scope: "personal",
+      location: "project",
+      settings: { defaultProvider: "zai", defaultModel: "gpt-5.5" },
+    });
+  });
+
   it("sets app height from the visual viewport for mobile browser chrome", async () => {
     document.body.innerHTML = "";
     Object.defineProperty(window, "visualViewport", {

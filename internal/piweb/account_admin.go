@@ -295,6 +295,10 @@ func (s *Server) deleteAccount(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 500, err)
 		return
 	}
+	if err := deletePersonalModelSettings(record.ID); err != nil {
+		writeError(w, 500, err)
+		return
+	}
 	s.accounts.revoke(record.ID)
 	writeJSON(w, 200, map[string]bool{"deleted": true})
 }

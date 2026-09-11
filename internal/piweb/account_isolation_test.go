@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -102,6 +103,45 @@ func TestAccountSessionIsolationAndPersistence(t *testing.T) {
 	}
 	if w = accountRequest(s, "GET", "/api/workspaces", "", bob); w.Code != 401 {
 		t.Fatal("assignment change did not revoke login")
+	}
+}
+
+func TestAccountModelSettingsAreIsolated(t *testing.T) {
+	s, admin := accountServer(t)
+	workspace, err := s.store.OpenWorkspace(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	alice := addAccount(t, s, admin, "alice-model", workspace.ID)
+	bob := addAccount(t, s, admin, "bob-model", workspace.ID)
+
+	for _, test := range []struct {
+		cookie *http.Cookie
+		model  string
+	}{
+		{alice, "alice-model"},
+		{bob, "bob-model"},
+		{admin, "admin-model"},
+	} {
+		body := fmt.Sprintf(`{"scope":"personal","location":"project","settings":{"defaultProvider":"zai","defaultModel":%q,"defaultThinkingLevel":"high"}}`, test.model)
+		response := accountRequest(s, http.MethodPut, "/api/workspaces/"+workspace.ID+"/settings", body, test.cookie)
+		if response.Code != http.StatusOK {
+			t.Fatalf("save %s model settings: %d %s", test.model, response.Code, response.Body.String())
+		}
+	}
+
+	for _, test := range []struct {
+		cookie *http.Cookie
+		model  string
+	}{
+		{alice, "alice-model"},
+		{bob, "bob-model"},
+		{admin, "admin-model"},
+	} {
+		response := accountRequest(s, http.MethodGet, "/api/workspaces/"+workspace.ID+"/settings", "", test.cookie)
+		if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), `"defaultModel":"`+test.model+`"`) {
+			t.Fatalf("read %s model settings: %d %s", test.model, response.Code, response.Body.String())
+		}
 	}
 }
 

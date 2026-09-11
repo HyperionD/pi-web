@@ -264,6 +264,13 @@ func (a *accountStore) owns(user Account, sessionID string) bool {
 	}
 	return a.Owners[sessionID] == user.ID
 }
+
+func (a *accountStore) sessionOwnerID(sessionID string) (string, bool) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	ownerID, ok := a.Owners[sessionID]
+	return ownerID, ok
+}
 func (a *accountStore) workspaceGrants(user Account) ([]workspaceGrant, bool) {
 	a.mu.Lock()
 	defer a.mu.Unlock()

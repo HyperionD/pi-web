@@ -38,6 +38,7 @@ type PiRuntime interface {
 }
 
 type RuntimeProcessFactory func(ctx context.Context, sessionFile, cwd string) (PiRuntime, error)
+type RuntimeInitializer func(context.Context, PiRuntime) error
 
 type runtimeOwnership struct {
 	sessionID  string
@@ -82,11 +83,12 @@ type RuntimeManager struct {
 }
 
 type runtimeStartup struct {
-	done       chan struct{}
-	runtime    PiRuntime
-	err        error
-	discard    bool
-	generation uint64
+	done        chan struct{}
+	runtime     PiRuntime
+	err         error
+	discard     bool
+	generation  uint64
+	initializer RuntimeInitializer
 }
 
 type runtimeClosing struct {
@@ -161,6 +163,14 @@ func (m *RuntimeManager) Ensure(ctx context.Context, sessionID string) (PiRuntim
 }
 
 func (m *RuntimeManager) EnsureOwned(ctx context.Context, sessionID string, generation uint64) (PiRuntime, runtimeOwnership, error) {
+	return m.ensureOwned(ctx, sessionID, generation, nil)
+}
+
+func (m *RuntimeManager) EnsureOwnedWithInitializer(ctx context.Context, sessionID string, generation uint64, initializer RuntimeInitializer) (PiRuntime, runtimeOwnership, error) {
+	return m.ensureOwned(ctx, sessionID, generation, initializer)
+}
+
+func (m *RuntimeManager) ensureOwned(ctx context.Context, sessionID string, generation uint64, initializer RuntimeInitializer) (PiRuntime, runtimeOwnership, error) {
 	if sessionID == "" {
 		return nil, runtimeOwnership{}, fmt.Errorf("session ID is required")
 	}
@@ -213,7 +223,7 @@ func (m *RuntimeManager) EnsureOwned(ctx context.Context, sessionID string, gene
 			m.mu.Unlock()
 			return m.waitOwnedStartup(ctx, sessionID, startup, generation)
 		}
-		startup := &runtimeStartup{done: make(chan struct{}), generation: generation}
+		startup := &runtimeStartup{done: make(chan struct{}), generation: generation, initializer: initializer}
 		m.starting[sessionID] = startup
 		startCtx := m.ctx
 		m.mu.Unlock()
@@ -248,7 +258,12 @@ func (m *RuntimeManager) startRuntime(sessionID, sessionFile, cwd string, startu
 	if err == nil && runtime == nil {
 		err = errors.New("runtime factory returned nil runtime")
 	}
-	closeRuntime := false
+	if err == nil && startup.initializer != nil {
+		initCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
+		err = startup.initializer(initCtx, runtime)
+		cancel()
+	}
+	closeRuntime := err != nil && runtime != nil
 	m.mu.Lock()
 	delete(m.starting, sessionID)
 	_, tombstoned := m.tombstone[sessionID]

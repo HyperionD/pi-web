@@ -16,7 +16,7 @@ describe("settings schema", () => {
     expect(SETTINGS_FIELDS).toEqual(expect.arrayContaining([
       { path: "defaultProvider", label: "默认提供商", type: "providerSelect", hint: "提供商 ID" },
       { path: "defaultModel", label: "默认模型", type: "modelSelect", hint: "模型 ID 或提供商/模型" },
-      { path: "defaultThinkingLevel", label: "思考级别", type: "select", values: ["off", "minimal", "low", "medium", "high", "xhigh"] },
+      { path: "defaultThinkingLevel", label: "思考级别", type: "select", values: ["off", "minimal", "low", "medium", "high", "xhigh", "max"] },
       { path: "compaction.enabled", label: "自动压缩", type: "boolean" },
       { path: "enableSkillCommands", label: "技能命令", type: "boolean" },
       { path: "steeringMode", label: "引导模式", type: "select", values: ["one-at-a-time", "all"] },
@@ -31,7 +31,9 @@ describe("settings schema", () => {
       global: { theme: "dark", customSetting: "keep" },
       project: { terminal: { showImages: true } },
       effective: { transport: "auto", customSetting: "keep" },
-      paths: { global: "/home/me/.pi/agent/settings.json", project: "/repo/.pi/settings.json" },
+      personalGlobal: { defaultModel: "personal" },
+      personalProject: {},
+      paths: { global: "/home/me/.pi/agent/settings.json", project: "/repo/.pi/settings.json", personalGlobal: "database", personalProject: "database" },
     })).toMatchObject({
       global: { customSetting: "keep" },
       effective: { transport: "auto", customSetting: "keep" },

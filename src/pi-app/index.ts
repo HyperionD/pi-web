@@ -127,6 +127,7 @@ class PiApp extends HTMLElement {
     this.querySelector("[data-settings-form]")?.addEventListener("submit", (event) => this.saveSettingsForm(event));
     this.querySelector("[data-admin-password-setup-form]")?.addEventListener("submit", (event) => this.submitAdminPasswordSetup(event));
     this.querySelector("[data-settings-scope]")?.addEventListener("change", () => this.fillSettingsForm());
+    this.querySelector("[data-settings-location]")?.addEventListener("change", () => this.fillSettingsForm());
     this.querySelector("[data-ui-language]")?.addEventListener("change", (event) => {
       const locale = normalizeUiLocale((event.currentTarget as HTMLSelectElement).value);
       if (locale) setUiLocale(locale, this);

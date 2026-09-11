@@ -55,6 +55,23 @@ func runtimeTestStore() *Store {
 	return store
 }
 
+func TestRuntimeManagerInitializesModelBeforeReturningRuntime(t *testing.T) {
+	store := runtimeTestStore()
+	runtime := newFakePiRuntime()
+	manager := NewRuntimeManagerWithFactory(store, func(context.Context, string, string) (PiRuntime, error) {
+		return runtime, nil
+	})
+	defer manager.Shutdown(context.Background())
+
+	settings := ModelStartupSettings{Provider: "zai", Model: "gpt-5.5", ThinkingLevel: "high"}
+	if _, _, err := manager.EnsureOwnedWithInitializer(context.Background(), "runtime-session", 0, runtimeModelInitializer([]ModelStartupSettings{settings})); err != nil {
+		t.Fatal(err)
+	}
+	if len(runtime.sends) != 2 || runtime.sends[0].Type != "set_model" || runtime.sends[1].Type != "set_thinking_level" {
+		t.Fatalf("unexpected initialization commands: %+v", runtime.sends)
+	}
+}
+
 func TestRuntimeManagerReusesProcessForSameSession(t *testing.T) {
 	store := runtimeTestStore()
 	var created atomic.Int32

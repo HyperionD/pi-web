@@ -187,10 +187,10 @@ export function getWorkspaceSettings(workspaceId) {
   return request(`/api/workspaces/${encodeURIComponent(workspaceId)}/settings`);
 }
 
-export function saveWorkspaceSettings(workspaceId, scope, settings) {
+export function saveWorkspaceSettings(workspaceId, scope, settings, location = undefined) {
   return request(`/api/workspaces/${encodeURIComponent(workspaceId)}/settings`, {
     method: "PUT",
-    body: JSON.stringify({ scope, settings }),
+    body: JSON.stringify({ scope, location, settings }),
   });
 }
 

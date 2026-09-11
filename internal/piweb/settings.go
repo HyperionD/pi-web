@@ -8,19 +8,24 @@ import (
 )
 
 type WorkspaceSettingsResponse struct {
-	Global    map[string]any `json:"global"`
-	Project   map[string]any `json:"project"`
-	Effective map[string]any `json:"effective"`
-	Paths     SettingsPaths  `json:"paths"`
+	Global          map[string]any `json:"global"`
+	Project         map[string]any `json:"project"`
+	PersonalGlobal  map[string]any `json:"personalGlobal,omitempty"`
+	PersonalProject map[string]any `json:"personalProject,omitempty"`
+	Effective       map[string]any `json:"effective"`
+	Paths           SettingsPaths  `json:"paths"`
 }
 
 type SettingsPaths struct {
-	Global  string `json:"global"`
-	Project string `json:"project"`
+	Global          string `json:"global"`
+	Project         string `json:"project"`
+	PersonalGlobal  string `json:"personalGlobal,omitempty"`
+	PersonalProject string `json:"personalProject,omitempty"`
 }
 
 type SettingsPatchRequest struct {
 	Scope    string         `json:"scope"`
+	Location string         `json:"location"`
 	Settings map[string]any `json:"settings"`
 }
 
@@ -41,6 +46,28 @@ func WorkspaceSettings(root string) (WorkspaceSettingsResponse, error) {
 	mergeSettings(effective, global)
 	mergeSettings(effective, project)
 	return WorkspaceSettingsResponse{Global: global, Project: project, Effective: effective, Paths: paths}, nil
+}
+
+func WorkspaceSettingsForUser(root, workspaceID, userID string) (WorkspaceSettingsResponse, error) {
+	settings, err := WorkspaceSettings(root)
+	if err != nil || userID == "" {
+		return settings, err
+	}
+	personalGlobal, err := readPersonalModelSettings(userID, personalGlobalScope, "")
+	if err != nil {
+		return WorkspaceSettingsResponse{}, err
+	}
+	personalProject, err := readPersonalModelSettings(userID, personalProjectScope, workspaceID)
+	if err != nil {
+		return WorkspaceSettingsResponse{}, err
+	}
+	mergeSettings(settings.Effective, personalGlobal)
+	mergeSettings(settings.Effective, personalProject)
+	settings.PersonalGlobal = personalGlobal
+	settings.PersonalProject = personalProject
+	settings.Paths.PersonalGlobal = "database"
+	settings.Paths.PersonalProject = "database"
+	return settings, nil
 }
 
 func SaveWorkspaceSettings(root string, req SettingsPatchRequest) (WorkspaceSettingsResponse, error) {

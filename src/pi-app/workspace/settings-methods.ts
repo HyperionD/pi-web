@@ -10,6 +10,7 @@ import {
   setSessionModel,
 } from "../../lib/api";
 import {
+  MODEL_SETTING_PATHS,
   SETTINGS_FIELDS,
   parseSettingsPatch,
   parseWorkspaceSettings,
@@ -43,6 +44,10 @@ function describeEffective(value) {
 
 function customInputFor(control) {
   return control.closest(".settings-field")?.querySelector(`[data-custom-setting='${control.dataset.setting}']`);
+}
+
+function isModelSetting(path) {
+  return MODEL_SETTING_PATHS.includes(path);
 }
 
 const SETTINGS_FOCUSABLE_SELECTOR = [
@@ -159,6 +164,7 @@ export const settingsMethods = {
       return;
     }
     this.settingsState = parseWorkspaceSettings(settingsResult.value.settings);
+    this.syncPersonalSettingsScope();
     if (authResult.status === "fulfilled") {
       this.authState = authResult.value;
       this.fillAuthForm();
@@ -288,13 +294,36 @@ export const settingsMethods = {
     if (custom) customInput.focus?.();
   },
 
+  syncPersonalSettingsScope() {
+    const scope = this.querySelector("[data-settings-scope]");
+    const location = this.querySelector("[data-settings-location]");
+    const locationWrap = this.querySelector("[data-settings-location-wrap]");
+    if (document.body.dataset.accountRole === "user") {
+      if (scope) scope.value = "personal";
+      if (location) location.value = "project";
+    }
+    if (scope && document.body.dataset.accountRole === "user") {
+      [...scope.options].forEach((option) => { option.disabled = option.value !== "personal"; });
+    }
+    if (locationWrap) locationWrap.hidden = scope?.value !== "personal";
+  },
+
+  settingsScopeKey(form) {
+    const scope = form.querySelector("[name='scope']")?.value || "project";
+    if (scope !== "personal") return scope;
+    const location = form.querySelector("[name='location']")?.value || "project";
+    return location === "global" ? "personalGlobal" : "personalProject";
+  },
+
   fillSettingsForm() {
     const form = this.querySelector("[data-settings-form]");
     if (!form || !this.settingsState) return;
+    this.syncPersonalSettingsScope();
     const scope = form.querySelector("[name='scope']")?.value || "project";
-    const scopedSettings = this.settingsState[scope] || {};
+    const scopeKey = this.settingsScopeKey(form);
+    const scopedSettings = this.settingsState[scopeKey] || {};
     const effective = this.settingsState.effective || {};
-    this.querySelector("[data-settings-path]").textContent = this.settingsState.paths?.[scope] || "—";
+    this.querySelector("[data-settings-path]").textContent = this.settingsState.paths?.[scopeKey] || "—";
     for (const field of SETTINGS_FIELDS) {
       const control = form.querySelector(`[data-setting='${field.path}']`);
       if (!control) continue;
@@ -415,6 +444,7 @@ export const settingsMethods = {
     try {
       const appConfigPatch = this.appConfigPatchFromForm?.() || {};
       const scope = settingsScopeSchema.parse(scopeValue);
+      const location = form.querySelector("[name='location']")?.value || "project";
       const patch = workspaceId ? parseSettingsPatch(this.settingsPatchFromForm(form)) : {};
       let adminPassword = "";
       if (Object.keys(appConfigPatch).length) {
@@ -428,7 +458,7 @@ export const settingsMethods = {
         ? saveAppConfig(appConfigPatch, adminPassword)
         : Promise.resolve(undefined);
       const settingsRequest = workspaceId && Object.keys(patch).length
-        ? saveWorkspaceSettings(workspaceId, scope, patch)
+        ? saveWorkspaceSettings(workspaceId, scope, patch, scope === "personal" ? location : undefined)
         : Promise.resolve(undefined);
       const [appConfigResult, settingsResult] = await Promise.allSettled([appConfigRequest, settingsRequest]);
       const errors = [];
@@ -490,12 +520,14 @@ export const settingsMethods = {
   settingsPatchFromForm(form) {
     const patch = {};
     const scope = form.querySelector("[name='scope']")?.value || "project";
-    const scopedSettings = this.settingsState?.[scope] || {};
+    const scopeKey = this.settingsScopeKey(form);
+    const scopedSettings = this.settingsState?.[scopeKey] || {};
     const effective = this.settingsState?.effective || {};
     const addChangedValue = (path, value) => {
       if (settingsValueChanged(scopedSettings, effective, path, value)) setPatchValue(patch, path, value);
     };
     for (const field of SETTINGS_FIELDS) {
+      if (scope === "personal" && !isModelSetting(field.path)) continue;
       const control = form.querySelector(`[data-setting='${field.path}']`);
       if (!control) continue;
       addChangedValue(field.path, this.settingValueFromControl(control, field));

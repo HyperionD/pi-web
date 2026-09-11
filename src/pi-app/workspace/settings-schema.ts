@@ -3,7 +3,7 @@ import { z } from "zod";
 export const SETTINGS_FIELDS = [
   { path: "defaultProvider", label: "默认提供商", type: "providerSelect", hint: "提供商 ID" },
   { path: "defaultModel", label: "默认模型", type: "modelSelect", hint: "模型 ID 或提供商/模型" },
-  { path: "defaultThinkingLevel", label: "思考级别", type: "select", values: ["off", "minimal", "low", "medium", "high", "xhigh"] },
+  { path: "defaultThinkingLevel", label: "思考级别", type: "select", values: ["off", "minimal", "low", "medium", "high", "xhigh", "max"] },
   { path: "compaction.enabled", label: "自动压缩", type: "boolean" },
   { path: "enableSkillCommands", label: "技能命令", type: "boolean" },
   { path: "steeringMode", label: "引导模式", type: "select", values: ["one-at-a-time", "all"] },
@@ -12,9 +12,11 @@ export const SETTINGS_FIELDS = [
   { path: "warnings.anthropicExtraUsage", label: "Anthropic 额外用量警告", type: "boolean" },
 ] as const;
 
-export const settingsScopeSchema = z.enum(["global", "project"]);
+export const settingsScopeSchema = z.enum(["global", "project", "personal"]);
 
-const thinkingLevelSchema = z.enum(["off", "minimal", "low", "medium", "high", "xhigh"]);
+export const MODEL_SETTING_PATHS = ["defaultProvider", "defaultModel", "defaultThinkingLevel"] as const;
+
+const thinkingLevelSchema = z.enum(["off", "minimal", "low", "medium", "high", "xhigh", "max"]);
 const steeringModeSchema = z.enum(["one-at-a-time", "all"]);
 const transportSchema = z.enum(["sse", "websocket", "websocket-cached", "auto"]);
 const doubleEscapeActionSchema = z.enum(["tree", "fork", "none"]);
@@ -91,9 +93,13 @@ export const workspaceSettingsSchema = z.object({
   global: settingsObjectSchema,
   project: settingsObjectSchema,
   effective: settingsObjectSchema,
+  personalGlobal: settingsObjectSchema.optional(),
+  personalProject: settingsObjectSchema.optional(),
   paths: z.object({
     global: z.string().optional(),
     project: z.string().optional(),
+    personalGlobal: z.string().optional(),
+    personalProject: z.string().optional(),
   }).partial().passthrough(),
 }).passthrough();
 

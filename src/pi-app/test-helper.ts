@@ -109,6 +109,11 @@ export function installPiAppFixture() {
           <select name="scope" data-settings-scope>
             <option value="project">project</option>
             <option value="global">global</option>
+            <option value="personal">个人</option>
+          </select>
+          <select name="location" data-settings-location hidden>
+            <option value="project">当前工作区</option>
+            <option value="global">所有工作区</option>
           </select>
           <span data-settings-path></span>
           <section class="app-settings-section">

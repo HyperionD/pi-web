@@ -17,7 +17,7 @@ type CompactionResult struct {
 	EstimatedTokensAfter int    `json:"estimatedTokensAfter"`
 }
 
-func (r *Runner) Compact(parent context.Context, broker *Broker, store *Store, sessionID string) (CompactionResult, error) {
+func (r *Runner) Compact(parent context.Context, broker *Broker, store *Store, sessionID string, startupSettings ...ModelStartupSettings) (CompactionResult, error) {
 	manager, err := r.runtimeManager(store)
 	if err != nil {
 		return CompactionResult{}, err
@@ -34,7 +34,7 @@ func (r *Runner) Compact(parent context.Context, broker *Broker, store *Store, s
 		commandCancel()
 		return CompactionResult{}, err
 	}
-	runtime, ownership, err := manager.EnsureOwned(parent, sessionID, run.generation)
+	runtime, ownership, err := manager.EnsureOwnedWithInitializer(parent, sessionID, run.generation, runtimeModelInitializer(startupSettings))
 	if err != nil {
 		r.discardRun(sessionID, run)
 		eventCancel()

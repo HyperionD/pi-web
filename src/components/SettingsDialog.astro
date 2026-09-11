@@ -49,11 +49,18 @@ const settingsGroups = [
             <select name="scope" data-settings-scope>
               <option value="project" data-i18n="project">project</option>
               <option value="global" data-i18n="global">global</option>
+              <option value="personal">个人</option>
+            </select>
+          </label>
+          <label data-settings-location-wrap hidden>位置
+            <select name="location" data-settings-location>
+              <option value="project">当前工作区</option>
+              <option value="global">所有工作区</option>
             </select>
           </label>
           <span data-settings-path>—</span>
         </div>
-        <section class="app-settings-section" aria-labelledby="app-settings-title">
+        <section class="app-settings-section" data-settings-shared-only aria-labelledby="app-settings-title">
           <div class="app-settings-head">
             <div>
               <strong id="app-settings-title">pi-web 应用设置</strong>
@@ -83,7 +90,7 @@ const settingsGroups = [
             <small class="allowed-roots-hint" data-allowed-roots-hint>不限制工作区目录</small>
           </div>
         </section>
-        <details class="auth-login" data-auth-form>
+        <details class="auth-login" data-auth-form data-settings-shared-only>
           <summary>
             <span class="auth-login-title"><span data-i18n="authTitle">Authentication</span> <em data-i18n="authMode">API key login</em></span>
             <small data-auth-status>API key is stored in ~/.pi/agent/auth.json</small>
@@ -117,7 +124,7 @@ const settingsGroups = [
         </details>
         <div class="settings-groups">
           {settingsGroups.map((group) => (
-            <section class="settings-group">
+            <section class:list={["settings-group", group.titleKey === "model" ? "settings-model-group" : "settings-non-model-group"]} data-settings-shared-only={group.titleKey !== "model" ? true : undefined}>
               <div class="settings-group-head">
                 <div>
                   <strong data-i18n={group.titleKey}>{group.title}</strong>
