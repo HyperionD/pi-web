@@ -255,10 +255,10 @@ export function getSessionContextUsage(sessionId: string) {
   return request(`/api/sessions/${encodeURIComponent(sessionId)}/context-usage`);
 }
 
-export function setSessionModel(sessionId: string, provider: string, model: string) {
+export function setSessionModel(sessionId: string, provider: string, model: string, thinkingLevel = "") {
   return request(`/api/sessions/${encodeURIComponent(sessionId)}/model`, {
     method: "POST",
-    body: JSON.stringify({ provider, model }),
+    body: JSON.stringify({ provider, model, ...(thinkingLevel ? { thinkingLevel } : {}) }),
   });
 }
 

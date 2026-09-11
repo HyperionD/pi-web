@@ -141,11 +141,12 @@ export const settingsMethods = {
       return;
     }
     this.setModelControlsLoading("loading models…");
+    const loadSharedCredentials = document.body.dataset.accountRole !== "user";
     const [appConfigResult, settingsResult, authResult, oauthResult, modelsResult] = await Promise.allSettled([
       this.loadAppConfigState(),
       getWorkspaceSettings(workspaceId),
-      getAuthProviders(),
-      getOAuthProviders(),
+      loadSharedCredentials ? getAuthProviders() : Promise.resolve(undefined),
+      loadSharedCredentials ? getOAuthProviders() : Promise.resolve(undefined),
       getWorkspaceModels(workspaceId),
     ]);
     this.fillAppConfigFormState();
@@ -165,11 +166,11 @@ export const settingsMethods = {
     }
     this.settingsState = parseWorkspaceSettings(settingsResult.value.settings);
     this.syncPersonalSettingsScope();
-    if (authResult.status === "fulfilled") {
+    if (authResult.status === "fulfilled" && authResult.value) {
       this.authState = authResult.value;
       this.fillAuthForm();
     }
-    if (oauthResult.status === "fulfilled") {
+    if (oauthResult.status === "fulfilled" && oauthResult.value) {
       this.oauthState = oauthResult.value;
       this.fillOAuthForm();
     }
@@ -479,7 +480,9 @@ export const settingsMethods = {
           this.settingsState = parseWorkspaceSettings(settingsResult.value.settings);
           this.fillSettingsForm();
           void this.loadRuntimeStatus?.(workspaceId);
-          if ("defaultProvider" in patch || "defaultModel" in patch) void this.applyEffectiveModelToActiveSession();
+          if ("defaultProvider" in patch || "defaultModel" in patch || "defaultThinkingLevel" in patch) {
+            void this.applyEffectiveModelToActiveSession();
+          }
         } catch (error) {
           errors.push(error instanceof Error ? error.message : String(error));
         }
@@ -508,9 +511,10 @@ export const settingsMethods = {
     const model = typeof effective.defaultModel === "string" && effective.defaultModel !== "inherit"
       ? effective.defaultModel
       : "";
-    if (!provider || !model) return;
+    const thinkingLevel = typeof effective.defaultThinkingLevel === "string" ? effective.defaultThinkingLevel : "";
+    if ((!provider || !model) && !thinkingLevel) return;
     try {
-      await setSessionModel(sessionId, provider, model);
+      await setSessionModel(sessionId, provider, model, thinkingLevel);
       void this.loadRuntimeStatus?.();
     } catch {
       this.setSettingsStatus("模型已保存，但当前会话切换失败：模型不可用", true);

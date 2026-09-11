@@ -7,7 +7,7 @@ import (
 )
 
 func runtimeModelInitializer(settings []ModelStartupSettings) RuntimeInitializer {
-	if len(settings) == 0 {
+	if len(settings) == 0 || settings[0].Provider == "" || settings[0].Model == "" {
 		return nil
 	}
 	selected := settings[0]
@@ -17,14 +17,13 @@ func runtimeModelInitializer(settings []ModelStartupSettings) RuntimeInitializer
 }
 
 func initializeRuntimeModel(ctx context.Context, runtime PiRuntime, settings ModelStartupSettings) error {
-	if settings.Provider == "" || settings.Model == "" {
-		return nil
-	}
-	if err := sendRuntimeModelCommand(ctx, runtime, RPCCommand{
-		Type:    "set_model",
-		Payload: mustJSON(map[string]string{"provider": settings.Provider, "modelId": settings.Model}),
-	}); err != nil {
-		return err
+	if settings.Provider != "" && settings.Model != "" {
+		if err := sendRuntimeModelCommand(ctx, runtime, RPCCommand{
+			Type:    "set_model",
+			Payload: mustJSON(map[string]string{"provider": settings.Provider, "modelId": settings.Model}),
+		}); err != nil {
+			return err
+		}
 	}
 	if settings.ThinkingLevel == "" {
 		return nil

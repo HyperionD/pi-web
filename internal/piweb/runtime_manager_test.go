@@ -72,6 +72,34 @@ func TestRuntimeManagerInitializesModelBeforeReturningRuntime(t *testing.T) {
 	}
 }
 
+func TestInitializeRuntimeModelSupportsThinkingWithoutModelChange(t *testing.T) {
+	runtime := newFakePiRuntime()
+	if err := initializeRuntimeModel(context.Background(), runtime, ModelStartupSettings{ThinkingLevel: "high"}); err != nil {
+		t.Fatal(err)
+	}
+	if len(runtime.sends) != 1 || runtime.sends[0].Type != "set_thinking_level" {
+		t.Fatalf("unexpected thinking initialization commands: %+v", runtime.sends)
+	}
+}
+
+func TestRuntimeManagerConfiguresExistingRuntime(t *testing.T) {
+	store := runtimeTestStore()
+	runtime := newFakePiRuntime()
+	manager := NewRuntimeManagerWithFactory(store, func(context.Context, string, string) (PiRuntime, error) {
+		return runtime, nil
+	})
+	defer manager.Shutdown(context.Background())
+	if _, err := manager.Ensure(context.Background(), "runtime-session"); err != nil {
+		t.Fatal(err)
+	}
+	if err := manager.ConfigureModel(context.Background(), "runtime-session", ModelStartupSettings{Provider: "zai", Model: "gpt-5.5", ThinkingLevel: "high"}); err != nil {
+		t.Fatal(err)
+	}
+	if len(runtime.sends) != 2 || runtime.sends[0].Type != "set_model" || runtime.sends[1].Type != "set_thinking_level" {
+		t.Fatalf("unexpected reconfiguration commands: %+v", runtime.sends)
+	}
+}
+
 func TestRuntimeManagerReusesProcessForSameSession(t *testing.T) {
 	store := runtimeTestStore()
 	var created atomic.Int32

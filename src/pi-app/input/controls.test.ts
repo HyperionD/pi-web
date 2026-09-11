@@ -275,6 +275,8 @@ describe("pi-app controls", () => {
 
     await app.openSettingsModal();
     expect(app.querySelector("[data-settings-scope]").value).toBe("personal");
+    expect(globalThis.fetch.mock.calls.some(([url]) => String(url).endsWith("/auth/providers"))).toBe(false);
+    expect(globalThis.fetch.mock.calls.some(([url]) => String(url).endsWith("/auth/oauth/providers"))).toBe(false);
     app.querySelector("[data-setting='defaultProvider']").value = "zai";
     app.querySelector("[data-setting='defaultModel']").value = "gpt-5.5";
     await app.saveSettingsForm(new Event("submit"));

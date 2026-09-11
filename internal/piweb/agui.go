@@ -87,7 +87,12 @@ func (s *Server) aguiSessionRun(w http.ResponseWriter, r *http.Request) {
 	events, unsubscribe := s.broker.Subscribe(sessionID)
 	defer unsubscribe()
 	if s.config.EnablePiExecution {
-		if err := s.runner.StartPiPrompt(s.context(), s.broker, s.store, sessionID, promptText, images, displayText); err != nil {
+		startupSettings, err := s.modelSettingsForSession(sessionID)
+		if err != nil {
+			stream.write(aguievents.NewRunErrorEvent(err.Error(), aguievents.WithRunID(state.runID)))
+			return
+		}
+		if err := s.runner.StartPiPrompt(s.context(), s.broker, s.store, sessionID, promptText, images, displayText, startupSettings); err != nil {
 			stream.write(aguievents.NewRunErrorEvent(err.Error(), aguievents.WithRunID(state.runID)))
 			return
 		}

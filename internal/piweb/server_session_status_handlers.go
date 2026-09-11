@@ -42,19 +42,20 @@ func (s *Server) handleSessionSetModel(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var req struct {
-		Provider string `json:"provider"`
-		Model    string `json:"model"`
+		Provider      string `json:"provider"`
+		Model         string `json:"model"`
+		ThinkingLevel string `json:"thinkingLevel"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
-	sessionFile, cwd, ok := s.store.SessionRuntime(sessionID)
-	if !ok {
-		writeError(w, http.StatusNotFound, ErrNotFound)
+	if (req.Provider == "") != (req.Model == "") || (req.Provider == "" && req.ThinkingLevel == "") {
+		writeError(w, http.StatusBadRequest, errors.New("provider and model, or thinkingLevel, are required"))
 		return
 	}
-	if err := CurrentPiSetModel(r.Context(), sessionFile, cwd, req.Provider, req.Model); err != nil {
+	settings := ModelStartupSettings{Provider: req.Provider, Model: req.Model, ThinkingLevel: req.ThinkingLevel}
+	if err := s.runtimeManager.ConfigureModel(r.Context(), sessionID, settings); err != nil {
 		writeError(w, http.StatusBadGateway, err)
 		return
 	}

@@ -162,6 +162,14 @@ func (m *RuntimeManager) Ensure(ctx context.Context, sessionID string) (PiRuntim
 	return runtime, err
 }
 
+func (m *RuntimeManager) ConfigureModel(ctx context.Context, sessionID string, settings ModelStartupSettings) error {
+	runtime, _, err := m.EnsureOwned(ctx, sessionID, 0)
+	if err != nil {
+		return err
+	}
+	return initializeRuntimeModel(ctx, runtime, settings)
+}
+
 func (m *RuntimeManager) EnsureOwned(ctx context.Context, sessionID string, generation uint64) (PiRuntime, runtimeOwnership, error) {
 	return m.ensureOwned(ctx, sessionID, generation, nil)
 }
