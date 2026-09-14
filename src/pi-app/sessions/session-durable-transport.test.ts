@@ -110,6 +110,27 @@ describe("durable session transport", () => {
     expect(errorRow.textContent).toContain("429 rate limit");
   });
 
+  it("updates durable output without rebuilding the transcript", async () => {
+    const app = await connectPiApp();
+    app.durableEvents = true;
+    app.connectEvents = vi.fn();
+    await app.loadSession("s1");
+    const source = FakeEventSource.instances.at(-1);
+    const renderMessages = vi.spyOn(app, "renderMessages");
+
+    source.dispatch("session.event", {
+      seq: "4",
+      sessionId: "s1",
+      runId: "run-1",
+      type: "tool.output",
+      entityId: "tool:run-1:call-1",
+      payload: { chunk: "live output", mode: "append" },
+    });
+
+    expect(renderMessages).not.toHaveBeenCalled();
+    expect(app.querySelector(".tool-card .tc-body").textContent).toContain("live output");
+  });
+
   it("renders assistant output from events after a durable prompt", async () => {
     const app = await connectPiApp();
     app.durableEvents = true;
@@ -255,7 +276,7 @@ describe("durable session transport", () => {
     source.dispatch("session.event", terminal);
     source.dispatch("session.event", terminal);
 
-    expect(app.renderMessages).toHaveBeenCalledTimes(1);
+    expect(app.renderMessages).not.toHaveBeenCalled();
     expect(app.finishRunningTools).not.toHaveBeenCalled();
     expect(app.commitStreamingMessages).not.toHaveBeenCalled();
     expect(app.removeLoadingMessage).not.toHaveBeenCalled();

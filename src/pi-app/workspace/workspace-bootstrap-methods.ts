@@ -458,11 +458,38 @@ export const workspaceBootstrapMethods = {
   renderDurableTranscript() {
     const state = this.transcriptState;
     if (!state) return;
-    this.renderMessages(state.itemOrder.map((id) => this.durableMessage(state.itemsById.get(id))));
+    const ids = state.itemOrder;
+    const messages = ids.map((id) => this.durableMessage(state.itemsById.get(id)));
+    const currentIds = this.durableTranscriptIds;
+    const canPatch = Array.isArray(currentIds)
+      && currentIds.length === ids.length
+      && ids.every((id, index) => id === currentIds[index]);
+    if (!canPatch) {
+      this.renderMessages(messages);
+      this.durableTranscriptIds = [...ids];
+    } else {
+      this.patchDurableTranscriptMessages(messages);
+    }
     const mode = state.status === "running" || state.status === "thinking"
       ? state.status
       : state.status === "cancelled" ? "cancelled" : "idle";
     this.setMode(mode);
+  },
+
+  patchDurableTranscriptMessages(messages) {
+    for (let index = 0; index < messages.length; index += 1) {
+      const item = this.transcriptItems?.[index];
+      const message = messages[index];
+      if (!item || JSON.stringify(item.message) === JSON.stringify(message)) continue;
+      item.message = message;
+      item.nodes = undefined;
+      const wrapper = this.termInner?.querySelector(`[data-transcript-item='${item.id}']`);
+      if (!wrapper) continue;
+      const nodes = this.transcriptElementNodes(this.messageNode(message));
+      item.nodes = nodes;
+      wrapper.replaceChildren(...nodes);
+      this.notifyTranscriptItemHeightDidChange?.(item, wrapper);
+    }
   },
 
   applyDurableEvent(event) {
