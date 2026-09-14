@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -232,6 +233,98 @@ func TestDurablePromptsForDifferentSessionsCompleteIndependently(t *testing.T) {
 		}
 		if count != 1 || runner.IsRunning(sessionID) {
 			t.Fatalf("session %q run.finished count = %d running = %v", sessionID, count, runner.IsRunning(sessionID))
+		}
+	}
+	_ = manager.Shutdown(context.Background())
+}
+
+func TestDurableStreamingForDifferentSessionsInterleavesWithoutLoss(t *testing.T) {
+	store := runtimeTestStore()
+	events := appendTestStore(t)
+	sessions := []string{"runtime-session", "other-session"}
+	const deltasPerSession = 200
+	receipts := make(map[string]RunReceipt)
+	for _, sessionID := range sessions {
+		receipt, err := events.StartRun(t.Context(), StartRunCommand{
+			SessionID: sessionID, ClientRequestID: "req-" + sessionID, RequestHash: "hash-" + sessionID,
+			RunID: "run-" + sessionID, DisplayText: "hello",
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		receipts[sessionID] = receipt
+	}
+	runtimes := map[string]*fakePiRuntime{
+		sessions[0]: newFakePiRuntime(),
+		sessions[1]: newFakePiRuntime(),
+	}
+	manager := NewRuntimeManagerWithFactory(store, func(_ context.Context, sessionFile, _ string) (PiRuntime, error) {
+		for sessionID, runtime := range runtimes {
+			if strings.Contains(sessionFile, sessionID) {
+				return runtime, nil
+			}
+		}
+		return nil, errors.New("unknown session runtime")
+	})
+	runner := NewRunnerWithRuntimeManager(manager)
+	for _, sessionID := range sessions {
+		adapter := NewRuntimeEventAdapter(sessionID, receipts[sessionID].RunID, events)
+		if err := runner.StartDurablePrompt(t.Context(), store, sessionID, receipts[sessionID].RunID, "hello", nil, adapter); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var group sync.WaitGroup
+	for _, sessionID := range sessions {
+		sessionID := sessionID
+		runtime := runtimes[sessionID]
+		group.Add(1)
+		go func() {
+			defer group.Done()
+			runtime.events <- PiEvent{Type: "agent_start", Raw: json.RawMessage(`{"type":"agent_start"}`)}
+			for index := 0; index < deltasPerSession; index++ {
+				runtime.events <- PiEvent{Type: "message_update", Raw: json.RawMessage(`{"type":"message_update","assistantMessageEvent":{"type":"text_delta","delta":"x"}}`)}
+			}
+			runtime.events <- PiEvent{Type: "agent_end", Raw: json.RawMessage(`{"type":"agent_end"}`)}
+		}()
+	}
+	group.Wait()
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		if !runner.IsRunning(sessions[0]) && !runner.IsRunning(sessions[1]) {
+			break
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	for _, sessionID := range sessions {
+		if runner.IsRunning(sessionID) {
+			t.Fatalf("session %q never settled: multi-session streaming stalled", sessionID)
+		}
+		var finished int
+		if err := events.db.QueryRow(`SELECT count(*) FROM session_events WHERE session_id=? AND event_type=?`, sessionID, EventRunFinished).Scan(&finished); err != nil {
+			t.Fatal(err)
+		}
+		if finished != 1 {
+			t.Fatalf("session %q run.finished count = %d, want 1", sessionID, finished)
+		}
+		snapshot, err := events.Snapshot(t.Context(), sessionID, SessionPageRequest{Limit: 10})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if snapshot.Status != SessionStatusIdle {
+			t.Fatalf("session %q status = %q, want idle", sessionID, snapshot.Status)
+		}
+		var segment *ProjectedSessionItem
+		for index := range snapshot.Items {
+			if snapshot.Items[index].Kind == "pi" {
+				segment = &snapshot.Items[index]
+			}
+		}
+		streamed := 0
+		if segment != nil {
+			streamed = len(segment.Text)
+		}
+		if streamed != deltasPerSession {
+			t.Fatalf("session %q streamed text = %d chars, want %d", sessionID, streamed, deltasPerSession)
 		}
 	}
 	_ = manager.Shutdown(context.Background())
