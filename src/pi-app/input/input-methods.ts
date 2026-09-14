@@ -128,6 +128,9 @@ export const inputMethods = {
       this.updatePrompt();
     } catch {
       this.setConnection("err");
+      // A rejected steer usually means the run already ended; re-read the
+      // durable projection instead of leaving the composer stuck on "running".
+      await this.resyncCancelledSession(sessionId);
     }
   },
 
@@ -183,12 +186,24 @@ export const inputMethods = {
     this.markSessionCancellationPending(sessionId);
     try {
       const result = await cancelSession(sessionId);
-      if (result?.cancelled) this.setMode("cancelled");
-      else this.clearSessionCancellationPending(sessionId);
+      if (result?.cancelled) {
+        this.setMode("cancelled");
+        return;
+      }
+      this.clearSessionCancellationPending(sessionId);
     } catch {
       this.clearSessionCancellationPending(sessionId);
       this.setConnection("err");
     }
+    // The run may have finished already, or the cancel request may have failed.
+    // Re-read the durable projection so the UI never stays stuck on "running".
+    await this.resyncCancelledSession(sessionId);
+  },
+
+  async resyncCancelledSession(sessionId) {
+    if (!this.durableEvents) return;
+    if (this.dataset.activeSessionId !== sessionId) return;
+    await this.requestSessionResync(sessionId);
   },
 
   handleAppClick(event) {

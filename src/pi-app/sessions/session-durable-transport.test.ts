@@ -284,6 +284,50 @@ describe("durable session transport", () => {
     expect(app.setConnection).toHaveBeenCalledWith("err");
   });
 
+  it("resyncs durable state when the stop request does not cancel the run", async () => {
+    let stateCalls = 0;
+    globalThis.fetch = vi.fn(async (url) => {
+      const target = String(url);
+      if (target.includes("/state")) {
+        stateCalls += 1;
+        const status = stateCalls === 1 ? "running" : "idle";
+        return { ok: true, status: 200, statusText: "OK", json: async () => ({ ...durableState(), status, runId: status === "running" ? "run-1" : undefined }) };
+      }
+      if (target.includes("/cancel")) return { ok: true, status: 200, statusText: "OK", json: async () => ({ cancelled: false }) };
+      return { ok: true, status: 200, statusText: "OK", json: async () => ({ workspaces: [] }) };
+    });
+    const app = await connectPiApp();
+    app.durableEvents = true;
+    await app.loadSession("s1");
+    expect(app.running).toBe(true);
+
+    await app.cancelActiveSession();
+
+    expect(app.running).toBe(false);
+  });
+
+  it("resyncs durable state when the stop request fails", async () => {
+    let stateCalls = 0;
+    globalThis.fetch = vi.fn(async (url) => {
+      const target = String(url);
+      if (target.includes("/state")) {
+        stateCalls += 1;
+        const status = stateCalls === 1 ? "running" : "idle";
+        return { ok: true, status: 200, statusText: "OK", json: async () => ({ ...durableState(), status, runId: status === "running" ? "run-1" : undefined }) };
+      }
+      if (target.includes("/cancel")) throw new Error("cancel unavailable");
+      return { ok: true, status: 200, statusText: "OK", json: async () => ({ workspaces: [] }) };
+    });
+    const app = await connectPiApp();
+    app.durableEvents = true;
+    await app.loadSession("s1");
+    expect(app.running).toBe(true);
+
+    await app.cancelActiveSession();
+
+    expect(app.running).toBe(false);
+  });
+
   it("does not fall back to the legacy session when durable state temporarily fails", async () => {
     const requests = [];
     globalThis.fetch = vi.fn(async (url) => {
