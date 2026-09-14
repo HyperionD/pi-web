@@ -17,6 +17,7 @@
 - 后端 durable 栈：**已完成**，生产路径默认启用（`OpenServer` 打开事件库并执行启动恢复）。
 - 前端 durable 渲染：**已接入**，通过 `/api/health` 的 `durableEvents` 能力位启用；无事件库时回退旧路径（mock/dev）。
 - durable prompt 已接入普通 Web UI；新建会话也直接连接 v2 durable stream。
+- 已修复 durable prompt 的关键生命周期 bug：后台 runner 使用 `context.WithoutCancel(requestContext)`，HTTP 返回后不会被请求取消立即中断。
 - Playwright 验收矩阵：**已启用并通过 8/8**。
 - 旧 Broker 删除与 DOM-owned tool state 清理：**未完成**（见第 6 节）。
 
@@ -43,6 +44,8 @@
 | `5cc61bc3` | 修复 `OpenServer`：启动时正确 attach durable command service |
 | `68adc223` | 普通 prompt 走 durable `/prompt`；真实快照字段归一化；durable 历史分页；启用并实现 Playwright fixture |
 | `38cea484` | 新建会话直接连接 durable v2 stream |
+| `76451c7c` | 修复 HTTP 202 后 request context 取消导致 durable runner 立即中断、前端只显示完成通知 |
+
 
 ## 4. 关键架构与不变量（继续开发前必读）
 
@@ -59,7 +62,7 @@
 ## 5. 校验结果（可复现）
 
 ```bash
-bun run test          # 557 passed
+bun run test          # 558 passed
 bun run lint          # ok
 bun run typecheck     # ok
 go build ./...        # ok
