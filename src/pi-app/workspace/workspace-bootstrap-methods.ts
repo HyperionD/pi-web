@@ -11,7 +11,7 @@ import { clearStoredActiveSession, readStoredActiveSession, storeActiveSession }
 import { normalizeEventCursor } from "../sessions/session-recovery";
 import { createSessionStreamClient } from "../sessions/session-stream-client";
 import { emptyTranscriptState, type TranscriptState } from "../sessions/transcript-state";
-import { installSessionSnapshot, reduceSessionEvent } from "../sessions/transcript-reducer";
+import { installSessionSnapshot, mergeHistoryPage, reduceSessionEvent } from "../sessions/transcript-reducer";
 import { isForbiddenWorkspaceError, requestErrorMessage } from "./workspace-methods";
 
 const SESSION_MESSAGE_PAGE_SIZE = 120;
@@ -99,7 +99,7 @@ export const workspaceBootstrapMethods = {
         return undefined;
       });
     try {
-      const [{ workspaces }, healthState] = await Promise.all([
+      const [{ workspaces }, , , healthState] = await Promise.all([
         getWorkspaces(),
         appConfigRequest,
         adminPasswordRequest,
@@ -402,7 +402,7 @@ export const workspaceBootstrapMethods = {
     this.sessionHistoryCursor = state.cursor || "";
     this.sessionHistoryHasMore = !!state.hasMore;
     this.sessionHistoryLoading = false;
-    this.renderMessages((state.items || []).map((item) => this.durableMessage(item)));
+    this.renderMessages(this.transcriptState.itemOrder.map((id) => this.durableMessage(this.transcriptState.itemsById.get(id))));
     this.setMode(state.status || "idle");
     this.connectDurableEvents(session.id, state.seq);
   },
@@ -448,6 +448,15 @@ export const workspaceBootstrapMethods = {
     this.confirmConnection?.();
   },
 
+  durableToolMessage(event, payload) {
+    const item = event.entityId ? this.transcriptState?.itemsById.get(event.entityId) : undefined;
+    const parts = String(event.entityId || "").split(":");
+    return {
+      id: payload.toolCallId || item?.toolCallId || (parts.length > 2 ? parts.slice(2).join(":") : ""),
+      tool: payload.tool || item?.tool || "tool",
+    };
+  },
+
   applyDurableEvent(event) {
     if (!this.transcriptState || event?.sessionId !== this.transcriptState.sessionId) return;
     let next: TranscriptState;
@@ -475,15 +484,21 @@ export const workspaceBootstrapMethods = {
       case "assistant.segment.committed":
         if (payload.text) this.finalizePiStream(payload.text);
         break;
-      case "tool.started":
-        this.appendMessage({ kind: "tool", id: payload.toolCallId, tool: payload.tool, args: payload.args, status: "running", collapsedByDefault: true });
+      case "tool.started": {
+        const tool = this.durableToolMessage(event, payload);
+        this.appendMessage({ kind: "tool", ...tool, args: payload.args, status: "running", collapsedByDefault: true });
         break;
-      case "tool.output":
-        this.appendToolOutput({ id: payload.toolCallId, tool: payload.tool, chunk: payload.chunk, mode: payload.mode });
+      }
+      case "tool.output": {
+        const tool = this.durableToolMessage(event, payload);
+        this.appendToolOutput({ ...tool, chunk: payload.chunk, mode: payload.mode });
         break;
-      case "tool.finished":
-        this.finishTool({ kind: "tool", id: payload.toolCallId, tool: payload.tool, status: payload.status, body: payload.body, resultMeta: payload.resultMeta, durationMs: payload.durationMs });
+      }
+      case "tool.finished": {
+        const tool = this.durableToolMessage(event, payload);
+        this.finishTool({ kind: "tool", ...tool, status: payload.status, body: payload.body, resultMeta: payload.resultMeta, durationMs: payload.durationMs });
         break;
+      }
       case "run.finished":
         this.commitStreamingMessages?.();
         this.removeLoadingMessage?.();
@@ -577,6 +592,15 @@ export const workspaceBootstrapMethods = {
       && this.sessionHistoryLoadToken === loadToken
     );
     try {
+      if (this.durableEvents && this.transcriptState) {
+        const loaded = await getSessionState(sessionId, { limit: SESSION_MESSAGE_PAGE_SIZE, before: cursor });
+        if (!isCurrentLoad()) return;
+        this.transcriptState = mergeHistoryPage(this.transcriptState, loaded);
+        this.sessionHistoryCursor = loaded.cursor || "";
+        this.sessionHistoryHasMore = !!loaded.hasMore;
+        this.renderMessages(this.transcriptState.itemOrder.map((id) => this.durableMessage(this.transcriptState.itemsById.get(id))));
+        return;
+      }
       const loaded = await getSession(sessionId, { limit: SESSION_MESSAGE_PAGE_SIZE, before: cursor });
       if (!isCurrentLoad()) return;
       this.prependLoadedMessages(loaded.messages || []);

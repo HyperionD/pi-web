@@ -22,6 +22,19 @@ function cloneItem(item: TranscriptItem): TranscriptItem {
   return { ...item };
 }
 
+function normalizeItem(raw: Partial<TranscriptItem> & { itemId?: string; body?: string }, ordinal: number): TranscriptItem {
+  const id = raw.id || raw.itemId || `item:${raw.ordinal || ordinal}`;
+  return {
+    ...raw,
+    id,
+    ordinal: raw.ordinal || ordinal,
+    kind: raw.kind || "pi",
+    origin: raw.origin || "runtime",
+    text: raw.text || "",
+    bodyPreview: raw.bodyPreview ?? raw.body ?? "",
+  } as TranscriptItem;
+}
+
 function upsertItem(state: TranscriptState, item: TranscriptItem): TranscriptState {
   const itemsById = new Map(state.itemsById);
   itemsById.set(item.id, item);
@@ -40,8 +53,9 @@ export function installSessionSnapshot(state: TranscriptState, snapshot: Session
   const itemsById = new Map<string, TranscriptItem>();
   const itemOrder: string[] = [];
   const toolsByCallId = new Map<string, string>();
-  for (const raw of snapshot.items || []) {
-    const item = cloneItem({ ...raw, bodyPreview: raw.bodyPreview ?? "" });
+  for (let index = 0; index < (snapshot.items || []).length; index++) {
+    const raw = snapshot.items[index] as Partial<TranscriptItem> & { itemId?: string; body?: string };
+    const item = normalizeItem(raw, index + 1);
     itemsById.set(item.id, item);
     itemOrder.push(item.id);
     if (item.kind === "tool" && item.runId && item.toolCallId) {
@@ -70,10 +84,14 @@ export function mergeHistoryPage(state: TranscriptState, snapshot: SessionStateS
   }
   const itemsById = new Map(state.itemsById);
   const older: string[] = [];
-  for (const raw of snapshot.items || []) {
-    if (itemsById.has(raw.id)) continue;
-    itemsById.set(raw.id, cloneItem({ ...raw, bodyPreview: raw.bodyPreview ?? "" }));
-    older.push(raw.id);
+  for (let index = 0; index < (snapshot.items || []).length; index++) {
+    const item = normalizeItem(
+      snapshot.items[index] as Partial<TranscriptItem> & { itemId?: string; body?: string },
+      index + 1,
+    );
+    if (itemsById.has(item.id)) continue;
+    itemsById.set(item.id, cloneItem(item));
+    older.push(item.id);
   }
   return {
     ...state,

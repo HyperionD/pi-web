@@ -81,13 +81,44 @@ describe("durable session transport", () => {
       runId: "run-1",
       type: "tool.finished",
       entityId: "tool:run-1:call-1",
-      payload: { toolCallId: "call-1", tool: "bash", body: "final output", status: "ok" },
+      payload: { body: "final output", status: "ok" },
     });
 
     expect(app.querySelectorAll(".tool-card")).toHaveLength(1);
     expect(app.querySelector(".tool-card").dataset.status).toBe("ok");
     expect(app.querySelector(".tool-card .tc-body").textContent).toContain("final output");
     expect(app.transcriptState.appliedSeq).toBe("4");
+  });
+
+  it("loads older durable projection pages with the durable cursor", async () => {
+    const app = await connectPiApp();
+    app.durableEvents = true;
+    app.connectEvents = vi.fn();
+    globalThis.fetch = vi.fn(async (url) => {
+      if (String(url).includes("before=cursor-1")) {
+        return { ok: true, status: 200, statusText: "OK", json: async () => ({
+          sessionId: "s1",
+          items: [{ itemId: "user:old", ordinal: 0, kind: "user", origin: "runtime", text: "older" }],
+          status: "running",
+          seq: "3",
+          cursor: "",
+          hasMore: false,
+          limit: 120,
+          projectionSchemaVersion: 1,
+          projectionGeneration: "1",
+        }) };
+      }
+      return { ok: true, status: 200, statusText: "OK", json: async () => ({ ...durableState(), cursor: "cursor-1", hasMore: true }) };
+    });
+    await app.loadSession("s1");
+    await app.loadOlderSessionMessages();
+
+    expect(globalThis.fetch).toHaveBeenCalledWith(
+      "http://backend.test/api/sessions/s1/state?limit=120&before=cursor-1",
+      expect.anything(),
+    );
+    expect(app.transcriptState.itemOrder[0]).toBe("user:old");
+    expect(app.querySelector(".msg .body").textContent).toContain("older");
   });
 
   it("resyncs when the stream resets", async () => {

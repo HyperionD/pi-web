@@ -94,6 +94,35 @@ describe("pi-app input methods coverage", () => {
     await app.submitPrompt();
   });
 
+  it("uses the durable prompt endpoint when durable events are enabled", async () => {
+    const app = await connectPiApp();
+    app.apiConnected = true;
+    app.durableEvents = true;
+    app.dataset.activeSessionId = "s1";
+    app.dataset.activeWorkspaceId = "w1";
+    app.prompt.value = "durable prompt";
+    app.invalidateEventStream = vi.fn();
+    app.connectEvents = vi.fn();
+    app.appendLoadingMessage = vi.fn();
+    app.setMode = vi.fn();
+    globalThis.EventSource = class {};
+    globalThis.fetch = vi.fn(async () => ok({ accepted: true, runId: "run-1" }));
+
+    await app.submitPrompt();
+
+    expect(app.invalidateEventStream).toHaveBeenCalledTimes(1);
+    expect(globalThis.fetch).toHaveBeenCalledWith(
+      "http://backend.test/api/sessions/s1/prompt",
+      expect.objectContaining({ method: "POST" }),
+    );
+    expect(globalThis.fetch).not.toHaveBeenCalledWith(
+      expect.stringContaining("/ag-ui"),
+      expect.anything(),
+    );
+    expect(app.connectEvents).not.toHaveBeenCalled();
+    globalThis.EventSource = undefined;
+  });
+
   it("covers optional DOM absences and outside clicks", async () => {
     const app = await connectPiApp();
     const prompt = app.prompt;

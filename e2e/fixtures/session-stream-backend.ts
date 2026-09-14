@@ -20,8 +20,14 @@ class MockEventSource {
     this.url = url;
     this.listeners = new Map();
     this.closed = false;
+    this.after = BigInt(new URL(url, window.location.href).searchParams.get("after") || "0");
     MockEventSource.instances.push(this);
     window.__mockSources = MockEventSource.instances;
+    setTimeout(() => {
+      for (const event of window.__mockCommitted || []) {
+        if (BigInt(event.seq) > this.after && !this.closed) this.dispatch("session.event", event, event.seq);
+      }
+    }, 0);
   }
   addEventListener(type, listener) {
     if (!this.listeners.has(type)) this.listeners.set(type, []);
@@ -38,9 +44,63 @@ class MockEventSource {
     this.closed = true;
   }
 }
+window.__mockCommitted = [];
+window.__mockSources = [];
 window.MockEventSource = MockEventSource;
 window.EventSource = MockEventSource;
 `;
+
+function projectItems(committed: Array<Record<string, any>>) {
+  const items = new Map<string, Record<string, any>>();
+  const order: string[] = [];
+  let status = "idle";
+  let runId: string | undefined;
+  const upsert = (item: Record<string, any>) => {
+    if (!items.has(item.itemId)) order.push(item.itemId);
+    items.set(item.itemId, { ...items.get(item.itemId), ...item });
+  };
+  for (const event of committed) {
+    const payload = event.payload || {};
+    if (event.type === "run.started") {
+      status = "running";
+      runId = event.runId;
+    } else if (event.type === "user.message.created") {
+      upsert({ itemId: `user:${event.seq}`, ordinal: order.length + 1, kind: "user", origin: "runtime", text: payload.text || "" });
+    } else if (event.type === "assistant.segment.started" || event.type === "assistant.segment.delta" || event.type === "assistant.segment.committed") {
+      const itemId = event.entityId;
+      upsert({
+        itemId,
+        ordinal: order.length + 1,
+        kind: payload.kind === "think" ? "think" : "pi",
+        origin: "runtime",
+        runId: event.runId,
+        entityId: itemId,
+        text: event.type === "assistant.segment.committed" ? payload.text || "" : `${items.get(itemId)?.text || ""}${payload.delta || ""}`,
+        status: event.type === "assistant.segment.committed" ? "committed" : "streaming",
+      });
+    } else if (event.type === "tool.started" || event.type === "tool.output" || event.type === "tool.finished") {
+      const itemId = event.entityId;
+      const existing = items.get(itemId) || {};
+      upsert({
+        itemId,
+        ordinal: existing.ordinal || order.length + 1,
+        kind: "tool",
+        origin: "runtime",
+        runId: event.runId,
+        entityId: itemId,
+        tool: payload.tool || existing.tool || "bash",
+        toolCallId: payload.toolCallId || existing.toolCallId || itemId.split(":").slice(2).join(":"),
+        args: payload.args || existing.args || "",
+        body: event.type === "tool.finished" ? payload.body || "" : existing.body || (event.type === "tool.output" ? `${existing.body || ""}${payload.chunk || ""}` : ""),
+        status: event.type === "tool.finished" ? payload.status || "ok" : "running",
+      });
+    } else if (event.type === "run.finished") {
+      status = "idle";
+      runId = undefined;
+    }
+  }
+  return { items: order.map((id) => items.get(id)), status, runId };
+}
 
 export async function installSessionStreamFixture(
   page: Page,
@@ -49,22 +109,17 @@ export async function installSessionStreamFixture(
   await page.addInitScript(MOCK_EVENT_SOURCE);
 
   let seq = 0;
-  const committed: Array<Record<string, unknown>> = [];
-  const push = (event: Record<string, unknown>) => {
+  const committed: Array<Record<string, any>> = [];
+  const push = async (event: Record<string, unknown>) => {
     seq += 1;
-    committed.push({ ...event, seq: String(seq), sessionId: "e2e-session" });
-  };
-  const projectState: Record<string, unknown> = {
-    session: { id: "e2e-session", title: "e2e" },
-    items: [],
-    status: "idle",
-    runId: undefined,
-    seq: "0",
-    cursor: "",
-    hasMore: false,
-    limit: 120,
-    projectionSchemaVersion: 1,
-    projectionGeneration: "1",
+    const stored = { ...event, seq: String(seq), sessionId: "e2e-session" };
+    committed.push(stored);
+    await page.evaluate((events) => {
+      window.__mockCommitted = events;
+      for (const source of window.__mockSources || []) {
+        if (!source.closed) source.dispatch("session.event", events.at(-1), events.at(-1).seq);
+      }
+    }, committed);
   };
 
   await page.route("**/api/**", async (route) => {
@@ -73,8 +128,30 @@ export async function installSessionStreamFixture(
       await route.fulfill({ status: 200, contentType: "text/event-stream", body: "" });
       return;
     }
+    if (url.includes("/api/account/me")) {
+      await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ user: { id: "e2e-user", username: "e2e", role: "admin" } }) });
+      return;
+    }
+    if (url.includes("/api/app-config")) {
+      await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ config: { version: 1, brand: "pi.dev / web", workspace: { allowedRoots: [], maxUploadBytes: 104857600 } }, path: "e2e" }) });
+      return;
+    }
+    if (url.includes("/api/health")) {
+      await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ ok: true, durableEvents: true }) });
+      return;
+    }
+    if (url.includes("/api/workspaces") && !url.includes("/api/workspaces/w1/")) {
+      await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ workspaces: [{ id: "w1", name: "e2e", path: "/e2e", title: "e2e", sessionCount: 1, sessions: [{ id: "e2e-session", title: "e2e", lastUsed: "now" }] }] }) });
+      return;
+    }
     if (url.includes("/state")) {
-      await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(projectState) });
+      const projected = projectItems(committed);
+      await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({
+        session: { id: "e2e-session", title: "e2e", workspaceId: "w1" },
+        items: projected.items, status: projected.status, runId: projected.runId,
+        seq: String(seq), cursor: "", hasMore: false, limit: 120,
+        projectionSchemaVersion: 1, projectionGeneration: "1",
+      }) });
       return;
     }
     if (url.includes("/content")) {
@@ -88,26 +165,26 @@ export async function installSessionStreamFixture(
 
   return {
     async runUntilBoundary() {
-      push({ type: "run.started", runId: "run-1" });
-      push({ type: "assistant.segment.started", entityId: "assistant:run-1:1", payload: { kind: "pi" } });
-      push({ type: "assistant.segment.delta", entityId: "assistant:run-1:1", payload: { delta: "hello" } });
+      await push({ type: "run.started", runId: "run-1" });
+      await push({ type: "assistant.segment.started", entityId: "assistant:run-1:1", payload: { kind: "pi" } });
+      await push({ type: "assistant.segment.delta", entityId: "assistant:run-1:1", payload: { delta: "hello" } });
       if (boundary === "run-started" || boundary === "assistant-delta") return;
-      push({ type: "tool.started", entityId: "tool:run-1:call-1", payload: { tool: "bash", toolCallId: "call-1" } });
+      await push({ type: "tool.started", entityId: "tool:run-1:call-1", payload: { tool: "bash", toolCallId: "call-1" } });
       if (boundary === "tool-start") return;
-      push({ type: "tool.output", entityId: "tool:run-1:call-1", payload: { chunk: "partial output", mode: "append" } });
+      await push({ type: "tool.output", entityId: "tool:run-1:call-1", payload: { chunk: "partial output", mode: "append" } });
       if (boundary === "tool-output") return;
-      push({ type: "tool.finished", entityId: "tool:run-1:call-1", payload: { body: "final bash output", status: "ok" } });
+      await push({ type: "tool.finished", entityId: "tool:run-1:call-1", payload: { body: "final bash output", status: "ok" } });
       if (boundary === "tool-finish") return;
-      push({ type: "assistant.segment.committed", entityId: "assistant:run-1:1", payload: { kind: "pi", text: "hello" } });
-      push({ type: "run.finished", runId: "run-1" });
+      await push({ type: "assistant.segment.committed", entityId: "assistant:run-1:1", payload: { kind: "pi", text: "hello" } });
+      await push({ type: "run.finished", runId: "run-1" });
     },
     async finishRun() {
       if (!committed.some((event) => event.type === "tool.finished")) {
-        push({ type: "tool.finished", entityId: "tool:run-1:call-1", payload: { body: "final bash output", status: "ok" } });
+        await push({ type: "tool.finished", entityId: "tool:run-1:call-1", payload: { body: "final bash output", status: "ok" } });
       }
       if (!committed.some((event) => event.type === "run.finished")) {
-        push({ type: "assistant.segment.committed", entityId: "assistant:run-1:1", payload: { kind: "pi", text: "hello" } });
-        push({ type: "run.finished", runId: "run-1" });
+        await push({ type: "assistant.segment.committed", entityId: "assistant:run-1:1", payload: { kind: "pi", text: "hello" } });
+        await push({ type: "run.finished", runId: "run-1" });
       }
     },
   };

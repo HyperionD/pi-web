@@ -1,11 +1,6 @@
 import { expect, test } from "@playwright/test";
 import { installSessionStreamFixture, type LifecycleBoundary } from "./fixtures/session-stream-backend";
 
-// The durable v2 transport is wired into the UI by the final migration task.
-// Until then these browser regressions document the required acceptance matrix
-// and stay disabled so the repository suite remains green.
-test.fixme();
-
 const BOUNDARIES: LifecycleBoundary[] = [
   "run-started",
   "assistant-delta",

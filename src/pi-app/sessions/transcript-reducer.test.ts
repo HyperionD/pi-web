@@ -99,6 +99,25 @@ describe("transcript reducer", () => {
     expect(state.toolsByCallId.get("run-1:call-1")).toBe("tool:run-1:call-1");
   });
 
+  it("normalizes backend projection itemId and body fields", () => {
+    const rawSnapshot = snapshot({ items: [{
+      itemId: "tool:run-2:call-7",
+      ordinal: 3,
+      kind: "tool",
+      origin: "runtime",
+      runId: "run-2",
+      entityId: "tool:run-2:call-7",
+      tool: "bash",
+      toolCallId: "call-7",
+      body: "persisted output",
+      status: "ok",
+    }] as unknown as TranscriptItem[] });
+    const state = installSessionSnapshot(emptyTranscriptState("s1"), rawSnapshot);
+    expect(state.itemOrder).toEqual(["tool:run-2:call-7"]);
+    expect(state.itemsById.get("tool:run-2:call-7")?.bodyPreview).toBe("persisted output");
+    expect(state.toolsByCallId.get("run-2:call-7")).toBe("tool:run-2:call-7");
+  });
+
   it("merges older history pages without duplicating ids", () => {
     let state = installSessionSnapshot(emptyTranscriptState("s1"), snapshot({ items: [toolItem()], seq: "4" }));
     state = mergeHistoryPage(state, snapshot({ items: [toolItem({ id: "user:1", kind: "user", toolCallId: undefined, runId: undefined })], seq: "4", cursor: "c2" }));
