@@ -16,7 +16,9 @@ func TestSessionEventStressBoundedRetentionAndProjection(t *testing.T) {
 		t.Fatal(err)
 	}
 	entityID := "tool:" + receipt.RunID + ":call-1"
-	for index := int64(0); index < 10000; index++ {
+	// Keep enough cycles to exercise retention repeatedly without making race runs time out.
+	const eventCount = 8192
+	for index := int64(0); index < eventCount; index++ {
 		ordinal := index + 2
 		payload, _ := json.Marshal(map[string]any{"chunk": strings.Repeat("x", 64), "mode": "replace"})
 		if _, err := store.Append(t.Context(), "s1", SessionEventDraft{

@@ -1,6 +1,9 @@
 package piweb
 
-import "regexp"
+import (
+	"regexp"
+	"strings"
+)
 
 var secretPatterns = []*regexp.Regexp{
 	regexp.MustCompile(`(?i)(api[_-]?key|token|secret|password)(["'\s:=]+)([^"'\s]+)`),
@@ -9,6 +12,15 @@ var secretPatterns = []*regexp.Regexp{
 }
 
 func RedactSecrets(value string) string {
+	lower := strings.ToLower(value)
+	if !strings.Contains(lower, "api") &&
+		!strings.Contains(lower, "token") &&
+		!strings.Contains(lower, "secret") &&
+		!strings.Contains(lower, "password") &&
+		!strings.Contains(lower, "authorization") &&
+		!strings.Contains(lower, "sk-") {
+		return value
+	}
 	out := value
 	for _, pattern := range secretPatterns {
 		out = pattern.ReplaceAllStringFunc(out, func(match string) string {

@@ -572,6 +572,8 @@ func (w *plainResponseWriter) Write(data []byte) (int, error) {
 func (w *plainResponseWriter) WriteHeader(code int) { w.code = code }
 
 func TestCoverageMoreServerAndStoreBranches(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
 	sessionRoot := t.TempDir()
 	t.Setenv("PI_CODING_AGENT_SESSION_DIR", filepath.Join(sessionRoot, "sessions"))
 	root := t.TempDir()
@@ -614,8 +616,6 @@ done
 		}
 	}
 
-	home := t.TempDir()
-	t.Setenv("HOME", home)
 	if err := os.MkdirAll(filepath.Join(root, ".pi"), 0o700); err != nil {
 		t.Fatal(err)
 	}
