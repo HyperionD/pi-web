@@ -205,13 +205,15 @@ func (s *Server) steerSession(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	user := Message{Kind: "user", Text: displayText, Attachments: imageAttachments}
-	_ = appendMessageAndPublish(s.store, s.broker, sessionID, user)
+	if s.events == nil {
+		user := Message{Kind: "user", Text: displayText, Attachments: imageAttachments}
+		_ = appendMessageAndPublish(s.store, s.broker, sessionID, user)
+	}
 	writeJSON(w, http.StatusAccepted, map[string]any{"accepted": true, "realPi": s.config.EnablePiExecution})
 }
 func (s *Server) cancelSession(w http.ResponseWriter, r *http.Request) {
 	cancelled := s.runner.Cancel(r.PathValue("sessionID"))
-	if cancelled {
+	if cancelled && s.events == nil {
 		s.broker.Publish(r.PathValue("sessionID"), "session.status", map[string]string{"status": "cancelled"})
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"cancelled": cancelled})

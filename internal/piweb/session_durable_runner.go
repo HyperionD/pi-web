@@ -24,6 +24,10 @@ func (r *Runner) StartDurablePrompt(
 	activeRun := &activePiRun{
 		cancel: eventCancel, commandCancel: commandCancel, commandContext: commandCtx,
 		eventsDone: make(chan struct{}), runtimeReady: make(chan struct{}), settled: make(chan struct{}),
+		durableComplete: adapter.Complete,
+		durableSteer: func(text string, images []PromptAttachment) error {
+			return adapter.AppendUserMessage(text, images)
+		},
 	}
 	if err := r.claimRun(sessionID, activeRun); err != nil {
 		eventCancel()
@@ -64,7 +68,11 @@ func (r *Runner) consumeDurableRuntimeEvents(ctx context.Context, sessionID stri
 	for {
 		select {
 		case <-ctx.Done():
-			_ = adapter.Complete(EventRunInterrupted)
+			if err := run.completeDurableTerminal(EventRunInterrupted); err != nil {
+				_ = adapter.Fail(err)
+				r.abortDurableRun(sessionID, run)
+				return
+			}
 			r.finishDurableRun(sessionID, run)
 			return
 		case event, ok := <-runtimeEvents:
@@ -79,7 +87,7 @@ func (r *Runner) consumeDurableRuntimeEvents(ctx context.Context, sessionID stri
 				return
 			}
 			if event.Type == "agent_end" {
-				if err := adapter.Complete(EventRunFinished); err != nil {
+				if err := run.completeDurableTerminal(EventRunFinished); err != nil {
 					_ = adapter.Fail(err)
 					r.abortDurableRun(sessionID, run)
 					return

@@ -27,6 +27,16 @@ func TestStartDurablePromptPersistsRuntimeLifecycle(t *testing.T) {
 	if err := runner.StartDurablePrompt(t.Context(), store, "runtime-session", receipt.RunID, "hello", nil, adapter); err != nil {
 		t.Fatal(err)
 	}
+	if err := runner.Steer("runtime-session", "continue", nil); err != nil {
+		t.Fatalf("steer: %v", err)
+	}
+	var steeringMessages int
+	if err := events.db.QueryRow(`SELECT count(*) FROM session_events WHERE event_type=? AND json_extract(payload_json, '$.text')=?`, EventUserMessageCreated, "continue").Scan(&steeringMessages); err != nil {
+		t.Fatal(err)
+	}
+	if steeringMessages != 1 {
+		t.Fatalf("steering user messages = %d", steeringMessages)
+	}
 	runtime.events <- PiEvent{Type: "tool_execution_start", Raw: json.RawMessage(`{"type":"tool_execution_start","toolCallId":"call-1","toolName":"bash","args":{"command":"pwd"}}`)}
 	runtime.events <- PiEvent{Type: "tool_execution_end", Raw: json.RawMessage(`{"type":"tool_execution_end","toolCallId":"call-1","toolName":"bash","result":"ok"}`)}
 	runtime.events <- PiEvent{Type: "agent_end", Raw: json.RawMessage(`{"type":"agent_end"}`)}
@@ -223,6 +233,38 @@ func TestDurablePromptsForDifferentSessionsCompleteIndependently(t *testing.T) {
 		if count != 1 || runner.IsRunning(sessionID) {
 			t.Fatalf("session %q run.finished count = %d running = %v", sessionID, count, runner.IsRunning(sessionID))
 		}
+	}
+	_ = manager.Shutdown(context.Background())
+}
+
+func TestCancelDurablePromptPersistsCancelledTerminalEvent(t *testing.T) {
+	store := runtimeTestStore()
+	events := appendTestStore(t)
+	receipt, err := events.StartRun(t.Context(), StartRunCommand{
+		SessionID: "runtime-session", ClientRequestID: "req-cancel", RequestHash: "hash-cancel",
+		RunID: "run-cancel", DisplayText: "hello",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	runtime := newFakePiRuntime()
+	manager := NewRuntimeManagerWithFactory(store, func(context.Context, string, string) (PiRuntime, error) {
+		return runtime, nil
+	})
+	runner := NewRunnerWithRuntimeManager(manager)
+	adapter := NewRuntimeEventAdapter("runtime-session", receipt.RunID, events)
+	if err := runner.StartDurablePrompt(t.Context(), store, "runtime-session", receipt.RunID, "hello", nil, adapter); err != nil {
+		t.Fatal(err)
+	}
+	if !runner.Cancel("runtime-session") {
+		t.Fatal("durable run was not cancelled")
+	}
+	var count int
+	if err := events.db.QueryRow(`SELECT count(*) FROM session_events WHERE session_id='runtime-session' AND event_type=?`, EventRunCancelled).Scan(&count); err != nil {
+		t.Fatal(err)
+	}
+	if count != 1 {
+		t.Fatalf("run.cancelled count = %d", count)
 	}
 	_ = manager.Shutdown(context.Background())
 }

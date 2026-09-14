@@ -79,24 +79,28 @@ func (gate *commandGate) release() {
 }
 
 type activePiRun struct {
-	cancel         context.CancelFunc
-	commandCancel  context.CancelFunc
-	commandContext context.Context
-	stdin          io.WriteCloser
-	runtime        PiRuntime
-	ownership      runtimeOwnership
-	generation     uint64
-	compacting     bool
-	eventsDone     chan struct{}
-	runtimeReady   chan struct{}
-	settled        chan struct{}
-	settledOnce    sync.Once
-	runtimeOnce    sync.Once
-	commandMu      commandGate
-	mu             sync.Mutex
-	commandKind    string
-	steerPending   int
-	cancelling     bool
+	cancel               context.CancelFunc
+	commandCancel        context.CancelFunc
+	commandContext       context.Context
+	stdin                io.WriteCloser
+	runtime              PiRuntime
+	ownership            runtimeOwnership
+	generation           uint64
+	compacting           bool
+	eventsDone           chan struct{}
+	runtimeReady         chan struct{}
+	settled              chan struct{}
+	settledOnce          sync.Once
+	runtimeOnce          sync.Once
+	commandMu            commandGate
+	mu                   sync.Mutex
+	commandKind          string
+	steerPending         int
+	cancelling           bool
+	durableComplete      func(string) error
+	durableSteer         func(string, []PromptAttachment) error
+	durableTerminalOnce  sync.Once
+	durableTerminalError error
 }
 
 func NewRunner() *Runner {
@@ -269,6 +273,11 @@ func (r *Runner) SteerContext(ctx context.Context, sessionID string, text string
 	if !current || run.isCompacting() || run.isCancelling() {
 		return errors.New("session is not running")
 	}
+	if run.durableSteer != nil {
+		if err := run.durableSteer(text, images); err != nil {
+			return err
+		}
+	}
 	command := rpcPromptCommand(text, images, "steer")
 	if run.getRuntime() == nil {
 		return run.sendFallbackUnlocked(command)
@@ -323,6 +332,16 @@ func (r *Runner) discardRun(sessionID string, run *activePiRun) {
 		}
 	}
 	r.mu.Unlock()
+}
+
+func (run *activePiRun) completeDurableTerminal(eventType string) error {
+	if run.durableComplete == nil {
+		return nil
+	}
+	run.durableTerminalOnce.Do(func() {
+		run.durableTerminalError = run.durableComplete(eventType)
+	})
+	return run.durableTerminalError
 }
 
 func (r *Runner) finishRun(sessionID string, run *activePiRun) {
@@ -625,6 +644,7 @@ func (r *Runner) Cancel(sessionID string) bool {
 		return false
 	}
 	runManager := r.manager
+	_ = run.completeDurableTerminal(EventRunCancelled)
 	runtime := run.waitRuntime(cancelSettleTimeout)
 	abortStarted := false
 	if runtime != nil {

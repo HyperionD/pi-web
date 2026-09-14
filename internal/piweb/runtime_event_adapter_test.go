@@ -58,6 +58,20 @@ func consumeJSON(t *testing.T, adapter *RuntimeEventAdapter, raw string) {
 	}
 }
 
+func TestRuntimeEventAdapterAppendsSteeringUserMessage(t *testing.T) {
+	sink := &recordingSessionEventSink{}
+	adapter := NewRuntimeEventAdapter("s1", "run-1", sink)
+	if err := adapter.AppendUserMessage("continue", []PromptAttachment{{Type: "image", Name: "shot.png"}}); err != nil {
+		t.Fatal(err)
+	}
+	if got := sink.Types(); strings.Join(got, ",") != EventUserMessageCreated {
+		t.Fatalf("types = %#v", got)
+	}
+	if got := sink.payloadString(0, "text"); got != "continue" {
+		t.Fatalf("text = %q", got)
+	}
+}
+
 func TestRuntimeEventAdapterFlushesFinalToolBodyBeforeFinish(t *testing.T) {
 	sink := &recordingSessionEventSink{}
 	adapter := NewRuntimeEventAdapter("s1", "run-1", sink)

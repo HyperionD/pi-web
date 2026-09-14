@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"sync"
 	"time"
 )
 
@@ -21,6 +22,7 @@ type SessionEventSink interface {
 }
 
 type RuntimeEventAdapter struct {
+	mu         sync.Mutex
 	sessionID  string
 	runID      string
 	sink       SessionEventSink
@@ -48,6 +50,8 @@ func NewRuntimeEventAdapter(sessionID, runID string, sink SessionEventSink) *Run
 }
 
 func (a *RuntimeEventAdapter) Consume(raw []byte) error {
+	a.mu.Lock()
+	defer a.mu.Unlock()
 	if a.poisoned != nil {
 		return a.poisoned
 	}
@@ -86,13 +90,29 @@ func (a *RuntimeEventAdapter) Consume(raw []byte) error {
 }
 
 func (a *RuntimeEventAdapter) Flush() error {
+	a.mu.Lock()
+	defer a.mu.Unlock()
 	if a.poisoned != nil {
 		return a.poisoned
 	}
 	return a.flushPending()
 }
 
+func (a *RuntimeEventAdapter) AppendUserMessage(text string, attachments []PromptAttachment) error {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.poisoned != nil {
+		return a.poisoned
+	}
+	if err := a.flushPending(); err != nil {
+		return err
+	}
+	return a.emit(EventUserMessageCreated, "", map[string]any{"text": text, "attachments": attachments})
+}
+
 func (a *RuntimeEventAdapter) Complete(eventType string) error {
+	a.mu.Lock()
+	defer a.mu.Unlock()
 	if a.poisoned != nil {
 		return a.poisoned
 	}
@@ -103,6 +123,8 @@ func (a *RuntimeEventAdapter) Complete(eventType string) error {
 }
 
 func (a *RuntimeEventAdapter) Fail(err error) error {
+	a.mu.Lock()
+	defer a.mu.Unlock()
 	if a.poisoned != nil {
 		err = a.poisoned
 	}
