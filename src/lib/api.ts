@@ -1,9 +1,9 @@
 import { HttpAgent } from "@ag-ui/client";
 import { downloadWorkspaceFile, uploadWorkspaceFile } from "./file-transfer";
 import { normalizeEventCursor } from "../pi-app/sessions/session-recovery";
+import { apiBase } from "./api-base";
 
-const DEV_API_BASE = "http://127.0.0.1:8732";
-const DEV_PORTS = new Set(["4321", "6006"]);
+export { apiBase } from "./api-base";
 
 export type AppConfigPatch = {
   brand?: string | null;
@@ -22,12 +22,6 @@ export type FolderListing = {
   rootListing?: boolean;
   folders?: Array<{ name: string; path: string; displayPath?: string }>;
 };
-
-export function apiBase() {
-  if (globalThis.PI_WEB_API_BASE !== undefined) return globalThis.PI_WEB_API_BASE;
-  if (DEV_PORTS.has(globalThis.location?.port)) return DEV_API_BASE;
-  return "";
-}
 
 async function request(path: string, options: RequestInit = {}) {
   const response = await fetch(`${apiBase()}${path}`, {

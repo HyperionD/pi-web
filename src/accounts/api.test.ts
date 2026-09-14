@@ -25,6 +25,16 @@ describe("account API", () => {
     expect(JSON.parse(fetchMock.mock.calls[8][1].body)).toMatchObject({ department: "研发部" });
     expect(fetchMock.mock.calls[9][1].method).toBe("DELETE");
   });
+  it("uses the configured backend and includes cookies in development", async () => {
+    vi.stubGlobal("PI_WEB_API_BASE", "http://127.0.0.1:8732");
+    vi.stubGlobal("fetch", fetchMock.mockResolvedValue({ ok: true, json: async () => ({ configured: true }) }));
+
+    await accountStatus();
+
+    expect(fetchMock.mock.calls[0][0]).toBe("http://127.0.0.1:8732/api/account/status");
+    expect(fetchMock.mock.calls[0][1]).toMatchObject({ credentials: "include" });
+  });
+
   it("sends a workspace path for batch authorization", async () => {
     vi.stubGlobal("fetch", fetchMock.mockResolvedValue({ ok: true, json: async () => ({ updated: 2 }) }));
     await batchAssignWorkspaces(["alice", "bob"], [], ["/workspaces/design"]);

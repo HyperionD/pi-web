@@ -1,3 +1,5 @@
+import { apiBase } from "../lib/api-base";
+
 export type Account = { id: string; account: string; username: string; department: string; role: "admin" | "user"; disabled: boolean; workspaces: string[] };
 export type ManagedWorkspace = { id: string; name: string; path: string };
 export type AccountInput = { account?: string; username: string; department: string; password: string; workspaces: string[]; workspacePaths?: string[]; disabled?: boolean };
@@ -6,9 +8,14 @@ export class AccountError extends Error {
   constructor(public status: number, message: string) { super(message); }
 }
 
+function accountURL(path: string) {
+  return `${apiBase()}${path}`;
+}
+
 export async function accountRequest<T>(path: string, method = "GET", body?: unknown): Promise<T> {
-  const response = await fetch(path, {
-    method, credentials: "same-origin", cache: "no-store",
+  const base = apiBase();
+  const response = await fetch(accountURL(path), {
+    method, credentials: base ? "include" : "same-origin", cache: "no-store",
     headers: { "Content-Type": "application/json" },
     body: body === undefined ? undefined : JSON.stringify(body),
   });
@@ -31,7 +38,10 @@ export const createUser = (value: AccountInput) => accountRequest("/api/admin/us
 export async function importUsers(file: File): Promise<{ imported: number }> {
   const body = new FormData();
   body.append("file", file);
-  const response = await fetch("/api/admin/users/import", { method: "POST", credentials: "same-origin", cache: "no-store", body });
+  const base = apiBase();
+  const response = await fetch(accountURL("/api/admin/users/import"), {
+    method: "POST", credentials: base ? "include" : "same-origin", cache: "no-store", body,
+  });
   const value = await response.json();
   if (!response.ok) throw new AccountError(response.status, value.error || "导入失败，请检查文件");
   return value;
