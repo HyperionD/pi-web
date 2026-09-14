@@ -435,6 +435,26 @@ describe("pi-app input methods coverage", () => {
     expect(app.querySelector(".term-inner .msg.error .body")?.textContent).toBe("model failed");
   });
 
+  it("submits fallback choices through durable prompt transport", async () => {
+    const app = await connectPiApp();
+    app.apiConnected = true;
+    app.durableEvents = true;
+    app.dataset.activeSessionId = "s1";
+    app.connectEvents = vi.fn();
+    app.connectDurableEvents = vi.fn();
+    globalThis.EventSource = class {};
+    const panel = document.createElement("div");
+    panel.innerHTML = `<button></button><input>`;
+    globalThis.fetch = vi.fn(async () => ok({ accepted: true, runId: "run-1" }));
+
+    await app.submitFallbackChoice("choice-1", "A", panel);
+
+    expect(String(globalThis.fetch.mock.calls[0][0])).toContain("/api/sessions/s1/prompt");
+    expect(String(globalThis.fetch.mock.calls[0][0])).not.toContain("/ag-ui");
+    expect(app.connectEvents).not.toHaveBeenCalled();
+    expect(app.connectDurableEvents).not.toHaveBeenCalled();
+  });
+
   it("cleans up completed AG-UI prompt and fallback choice streams", async () => {
     const app = await connectPiApp();
     globalThis.EventSource = class {};

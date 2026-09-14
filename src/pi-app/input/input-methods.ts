@@ -350,10 +350,22 @@ export const inputMethods = {
     panel?.classList.add("answered");
     panel?.querySelectorAll("button, input").forEach((item) => item.disabled = true);
     this.finalizeStreamingMessages();
-    this.appendMessage({ kind: "user", text: prompt });
+    const useDurablePrompt = this.durableEvents === true;
+    this.appendMessage({ kind: "user", text: prompt, optimistic: useDurablePrompt });
     this.appendLoadingMessage();
     this.setMode("running");
     const sessionId = this.dataset.activeSessionId;
+    if (useDurablePrompt) {
+      try {
+        await postPrompt(sessionId, prompt, []);
+      } catch (error) {
+        this.notifyResponseFailure?.(error);
+        this.setMode("idle");
+        this.removeLoadingMessage();
+        this.setConnection("err");
+      }
+      return;
+    }
     this.invalidateEventStream();
     const aguiSubscriber = this.aguiSubscriber(sessionId);
     const aguiRunToken = this.aguiRunToken;
