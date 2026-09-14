@@ -39,6 +39,19 @@ describe("pi-app sessions", () => {
     expect(newSession.querySelector("svg")).not.toBeNull();
   });
 
+  it("connects the durable stream for a newly created durable session", async () => {
+    const app = await connectPiApp();
+    app.durableEvents = true;
+    app.connectEvents = vi.fn();
+    app.connectDurableEvents = vi.fn();
+    app.append(app.createWorkspaceGroup({ id: "w1", name: "demo", path: "/demo", sessions: [] }));
+
+    app.activateCreatedSession("w1", { id: "s1", title: "new session", lastUsed: "now" });
+
+    expect(app.connectEvents).not.toHaveBeenCalled();
+    expect(app.connectDurableEvents).toHaveBeenCalledWith("s1", "0");
+  });
+
   it("groups child agent sessions below their parent with kind markers", async () => {
     const app = await connectPiApp();
     app.append(app.createWorkspaceGroup({

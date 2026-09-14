@@ -8,6 +8,7 @@ import { escapeHtml } from "../../lib/renderers";
 import { decorateSessionRow, sessionKindLabel } from "./session-hierarchy";
 import { sessionMenuMethods } from "./session-menu-methods";
 import { clearStoredActiveSession, storeActiveSession } from "./session-storage";
+import { emptyTranscriptState } from "./transcript-state";
 
 const LUCIDE_ELLIPSIS_ICON = `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="1"></circle><circle cx="19" cy="12" r="1"></circle><circle cx="5" cy="12" r="1"></circle></svg>`;
 const LUCIDE_PENCIL_ICON = `<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z"></path><path d="m15 5 4 4"></path></svg>`;
@@ -273,7 +274,12 @@ export const sessionMethods = {
       title.title = `${session.title} · ${session.id}`;
     }
     this.renderMessages([]);
-    this.connectEvents(session.id);
+    if (this.durableEvents) {
+      this.transcriptState = emptyTranscriptState(session.id, this.sessionViewGeneration);
+      this.connectDurableEvents?.(session.id, "0");
+    } else {
+      this.connectEvents(session.id);
+    }
   },
 
   resetActiveSessionState() {
