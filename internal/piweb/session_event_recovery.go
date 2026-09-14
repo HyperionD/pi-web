@@ -100,7 +100,6 @@ func OpenServer(config Config, store *Store, broker *Broker) (*Server, error) {
 		return nil, err
 	}
 	server := NewServer(config, store, broker)
-	server.events = events
-	server.hub = hub
+	server.attachEventStore(store, events, hub)
 	return server, nil
 }

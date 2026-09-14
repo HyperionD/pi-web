@@ -28,6 +28,9 @@ func TestOpenServerRecoversInterruptedRunsBeforeServing(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer server.Shutdown(t.Context())
+	if server.commands == nil {
+		t.Fatal("OpenServer did not attach the durable command service")
+	}
 
 	snapshot, err := server.events.Snapshot(t.Context(), "s1", SessionPageRequest{Limit: 10})
 	if err != nil {
