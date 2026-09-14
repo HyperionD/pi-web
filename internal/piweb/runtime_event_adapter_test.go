@@ -138,6 +138,50 @@ func TestRuntimeEventAdapterFlushesByClock(t *testing.T) {
 	}
 }
 
+func TestRuntimeEventAdapterFlushesPendingDeltaWithoutNextRuntimeEvent(t *testing.T) {
+	sink := &recordingSessionEventSink{}
+	adapter := NewRuntimeEventAdapter("s1", "run-1", sink)
+	consumeJSON(t, adapter, `{"type":"message_update","assistantMessageEvent":{"type":"text_delta","delta":"partial"}}`)
+	deadline := time.NewTimer(time.Second)
+	defer deadline.Stop()
+	ticker := time.NewTicker(time.Millisecond)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ticker.C:
+			types := sink.Types()
+			if len(types) < 2 {
+				continue
+			}
+			if sink.payloadString(1, "delta") != "partial" {
+				t.Fatalf("delta = %q", sink.payloadString(1, "delta"))
+			}
+			return
+		case <-deadline.C:
+			t.Fatalf("pending delta was not flushed: %#v", sink.Types())
+		}
+	}
+}
+
+func TestRuntimeEventAdapterIgnoresStaleFlushTimer(t *testing.T) {
+	sink := &recordingSessionEventSink{}
+	adapter := NewRuntimeEventAdapter("s1", "run-1", sink)
+	consumeJSON(t, adapter, `{"type":"message_update","assistantMessageEvent":{"type":"text_delta","delta":"first"}}`)
+	staleGeneration := adapter.flushGeneration
+	if err := adapter.Flush(); err != nil {
+		t.Fatal(err)
+	}
+	consumeJSON(t, adapter, `{"type":"message_update","assistantMessageEvent":{"type":"text_delta","delta":"second"}}`)
+	adapter.stopFlushTimer()
+	adapter.flushPendingAsync(staleGeneration)
+	if types := sink.Types(); len(types) != 2 {
+		t.Fatalf("stale timer flushed new delta: %#v", types)
+	}
+	if err := adapter.Flush(); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestRuntimeEventAdapterCommitsAssistantSegments(t *testing.T) {
 	sink := &recordingSessionEventSink{}
 	adapter := NewRuntimeEventAdapter("s1", "run-1", sink)

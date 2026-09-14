@@ -22,18 +22,20 @@ type SessionEventSink interface {
 }
 
 type RuntimeEventAdapter struct {
-	mu         sync.Mutex
-	sessionID  string
-	runID      string
-	sink       SessionEventSink
-	now        func() time.Time
-	ordinal    int64
-	poisoned   error
-	segments   map[string]string
-	pending    *pendingRuntimeEvent
-	toolArgs   map[string]string
-	toolCounts map[string]int
-	runError   string
+	mu              sync.Mutex
+	sessionID       string
+	runID           string
+	sink            SessionEventSink
+	now             func() time.Time
+	ordinal         int64
+	poisoned        error
+	segments        map[string]string
+	pending         *pendingRuntimeEvent
+	toolArgs        map[string]string
+	toolCounts      map[string]int
+	runError        string
+	flushTimer      *time.Timer
+	flushGeneration uint64
 }
 
 type pendingRuntimeEvent struct {
@@ -145,6 +147,7 @@ func (a *RuntimeEventAdapter) Fail(err error) error {
 	if a.poisoned != nil {
 		err = a.poisoned
 	}
+	a.stopFlushTimer()
 	a.pending = nil
 	a.poisoned = err
 	return a.emit(EventRunFailed, "", map[string]any{"error": err.Error()})
@@ -203,6 +206,11 @@ func (a *RuntimeEventAdapter) bufferDelta(kind, entityID, delta string) error {
 	}
 	if a.pending == nil {
 		a.pending = &pendingRuntimeEvent{kind: kind, entityID: entityID, started: a.now()}
+		a.flushGeneration++
+		generation := a.flushGeneration
+		a.flushTimer = time.AfterFunc(runtimeCoalesceMaxDelay, func() {
+			a.flushPendingAsync(generation)
+		})
 	}
 	a.pending.data = append(a.pending.data, delta...)
 	if len(a.pending.data) >= runtimeCoalesceMaxBytes || a.now().Sub(a.pending.started) >= runtimeCoalesceMaxDelay {
@@ -211,7 +219,26 @@ func (a *RuntimeEventAdapter) bufferDelta(kind, entityID, delta string) error {
 	return nil
 }
 
+func (a *RuntimeEventAdapter) flushPendingAsync(generation uint64) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if generation != a.flushGeneration || a.poisoned != nil || a.pending == nil {
+		return
+	}
+	_ = a.flushPending()
+}
+
+func (a *RuntimeEventAdapter) stopFlushTimer() {
+	a.flushGeneration++
+	if a.flushTimer == nil {
+		return
+	}
+	a.flushTimer.Stop()
+	a.flushTimer = nil
+}
+
 func (a *RuntimeEventAdapter) flushPending() error {
+	a.stopFlushTimer()
 	pending := a.pending
 	a.pending = nil
 	if pending == nil {
@@ -361,6 +388,7 @@ func (a *RuntimeEventAdapter) emitWithType(eventType, entityID string, payload a
 }
 
 func (a *RuntimeEventAdapter) poison(err error) error {
+	a.stopFlushTimer()
 	a.pending = nil
 	a.poisoned = err
 	return err
