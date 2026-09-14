@@ -19,7 +19,7 @@ func OpenSQLiteSessionEventStore(path string, hub *SessionWakeHub) (*SQLiteSessi
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return nil, fmt.Errorf("create event store directory: %w", err)
 	}
-	db, err := sql.Open("sqlite", path)
+	db, err := sql.Open("sqlite", sqliteDSN(path, eventStorePragmas...))
 	if err != nil {
 		return nil, fmt.Errorf("open event store database: %w", err)
 	}
@@ -36,11 +36,19 @@ func OpenSQLiteSessionEventStore(path string, hub *SessionWakeHub) (*SQLiteSessi
 }
 
 func configureEventDB(db *sql.DB) error {
-	if _, err := db.Exec(`PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL; PRAGMA busy_timeout=5000; PRAGMA foreign_keys=ON; PRAGMA wal_autocheckpoint=1000;`); err != nil {
-		return fmt.Errorf("configure event store database: %w", err)
-	}
+	// Pragmas come from the DSN so that every pooled connection receives them.
+	// Verify the connection the pool hands us actually carries busy_timeout,
+	// otherwise concurrent writers would fail with SQLITE_BUSY instead of
+	// waiting for the write lock.
 	db.SetMaxOpenConns(8)
 	db.SetMaxIdleConns(8)
+	var timeout int
+	if err := db.QueryRow(`PRAGMA busy_timeout`).Scan(&timeout); err != nil {
+		return fmt.Errorf("configure event store database: %w", err)
+	}
+	if timeout <= 0 {
+		return errors.New("configure event store database: busy_timeout was not applied")
+	}
 	return nil
 }
 

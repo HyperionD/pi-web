@@ -22,12 +22,8 @@ func openWebDB(path string) (*sql.DB, error) {
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return nil, err
 	}
-	db, err := sql.Open("sqlite", path)
+	db, err := sql.Open("sqlite", sqliteDSN(path, webDBPragmas...))
 	if err != nil {
-		return nil, err
-	}
-	if _, err := db.Exec(`PRAGMA busy_timeout=5000; PRAGMA foreign_keys=ON;`); err != nil {
-		_ = db.Close()
 		return nil, err
 	}
 	if _, err := db.Exec(`

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"strings"
+	"sync"
 	"testing"
 )
 
@@ -51,6 +52,70 @@ func TestSessionEventStressBoundedRetentionAndProjection(t *testing.T) {
 	}
 	if len(batch.Events) > defaultEventRows {
 		t.Fatalf("batch rows = %d", len(batch.Events))
+	}
+}
+
+func TestConcurrentSessionEventStressDoesNotStopAtAStableOrdinal(t *testing.T) {
+	store := appendTestStore(t)
+	const sessions = 4
+	const eventsPerSession = 1000
+	for index := 0; index < sessions; index++ {
+		sessionID := "stress-" + itoa(int64(index))
+		if _, err := store.StartRun(t.Context(), StartRunCommand{
+			SessionID: sessionID, ClientRequestID: "request-" + sessionID, RequestHash: "hash-" + sessionID,
+			RunID: "run-" + sessionID, DisplayText: "stress",
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var group sync.WaitGroup
+	errorsFound := make(chan error, sessions)
+	for index := 0; index < sessions; index++ {
+		index := index
+		group.Add(1)
+		go func() {
+			defer group.Done()
+			sessionID := "stress-" + itoa(int64(index))
+			runID := "run-" + sessionID
+			entityID := "assistant:" + runID + ":1"
+			ordinal := int64(1)
+			startedPayload, _ := json.Marshal(map[string]any{"kind": "pi"})
+			if _, err := store.Append(t.Context(), sessionID, SessionEventDraft{
+				SessionID: sessionID, RunID: runID, SourceID: eventSourceID(runID, ordinal), SourceOrdinal: &ordinal,
+				Type: EventAssistantSegmentStarted, EntityID: entityID, Payload: startedPayload,
+			}); err != nil {
+				errorsFound <- err
+				return
+			}
+			for eventIndex := 0; eventIndex < eventsPerSession; eventIndex++ {
+				ordinal++
+				payload, _ := json.Marshal(map[string]any{"kind": "pi", "delta": "1\\n"})
+				if _, err := store.Append(t.Context(), sessionID, SessionEventDraft{
+					SessionID: sessionID, RunID: runID, SourceID: eventSourceID(runID, ordinal), SourceOrdinal: &ordinal,
+					Type: EventAssistantSegmentDelta, EntityID: entityID, Payload: payload,
+				}); err != nil {
+					errorsFound <- err
+					return
+				}
+			}
+		}()
+	}
+	group.Wait()
+	close(errorsFound)
+	for err := range errorsFound {
+		t.Fatal(err)
+	}
+	for index := 0; index < sessions; index++ {
+		snapshot, err := store.Snapshot(t.Context(), "stress-"+itoa(int64(index)), SessionPageRequest{Limit: 10})
+		if err != nil {
+			t.Fatal(err)
+		}
+		// StartRun writes user + run.started, then the goroutine appends one
+		// segment start plus eventsPerSession deltas.
+		wantSeq := int64(eventsPerSession + 3)
+		if snapshot.Seq != wantSeq {
+			t.Fatalf("session %d seq = %d, want %d", index, snapshot.Seq, wantSeq)
+		}
 	}
 }
 

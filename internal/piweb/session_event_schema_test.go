@@ -30,6 +30,42 @@ func TestOpenSQLiteSessionEventStoreCreatesSchemaAndDurabilityPragmas(t *testing
 	}
 }
 
+func TestOpenSQLiteSessionEventStoreAppliesPragmasToEveryPooledConnection(t *testing.T) {
+	store, err := OpenSQLiteSessionEventStore(filepath.Join(t.TempDir(), "pi-web.db"), NewSessionWakeHub())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close(t.Context())
+	// A PRAGMA executed through db.Exec only configures one pooled connection.
+	// Concurrent writers on the other connections would then fail immediately
+	// with SQLITE_BUSY instead of waiting for the write lock.
+	connections := make([]*sql.Conn, 0, 4)
+	for index := 0; index < 4; index++ {
+		conn, err := store.db.Conn(t.Context())
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer conn.Close()
+		connections = append(connections, conn)
+	}
+	for index, conn := range connections {
+		var timeout int
+		if err := conn.QueryRowContext(t.Context(), `PRAGMA busy_timeout`).Scan(&timeout); err != nil {
+			t.Fatal(err)
+		}
+		if timeout != 5000 {
+			t.Fatalf("connection %d busy_timeout = %d, want 5000", index, timeout)
+		}
+		var foreignKeys int
+		if err := conn.QueryRowContext(t.Context(), `PRAGMA foreign_keys`).Scan(&foreignKeys); err != nil {
+			t.Fatal(err)
+		}
+		if foreignKeys != 1 {
+			t.Fatalf("connection %d foreign_keys = %d, want 1", index, foreignKeys)
+		}
+	}
+}
+
 func TestSQLiteSessionEventStoreReopensAndCloseIsIdempotent(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "pi-web.db")
 	first, err := OpenSQLiteSessionEventStore(path, NewSessionWakeHub())
