@@ -168,6 +168,29 @@ describe("durable session transport", () => {
     expect(app.querySelector(".tool-card .tc-body")).toBe(body);
   });
 
+  it("appends a new durable tool card without rebuilding existing cards", async () => {
+    const app = await connectPiApp();
+    app.durableEvents = true;
+    app.connectEvents = vi.fn();
+    await app.loadSession("s1");
+    const firstCard = app.querySelector(".tool-card");
+    const renderMessages = vi.spyOn(app, "renderMessages");
+    const source = FakeEventSource.instances.at(-1);
+
+    source.dispatch("session.event", {
+      seq: "4",
+      sessionId: "s1",
+      runId: "run-1",
+      type: "tool.started",
+      entityId: "tool:run-1:call-2",
+      payload: { tool: "read", toolCallId: "call-2", args: "file.txt" },
+    });
+
+    expect(renderMessages).not.toHaveBeenCalled();
+    expect(app.querySelectorAll(".tool-card")).toHaveLength(2);
+    expect(app.querySelector(".tool-card")).toBe(firstCard);
+  });
+
   it("renders assistant output from events after a durable prompt", async () => {
     const app = await connectPiApp();
     app.durableEvents = true;

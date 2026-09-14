@@ -461,12 +461,23 @@ export const workspaceBootstrapMethods = {
     const ids = state.itemOrder;
     const messages = ids.map((id) => this.durableMessage(state.itemsById.get(id)));
     const currentIds = this.durableTranscriptIds;
-    const canPatch = Array.isArray(currentIds)
+    const sameIds = Array.isArray(currentIds)
       && currentIds.length === ids.length
       && ids.every((id, index) => id === currentIds[index]);
-    if (!canPatch) {
+    const canAppend = Array.isArray(currentIds)
+      && ids.length > currentIds.length
+      && this.transcriptItems?.length === currentIds.length
+      && currentIds.every((id, index) => id === ids[index]);
+    if (!sameIds && !canAppend) {
       this.renderMessages(messages);
       this.durableTranscriptIds = [...ids];
+    } else if (canAppend) {
+      this.patchDurableTranscriptMessages(messages);
+      this.transcriptItems.push(
+        ...messages.slice(currentIds.length).map((message) => this.createTranscriptItem(message)),
+      );
+      this.durableTranscriptIds = [...ids];
+      this.renderTranscriptWindow({ stickToBottom: true });
     } else {
       this.patchDurableTranscriptMessages(messages);
     }
