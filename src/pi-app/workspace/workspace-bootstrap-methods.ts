@@ -373,18 +373,21 @@ export const workspaceBootstrapMethods = {
       this.applyLoadedSession(loaded.session, loaded.messages || [], loaded.status, loaded);
     } catch (error) {
       if (!isCurrentResource()) return;
+      if (options.resync && this.durableEvents && this.transcriptState?.sessionId === sessionId) {
+        const state = this.transcriptState;
+        this.renderMessages(state.itemOrder.map((id) => this.durableMessage(state.itemsById.get(id))));
+        this.setMode(state.status || "idle");
+        this.connectDurableEvents(sessionId, state.appliedSeq);
+      }
       if (!this.recoverForbiddenWorkspace(error)) this.setConnection("err");
     }
   },
 
   async loadDurableSessionState(sessionId) {
-    let state;
-    try {
-      state = await getSessionState(sessionId, { limit: SESSION_MESSAGE_PAGE_SIZE });
-    } catch {
-      return undefined;
+    const state = await getSessionState(sessionId, { limit: SESSION_MESSAGE_PAGE_SIZE });
+    if (!state || typeof state.projectionGeneration === "undefined") {
+      throw new Error("durable snapshot is unavailable");
     }
-    if (!state || typeof state.projectionGeneration === "undefined") return undefined;
     if (state.session?.id !== sessionId) throw new Error("durable snapshot session mismatch");
     return state;
   },
@@ -444,6 +447,7 @@ export const workspaceBootstrapMethods = {
       onReset: () => {
         if (this.dataset.activeSessionId === sessionId) void this.requestSessionResync(sessionId);
       },
+      onOpen: () => this.confirmConnection?.(),
       onError: () => this.setConnection("reconnecting"),
     });
     this.durableStream = client;

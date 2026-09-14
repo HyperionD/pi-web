@@ -13,6 +13,7 @@ export type SessionStreamClientOptions = {
   appliedSeq: () => string;
   onEvent: (event: DurableSessionEvent) => void;
   onReset: (reason: string) => void;
+  onOpen?: () => void;
   onError?: (error: unknown) => void;
   createSource?: (url: string) => EventSourceLike;
   setTimer?: (callback: () => void, ms: number) => number;
@@ -64,6 +65,10 @@ export function createSessionStreamClient(options: SessionStreamClientOptions): 
     const url = `${baseUrl()}/api/sessions/${encodeURIComponent(options.sessionId)}/events-v2?after=${seq}`;
     const next = createSource(url);
     source = next;
+    next.addEventListener("open", () => {
+      delay = STREAM_RECONNECT_BASE_MS;
+      options.onOpen?.();
+    });
     next.addEventListener("session.event", (message) => {
       if (!active) return;
       try {
@@ -92,6 +97,7 @@ export function createSessionStreamClient(options: SessionStreamClientOptions): 
     });
     next.addEventListener("error", () => {
       closeSource();
+      options.onError?.(new Error("session event stream disconnected"));
       scheduleReconnect();
     });
   };

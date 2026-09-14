@@ -31,12 +31,14 @@ function harness(appliedSeq = () => "7") {
   const events: unknown[] = [];
   const resets: string[] = [];
   const errors: unknown[] = [];
+  const opens: number[] = [];
   const client = createSessionStreamClient({
     sessionId: "s1",
     appliedSeq,
     onEvent: (event) => events.push(event),
     onReset: (reason) => resets.push(reason),
     onError: (error) => errors.push(error),
+    onOpen: () => opens.push(1),
     createSource: (url) => {
       const source = new FakeSource(url);
       sources.push(source);
@@ -56,6 +58,7 @@ function harness(appliedSeq = () => "7") {
     events,
     resets,
     errors,
+    opens,
     runTimer(index = 0) {
       const timer = timers.splice(index, 1)[0];
       timer?.callback();
@@ -75,6 +78,16 @@ describe("session stream client", () => {
     const api = harness(() => "");
     api.client.start();
     expect(api.sources[0].url).toContain("after=0");
+  });
+
+  it("reports network recovery when the replacement stream opens", () => {
+    const api = harness();
+    api.client.start();
+    api.sources[0].emit("error");
+    expect(api.errors).toHaveLength(1);
+    api.runTimer(0);
+    api.sources[1].emit("open");
+    expect(api.opens).toHaveLength(1);
   });
 
   it("reconnects from the applied sequence with bounded exponential backoff", () => {

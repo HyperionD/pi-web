@@ -242,6 +242,47 @@ describe("durable session transport", () => {
     expect(app.querySelector(".msg .body").textContent).toContain("older");
   });
 
+  it("restores the durable transcript and stream after a resync fetch failure", async () => {
+    let stateCalls = 0;
+    globalThis.fetch = vi.fn(async (url) => {
+      if (String(url).includes("/state")) {
+        stateCalls += 1;
+        if (stateCalls === 2) throw new Error("state temporarily unavailable");
+        return { ok: true, status: 200, statusText: "OK", json: async () => durableState() };
+      }
+      return { ok: true, status: 202, statusText: "Accepted", json: async () => ({ accepted: true }) };
+    });
+    const app = await connectPiApp();
+    app.durableEvents = true;
+    app.setConnection = vi.fn();
+    await app.loadSession("s1");
+    const previousSource = FakeEventSource.instances.at(-1);
+
+    await app.loadSession("s1", { resync: true });
+
+    expect(previousSource.closed).toBe(true);
+    expect(app.querySelector(".tool-card")).not.toBeNull();
+    expect(FakeEventSource.instances.at(-1)).not.toBe(previousSource);
+    expect(app.setConnection).toHaveBeenCalledWith("err");
+  });
+
+  it("does not fall back to the legacy session when durable state temporarily fails", async () => {
+    const requests = [];
+    globalThis.fetch = vi.fn(async (url) => {
+      requests.push(String(url));
+      if (String(url).includes("/state")) throw new Error("state temporarily unavailable");
+      return { ok: true, status: 200, statusText: "OK", json: async () => ({ session: { id: "s1" }, messages: [], status: "running" }) };
+    });
+    const app = await connectPiApp();
+    app.durableEvents = true;
+    app.setConnection = vi.fn();
+
+    await app.loadSession("s1");
+
+    expect(requests.filter((url) => !url.includes("/state"))).toHaveLength(0);
+    expect(app.setConnection).toHaveBeenCalledWith("err");
+  });
+
   it("rejects a durable snapshot for a different session without legacy fallback", async () => {
     const state = { ...durableState(), session: { id: "s2", title: "wrong", workspaceId: "w1" } };
     globalThis.fetch = vi.fn(async () => ({ ok: true, status: 200, statusText: "OK", json: async () => state }));
