@@ -33,15 +33,21 @@ func (entry *runtimeEntry) Send(ctx context.Context, command RPCCommand) (RPCRes
 }
 
 func (entry *runtimeEntry) Events() <-chan PiEvent {
-	entry.eventsOnce.Do(func() { go entry.forwardEvents() })
+	entry.eventsOnce.Do(func() {
+		entry.eventsReady = make(chan struct{})
+		go entry.forwardEvents()
+	})
+	<-entry.eventsReady
 	return entry.events
 }
 
 func (entry *runtimeEntry) forwardEvents() {
+	runtimeEvents := entry.runtime.Events()
+	close(entry.eventsReady)
 	defer close(entry.events)
 	for {
 		select {
-		case event, ok := <-entry.runtime.Events():
+		case event, ok := <-runtimeEvents:
 			if !ok {
 				return
 			}

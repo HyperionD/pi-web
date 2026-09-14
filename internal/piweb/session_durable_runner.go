@@ -45,7 +45,8 @@ func (r *Runner) StartDurablePrompt(
 		commandCancel()
 		return errSessionBusy
 	}
-	go r.consumeDurableRuntimeEvents(eventCtx, sessionID, runtime, activeRun, adapter)
+	runtimeEvents := runtime.Events()
+	go r.consumeDurableRuntimeEvents(eventCtx, sessionID, runtimeEvents, activeRun, adapter)
 	if err := activeRun.sendContext(eventCtx, rpcPromptCommand(text, images, "")); err != nil {
 		_ = adapter.Fail(err)
 		eventCancel()
@@ -56,7 +57,7 @@ func (r *Runner) StartDurablePrompt(
 	return nil
 }
 
-func (r *Runner) consumeDurableRuntimeEvents(ctx context.Context, sessionID string, runtime PiRuntime, run *activePiRun, adapter *RuntimeEventAdapter) {
+func (r *Runner) consumeDurableRuntimeEvents(ctx context.Context, sessionID string, runtimeEvents <-chan PiEvent, run *activePiRun, adapter *RuntimeEventAdapter) {
 	if run.eventsDone != nil {
 		defer close(run.eventsDone)
 	}
@@ -66,7 +67,7 @@ func (r *Runner) consumeDurableRuntimeEvents(ctx context.Context, sessionID stri
 			_ = adapter.Complete(EventRunInterrupted)
 			r.finishDurableRun(sessionID, run)
 			return
-		case event, ok := <-runtime.Events():
+		case event, ok := <-runtimeEvents:
 			if !ok {
 				_ = adapter.Fail(errors.New("pi runtime exited"))
 				r.abortDurableRun(sessionID, run)

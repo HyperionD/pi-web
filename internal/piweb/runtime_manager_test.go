@@ -11,12 +11,14 @@ import (
 )
 
 type fakePiRuntime struct {
-	mu        sync.Mutex
-	sends     []RPCCommand
-	closeErr  error
-	closeHook func()
-	closed    int
-	events    chan PiEvent
+	mu         sync.Mutex
+	sends      []RPCCommand
+	closeErr   error
+	closeHook  func()
+	sendHook   func()
+	closed     int
+	events     chan PiEvent
+	subscribed bool
 }
 
 func newFakePiRuntime() *fakePiRuntime {
@@ -26,12 +28,21 @@ func newFakePiRuntime() *fakePiRuntime {
 func (r *fakePiRuntime) Send(_ context.Context, command RPCCommand) (RPCResponse, error) {
 	r.mu.Lock()
 	r.sends = append(r.sends, command)
+	hook := r.sendHook
 	r.mu.Unlock()
+	if hook != nil {
+		hook()
+	}
 	return RPCResponse{ID: command.ID, Type: "response", Command: command.Type, Success: true}, nil
 }
 
-func (r *fakePiRuntime) Events() <-chan PiEvent { return r.events }
-func (r *fakePiRuntime) IsRunning() bool        { return true }
+func (r *fakePiRuntime) Events() <-chan PiEvent {
+	r.mu.Lock()
+	r.subscribed = true
+	r.mu.Unlock()
+	return r.events
+}
+func (r *fakePiRuntime) IsRunning() bool { return true }
 func (r *fakePiRuntime) Close(context.Context) error {
 	r.mu.Lock()
 	r.closed++

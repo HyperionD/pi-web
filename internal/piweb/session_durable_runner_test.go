@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 )
@@ -126,6 +127,102 @@ func TestDurablePersistenceFailureRetiresRuntimeForStartupRecovery(t *testing.T)
 	}
 	if status != SessionStatusInterrupted || runID != "" {
 		t.Fatalf("recovered status=%q run=%q", status, runID)
+	}
+	_ = manager.Shutdown(context.Background())
+}
+
+func TestDurablePromptCapturesEventsEmittedDuringStartup(t *testing.T) {
+	store := runtimeTestStore()
+	events := appendTestStore(t)
+	receipt, err := events.StartRun(t.Context(), StartRunCommand{
+		SessionID: "runtime-session", ClientRequestID: "req-eager", RequestHash: "hash-eager",
+		RunID: "run-eager", DisplayText: "hello",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	runtime := newFakePiRuntime()
+	runtime.events = make(chan PiEvent)
+	runtime.sendHook = func() {
+		runtime.mu.Lock()
+		subscribed := runtime.subscribed
+		runtime.mu.Unlock()
+		if !subscribed {
+			return
+		}
+		runtime.events <- PiEvent{Type: "agent_start", Raw: json.RawMessage(`{"type":"agent_start"}`)}
+		runtime.events <- PiEvent{Type: "agent_end", Raw: json.RawMessage(`{"type":"agent_end"}`)}
+	}
+	manager := NewRuntimeManagerWithFactory(store, func(context.Context, string, string) (PiRuntime, error) {
+		return runtime, nil
+	})
+	runner := NewRunnerWithRuntimeManager(manager)
+	adapter := NewRuntimeEventAdapter("runtime-session", receipt.RunID, events)
+	if err := runner.StartDurablePrompt(t.Context(), store, "runtime-session", receipt.RunID, "hello", nil, adapter); err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(2 * time.Second)
+	for runner.IsRunning("runtime-session") && time.Now().Before(deadline) {
+		time.Sleep(5 * time.Millisecond)
+	}
+	var count int
+	if err := events.db.QueryRow(`SELECT count(*) FROM session_events WHERE session_id='runtime-session' AND event_type=?`, EventRunFinished).Scan(&count); err != nil {
+		t.Fatal(err)
+	}
+	if count != 1 || runner.IsRunning("runtime-session") {
+		t.Fatalf("run.finished count = %d running = %v", count, runner.IsRunning("runtime-session"))
+	}
+	_ = manager.Shutdown(context.Background())
+}
+
+func TestDurablePromptsForDifferentSessionsCompleteIndependently(t *testing.T) {
+	store := runtimeTestStore()
+	events := appendTestStore(t)
+	receipts := make(map[string]RunReceipt)
+	for _, sessionID := range []string{"runtime-session", "other-session"} {
+		receipt, err := events.StartRun(t.Context(), StartRunCommand{
+			SessionID: sessionID, ClientRequestID: "req-" + sessionID, RequestHash: "hash-" + sessionID,
+			RunID: "run-" + sessionID, DisplayText: "hello",
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		receipts[sessionID] = receipt
+	}
+	runtimes := map[string]*fakePiRuntime{
+		"runtime-session": newFakePiRuntime(),
+		"other-session":   newFakePiRuntime(),
+	}
+	manager := NewRuntimeManagerWithFactory(store, func(_ context.Context, sessionFile, _ string) (PiRuntime, error) {
+		for sessionID, runtime := range runtimes {
+			if strings.Contains(sessionFile, sessionID) {
+				return runtime, nil
+			}
+		}
+		return nil, errors.New("unknown session runtime")
+	})
+	runner := NewRunnerWithRuntimeManager(manager)
+	for sessionID, runtime := range runtimes {
+		adapter := NewRuntimeEventAdapter(sessionID, receipts[sessionID].RunID, events)
+		if err := runner.StartDurablePrompt(t.Context(), store, sessionID, receipts[sessionID].RunID, "hello", nil, adapter); err != nil {
+			t.Fatal(err)
+		}
+		time.Sleep(10 * time.Millisecond)
+		runtime.events <- PiEvent{Type: "agent_start", Raw: json.RawMessage(`{"type":"agent_start"}`)}
+		runtime.events <- PiEvent{Type: "agent_end", Raw: json.RawMessage(`{"type":"agent_end"}`)}
+	}
+	deadline := time.Now().Add(2 * time.Second)
+	for (runner.IsRunning("runtime-session") || runner.IsRunning("other-session")) && time.Now().Before(deadline) {
+		time.Sleep(5 * time.Millisecond)
+	}
+	for sessionID := range runtimes {
+		var count int
+		if err := events.db.QueryRow(`SELECT count(*) FROM session_events WHERE session_id=? AND event_type=?`, sessionID, EventRunFinished).Scan(&count); err != nil {
+			t.Fatal(err)
+		}
+		if count != 1 || runner.IsRunning(sessionID) {
+			t.Fatalf("session %q run.finished count = %d running = %v", sessionID, count, runner.IsRunning(sessionID))
+		}
 	}
 	_ = manager.Shutdown(context.Background())
 }

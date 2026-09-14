@@ -103,6 +103,7 @@ type runtimeEntry struct {
 	runtime             PiRuntime
 	lastUsed            time.Time
 	events              chan PiEvent
+	eventsReady         chan struct{}
 	eventsOnce          sync.Once
 	stopOnce            sync.Once
 	stop                chan struct{}
