@@ -37,6 +37,7 @@ export function createSessionStreamClient(options: SessionStreamClientOptions): 
   let timer: number | undefined;
   let delay = STREAM_RECONNECT_BASE_MS;
   let active = false;
+  let generation = 0;
 
   const cancelTimer = () => {
     if (timer !== undefined) {
@@ -64,24 +65,32 @@ export function createSessionStreamClient(options: SessionStreamClientOptions): 
     const seq = options.appliedSeq() || "0";
     const url = `${baseUrl()}/api/sessions/${encodeURIComponent(options.sessionId)}/events-v2?after=${seq}`;
     const next = createSource(url);
+    const sourceGeneration = ++generation;
     source = next;
+    const isCurrent = () => active && source === next && generation === sourceGeneration;
+    const closeCurrentSource = () => {
+      if (!isCurrent()) return false;
+      closeSource();
+      return true;
+    };
     next.addEventListener("open", () => {
+      if (!isCurrent()) return;
       delay = STREAM_RECONNECT_BASE_MS;
       options.onOpen?.();
     });
     next.addEventListener("session.event", (message) => {
-      if (!active) return;
+      if (!isCurrent()) return;
       try {
         const event = JSON.parse(String(message.data || "")) as DurableSessionEvent;
         options.onEvent(event);
       } catch (error) {
-        closeSource();
+        if (!closeCurrentSource()) return;
         options.onError?.(error);
         scheduleReconnect();
       }
     });
     next.addEventListener("stream.reset", (message) => {
-      closeSource();
+      if (!closeCurrentSource()) return;
       cancelTimer();
       delay = STREAM_RECONNECT_BASE_MS;
       let reason = "cursor_expired";
@@ -93,10 +102,10 @@ export function createSessionStreamClient(options: SessionStreamClientOptions): 
       options.onReset(reason);
     });
     next.addEventListener("heartbeat", () => {
-      delay = STREAM_RECONNECT_BASE_MS;
+      if (isCurrent()) delay = STREAM_RECONNECT_BASE_MS;
     });
     next.addEventListener("error", () => {
-      closeSource();
+      if (!closeCurrentSource()) return;
       options.onError?.(new Error("session event stream disconnected"));
       scheduleReconnect();
     });

@@ -1,9 +1,6 @@
 package piweb
 
-import (
-	"context"
-	"errors"
-)
+import "context"
 
 func (r *Runner) StartDurablePrompt(
 	parent context.Context,
@@ -50,7 +47,7 @@ func (r *Runner) StartDurablePrompt(
 		return errSessionBusy
 	}
 	runtimeEvents := runtime.Events()
-	go r.consumeDurableRuntimeEvents(eventCtx, sessionID, runtimeEvents, activeRun, adapter)
+	go r.consumeDurableRuntimeEvents(eventCtx, sessionID, runtime, runtimeEvents, activeRun, adapter)
 	if err := activeRun.sendContext(eventCtx, rpcPromptCommand(text, images, "")); err != nil {
 		_ = adapter.Fail(err)
 		eventCancel()
@@ -61,7 +58,7 @@ func (r *Runner) StartDurablePrompt(
 	return nil
 }
 
-func (r *Runner) consumeDurableRuntimeEvents(ctx context.Context, sessionID string, runtimeEvents <-chan PiEvent, run *activePiRun, adapter *RuntimeEventAdapter) {
+func (r *Runner) consumeDurableRuntimeEvents(ctx context.Context, sessionID string, runtime PiRuntime, runtimeEvents <-chan PiEvent, run *activePiRun, adapter *RuntimeEventAdapter) {
 	if run.eventsDone != nil {
 		defer close(run.eventsDone)
 	}
@@ -77,7 +74,7 @@ func (r *Runner) consumeDurableRuntimeEvents(ctx context.Context, sessionID stri
 			return
 		case event, ok := <-runtimeEvents:
 			if !ok {
-				_ = adapter.Fail(errors.New("pi runtime exited"))
+				_ = adapter.Fail(runtimeFailure(runtime))
 				r.abortDurableRun(sessionID, run)
 				return
 			}

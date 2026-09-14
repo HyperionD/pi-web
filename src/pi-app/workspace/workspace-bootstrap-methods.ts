@@ -377,10 +377,8 @@ export const workspaceBootstrapMethods = {
     } catch (error) {
       if (!isCurrentResource()) return;
       if (options.resync && this.durableEvents && this.transcriptState?.sessionId === sessionId) {
-        const state = this.transcriptState;
-        this.renderMessages(state.itemOrder.map((id) => this.durableMessage(state.itemsById.get(id))));
-        this.setMode(state.status || "idle");
-        this.connectDurableEvents(sessionId, state.appliedSeq);
+        this.renderDurableTranscript();
+        this.connectDurableEvents(sessionId, this.transcriptState.appliedSeq);
       }
       if (!this.recoverForbiddenWorkspace(error)) this.setConnection("err");
     }
@@ -411,9 +409,8 @@ export const workspaceBootstrapMethods = {
     this.sessionHistoryCursor = state.cursor || "";
     this.sessionHistoryHasMore = !!state.hasMore;
     this.sessionHistoryLoading = false;
-    this.renderMessages(this.transcriptState.itemOrder.map((id) => this.durableMessage(this.transcriptState.itemsById.get(id))));
-    this.setMode(state.status || "idle");
-    this.connectDurableEvents(session.id, state.seq);
+    this.renderDurableTranscript();
+    this.connectDurableEvents(session.id, this.transcriptState.appliedSeq);
   },
 
   durableMessage(item): any {
@@ -458,13 +455,14 @@ export const workspaceBootstrapMethods = {
     this.confirmConnection?.();
   },
 
-  durableToolMessage(event, payload) {
-    const item = event.entityId ? this.transcriptState?.itemsById.get(event.entityId) : undefined;
-    const parts = String(event.entityId || "").split(":");
-    return {
-      id: payload.toolCallId || item?.toolCallId || (parts.length > 2 ? parts.slice(2).join(":") : ""),
-      tool: payload.tool || item?.tool || "tool",
-    };
+  renderDurableTranscript() {
+    const state = this.transcriptState;
+    if (!state) return;
+    this.renderMessages(state.itemOrder.map((id) => this.durableMessage(state.itemsById.get(id))));
+    const mode = state.status === "running" || state.status === "thinking"
+      ? state.status
+      : state.status === "cancelled" ? "cancelled" : "idle";
+    this.setMode(mode);
   },
 
   applyDurableEvent(event) {
@@ -482,62 +480,10 @@ export const workspaceBootstrapMethods = {
     this.transcriptState = next;
     this.setSessionEventCursor(event.sessionId, event.seq);
     this.confirmConnection?.();
-    const payload = event.payload || {};
-    switch (event.type) {
-      case "user.message.created":
-        this.appendMessage({ kind: "user", text: payload.text, attachments: payload.attachments });
-        break;
-      case "run.started":
-        this.setMode("running");
-        break;
-      case "assistant.segment.delta":
-        if (payload.delta) this.appendDelta({ kind: payload.kind === "think" ? "think" : "pi", delta: payload.delta });
-        break;
-      case "assistant.segment.committed":
-        if (payload.text) {
-          if (payload.kind === "think") this.finalizeThinkingStream(payload.text);
-          else this.finalizePiStream(payload.text);
-        }
-        break;
-      case "tool.started": {
-        const tool = this.durableToolMessage(event, payload);
-        this.appendMessage({ kind: "tool", ...tool, args: payload.args, status: "running", collapsedByDefault: true });
-        break;
-      }
-      case "tool.output": {
-        const tool = this.durableToolMessage(event, payload);
-        this.appendToolOutput({ ...tool, chunk: payload.chunk, mode: payload.mode });
-        break;
-      }
-      case "tool.finished": {
-        const tool = this.durableToolMessage(event, payload);
-        this.finishTool({ kind: "tool", ...tool, status: payload.status, body: payload.body, resultMeta: payload.resultMeta, durationMs: payload.durationMs });
-        break;
-      }
-      case "run.finished":
-        this.finishRunningTools?.();
-        this.commitStreamingMessages?.();
-        this.removeLoadingMessage?.();
-        this.setMode("idle");
-        break;
-      case "run.cancelled":
-        this.commitStreamingMessages?.();
-        this.removeLoadingMessage?.();
-        this.setMode("cancelled");
-        break;
-      case "run.failed":
-        this.finishRunningTools?.({ status: "err", resultMeta: "failed" });
-        this.appendErrorMessage?.(payload.error);
-        this.notifyResponseFailure?.(payload.error || "runtime failed");
-        this.setMode("idle");
-        break;
-      case "run.interrupted":
-        this.finishRunningTools?.({ status: "interrupted", resultMeta: "interrupted" });
-        this.setMode("idle");
-        break;
-      default:
-        break;
+    if (event.type === "run.failed") {
+      this.notifyResponseFailure?.(String(event.payload?.error || "runtime failed"));
     }
+    this.renderDurableTranscript();
   },
 
   showSessionSwitchLoading(sessionId) {

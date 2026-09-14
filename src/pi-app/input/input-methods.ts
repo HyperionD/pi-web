@@ -37,6 +37,9 @@ export const inputMethods = {
       this.showSessionMain();
       this.finalizeStreamingMessages();
       const waitForServerEcho = this.apiConnected && sessionId;
+      const clientRequestId = waitForServerEcho
+        ? (globalThis.crypto?.randomUUID?.() || `request-${Date.now()}-${Math.random().toString(36).slice(2)}`)
+        : "";
       const useDurablePrompt = waitForServerEcho && this.durableEvents === true;
       const useAguiPrompt = waitForServerEcho && !useDurablePrompt && typeof EventSource !== "undefined";
       const hasVisiblePrompt = !!text || attachments.length > 0;
@@ -58,7 +61,7 @@ export const inputMethods = {
         this.setMode("running");
         if (useDurablePrompt) {
           try {
-            await postPrompt(sessionId, text, attachments);
+            await postPrompt(sessionId, text, attachments, clientRequestId);
           } catch (error) {
             this.notifyResponseFailure?.(error);
             this.setMode("idle");
@@ -371,8 +374,10 @@ export const inputMethods = {
     this.setMode("running");
     const sessionId = this.dataset.activeSessionId;
     if (useDurablePrompt) {
+      const clientRequestId = globalThis.crypto?.randomUUID?.()
+        || `request-${Date.now()}-${Math.random().toString(36).slice(2)}`;
       try {
-        await postPrompt(sessionId, prompt, []);
+        await postPrompt(sessionId, prompt, [], clientRequestId);
       } catch (error) {
         this.notifyResponseFailure?.(error);
         this.setMode("idle");

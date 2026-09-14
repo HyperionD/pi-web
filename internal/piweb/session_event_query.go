@@ -158,13 +158,23 @@ func scanProjectionItems(rows *sql.Rows) ([]ProjectedSessionItem, error) {
 
 func (s *SQLiteSessionEventStore) EventsAfter(ctx context.Context, sessionID string, after int64, requested EventReadLimit) (EventBatch, error) {
 	limit := normalizeEventReadLimit(requested)
-	if _, err := loadStreamDB(ctx, s.db, sessionID); err != nil {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
 		return EventBatch{}, err
 	}
-	if after < streamMinRetained(ctx, s.db, sessionID)-1 {
+	defer tx.Rollback()
+	stream, err := loadStreamTx(tx, sessionID)
+	if err != nil {
+		return EventBatch{}, err
+	}
+	var minRetained int64
+	if err := tx.QueryRowContext(ctx, `SELECT min_retained_seq FROM session_streams WHERE session_id=?`, sessionID).Scan(&minRetained); err != nil {
+		return EventBatch{}, err
+	}
+	if after < minRetained-1 {
 		return EventBatch{ResetRequired: true}, nil
 	}
-	rows, err := s.db.QueryContext(ctx, `SELECT seq, coalesce(run_id, ''), source_id, source_ordinal, event_type, coalesce(entity_id, ''), payload_json, occurred_at FROM session_events WHERE session_id=? AND seq>? ORDER BY seq ASC LIMIT ?`, sessionID, after, limit.MaxRows+1)
+	rows, err := tx.QueryContext(ctx, `SELECT seq, coalesce(run_id, ''), source_id, source_ordinal, event_type, coalesce(entity_id, ''), payload_json, occurred_at FROM session_events WHERE session_id=? AND seq>? ORDER BY seq ASC LIMIT ?`, sessionID, after, limit.MaxRows+1)
 	if err != nil {
 		return EventBatch{}, err
 	}
@@ -178,7 +188,7 @@ func (s *SQLiteSessionEventStore) EventsAfter(ctx context.Context, sessionID str
 		if err := rows.Scan(&event.Seq, &runID, &sourceID, &ordinal, &eventType, &entityID, &payload, &occurred); err != nil {
 			return EventBatch{}, err
 		}
-		if len(batch.Events) >= limit.MaxRows || bytes+len(payload) > limit.MaxBytes {
+		if len(batch.Events) >= limit.MaxRows || (len(batch.Events) > 0 && bytes+len(payload) > limit.MaxBytes) {
 			break
 		}
 		when, _ := parseEventTime(occurred)
@@ -189,7 +199,13 @@ func (s *SQLiteSessionEventStore) EventsAfter(ctx context.Context, sessionID str
 		batch.Events = append(batch.Events, event)
 		bytes += len(payload)
 	}
-	return batch, rows.Err()
+	if err := rows.Err(); err != nil {
+		return EventBatch{}, err
+	}
+	if len(batch.Events) > 0 && batch.Events[0].Seq != after+1 && after < stream.CurrentSeq {
+		return EventBatch{ResetRequired: true}, nil
+	}
+	return batch, nil
 }
 
 func loadStreamDB(ctx context.Context, db *sql.DB, sessionID string) (SessionStreamState, error) {

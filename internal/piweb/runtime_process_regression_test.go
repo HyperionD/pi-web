@@ -107,6 +107,40 @@ printf '%s\n' '{"id":"other","type":"response","command":"prompt","success":true
 	}
 }
 
+func TestProcessRuntimeFailureIncludesRedactedStderrTail(t *testing.T) {
+	runtime := &processPiRuntime{
+		events:     make(chan PiEvent),
+		done:       make(chan struct{}),
+		stop:       make(chan struct{}),
+		pending:    map[string]chan runtimeResponse{},
+		stderrTail: []byte("api_key=secret-value\\n"),
+	}
+	runtime.finish(errors.New("pi process exited: exit status 7"))
+
+	failure := runtime.Failure()
+	if failure == nil || !strings.Contains(failure.Error(), "exit status 7") {
+		t.Fatalf("failure = %v, want exit status", failure)
+	}
+	if strings.Contains(failure.Error(), "secret-value") || !strings.Contains(failure.Error(), "REDACTED") {
+		t.Fatalf("failure leaked stderr secret: %v", failure)
+	}
+}
+
+func TestProcessRuntimeDoesNotExposeSecretsAfterStderrTruncation(t *testing.T) {
+	runtime := &processPiRuntime{
+		events:     make(chan PiEvent),
+		done:       make(chan struct{}),
+		stop:       make(chan struct{}),
+		pending:    map[string]chan runtimeResponse{},
+		stderrTail: []byte("secret-value"), stderrTruncated: true,
+	}
+	runtime.finish(errors.New("pi process exited"))
+
+	if failure := runtime.Failure(); failure == nil || strings.Contains(failure.Error(), "secret-value") {
+		t.Fatalf("truncated stderr leaked: %v", failure)
+	}
+}
+
 func TestProcessRuntimeReportsMalformedStdoutToWaiter(t *testing.T) {
 	root := t.TempDir()
 	writeFakePi(t, root, `#!/bin/sh

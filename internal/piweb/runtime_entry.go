@@ -158,6 +158,13 @@ func eventActivityKey(eventType, toolCallID string) string {
 	}
 }
 
+func (entry *runtimeEntry) Failure() error {
+	if provider, ok := entry.runtime.(runtimeFailureProvider); ok {
+		return provider.Failure()
+	}
+	return nil
+}
+
 func (entry *runtimeEntry) IsRunning() bool { return !entry.isClosed() && entry.runtime.IsRunning() }
 func (entry *runtimeEntry) processRunning() bool {
 	entry.mu.Lock()

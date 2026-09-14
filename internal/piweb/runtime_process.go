@@ -21,22 +21,25 @@ type processPiRuntime struct {
 	stderr io.ReadCloser
 	events chan PiEvent
 
-	writeReady  chan struct{}
-	stdinOnce   sync.Once
-	pipesOnce   sync.Once
-	poisonOnce  sync.Once
-	stopOnce    sync.Once
-	finishOnce  sync.Once
-	mu          sync.Mutex
-	pending     map[string]chan runtimeResponse
-	quarantined map[string]struct{}
-	poisonErr   error
-	running     bool
-	closed      bool
-	lastUse     time.Time
-	activity    map[string]int
-	seq         atomic.Uint64
-	done        chan struct{}
+	writeReady      chan struct{}
+	stdinOnce       sync.Once
+	pipesOnce       sync.Once
+	poisonOnce      sync.Once
+	stopOnce        sync.Once
+	finishOnce      sync.Once
+	mu              sync.Mutex
+	pending         map[string]chan runtimeResponse
+	quarantined     map[string]struct{}
+	poisonErr       error
+	failure         error
+	stderrTail      []byte
+	stderrTruncated bool
+	running         bool
+	closed          bool
+	lastUse         time.Time
+	activity        map[string]int
+	seq             atomic.Uint64
+	done            chan struct{}
 
 	stdoutDone chan struct{}
 	stderrDone chan struct{}
@@ -120,7 +123,22 @@ func (runtime *processPiRuntime) readStdout(stdout io.Reader) {
 
 func (runtime *processPiRuntime) readStderr(stderr io.Reader) {
 	defer close(runtime.stderrDone)
-	_, _ = io.Copy(io.Discard, stderr)
+	buffer := make([]byte, 4096)
+	for {
+		read, err := stderr.Read(buffer)
+		if read > 0 {
+			runtime.mu.Lock()
+			runtime.stderrTail = append(runtime.stderrTail, buffer[:read]...)
+			if len(runtime.stderrTail) > 16*1024 {
+				runtime.stderrTail = runtime.stderrTail[len(runtime.stderrTail)-16*1024:]
+				runtime.stderrTruncated = true
+			}
+			runtime.mu.Unlock()
+		}
+		if err != nil {
+			return
+		}
+	}
 }
 
 func (runtime *processPiRuntime) handleLine(raw []byte) error {
@@ -178,17 +196,31 @@ func (runtime *processPiRuntime) protocolFailure(err error) {
 	runtime.poison(err)
 }
 
+func (runtime *processPiRuntime) Failure() error {
+	runtime.mu.Lock()
+	defer runtime.mu.Unlock()
+	if runtime.failure != nil {
+		return runtime.failure
+	}
+	if runtime.poisonErr != nil {
+		return runtime.poisonErr
+	}
+	return nil
+}
+
 func (runtime *processPiRuntime) poison(err error) {
 	runtime.poisonOnce.Do(func() {
 		runtime.mu.Lock()
 		runtime.closed = true
 		runtime.poisonErr = err
+		runtime.failure = err
+		diagnostic := runtime.failureWithStderrLocked()
 		pending := runtime.pending
 		runtime.pending = map[string]chan runtimeResponse{}
 		runtime.mu.Unlock()
 		runtime.stopEvents()
 		for _, waiter := range pending {
-			waiter <- runtimeResponse{err: err}
+			waiter <- runtimeResponse{err: diagnostic}
 		}
 		runtime.closeStdin()
 		if runtime.cmd != nil {
@@ -249,6 +281,9 @@ func (runtime *processPiRuntime) Send(ctx context.Context, command RPCCommand) (
 			case result := <-waiter:
 				return result.response, result.err
 			default:
+			}
+			if failure := runtime.Failure(); failure != nil {
+				return RPCResponse{}, failure
 			}
 			return RPCResponse{}, errors.New("pi process exited")
 		}
@@ -373,6 +408,14 @@ func waitForPipe(done <-chan struct{}, timeout time.Duration) bool {
 func (runtime *processPiRuntime) finish(err error) {
 	runtime.finishOnce.Do(func() {
 		runtime.mu.Lock()
+		diagnostic := runtime.failure
+		if diagnostic == nil {
+			diagnostic = err
+		} else if err != nil && diagnostic.Error() != err.Error() {
+			diagnostic = fmt.Errorf("%w: process wait: %v", diagnostic, err)
+		}
+		runtime.failure = runtime.withStderrLocked(diagnostic)
+		finalFailure := runtime.failure
 		runtime.running = false
 		runtime.closed = true
 		pending := runtime.pending
@@ -380,7 +423,7 @@ func (runtime *processPiRuntime) finish(err error) {
 		runtime.mu.Unlock()
 		runtime.stopEvents()
 		for _, waiter := range pending {
-			waiter <- runtimeResponse{err: err}
+			waiter <- runtimeResponse{err: finalFailure}
 		}
 		if runtime.done != nil {
 			close(runtime.done)
@@ -389,6 +432,21 @@ func (runtime *processPiRuntime) finish(err error) {
 			close(runtime.events)
 		}
 	})
+}
+
+func (runtime *processPiRuntime) failureWithStderrLocked() error {
+	return runtime.withStderrLocked(runtime.failure)
+}
+
+func (runtime *processPiRuntime) withStderrLocked(err error) error {
+	if err == nil || len(runtime.stderrTail) == 0 {
+		return err
+	}
+	stderr := RedactSecrets(string(runtime.stderrTail))
+	if runtime.stderrTruncated {
+		stderr = "[REDACTED: stderr tail truncated]"
+	}
+	return fmt.Errorf("%w: stderr: %s", err, stderr)
 }
 
 func (runtime *processPiRuntime) Events() <-chan PiEvent { return runtime.events }

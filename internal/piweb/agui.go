@@ -148,11 +148,13 @@ func newAguiStreamState(threadID, runID, fallback string) *aguiStreamState {
 }
 
 func (s *aguiStreamState) consume(event Event, stream *aguiEventStream) bool {
-	if event.ID > 0 {
-		stream.write(aguievents.NewCustomEvent(aguiBrokerCursorEventName, aguievents.WithValue(map[string]string{
-			"eventId": strconv.FormatUint(event.ID, 10),
-		})))
-	}
+	defer func() {
+		if event.ID > 0 {
+			stream.write(aguievents.NewCustomEvent(aguiBrokerCursorEventName, aguievents.WithValue(map[string]string{
+				"eventId": strconv.FormatUint(event.ID, 10),
+			})))
+		}
+	}()
 	switch event.Type {
 	case "session.delta":
 		payload, ok := event.Payload.(map[string]string)
@@ -376,10 +378,10 @@ func (s *aguiStreamState) emitToolFinish(msg Message, stream *aguiEventStream) {
 		id = aguievents.GenerateToolCallID()
 		stream.write(aguievents.NewToolCallStartEvent(id, name))
 	}
-	stream.write(aguievents.NewToolCallEndEvent(id))
 	if strings.TrimSpace(msg.Body) != "" {
 		s.emitToolResult(id, name, msg.Body, "replace", stream)
 	}
+	stream.write(aguievents.NewToolCallEndEvent(id))
 	delete(s.toolNames, id)
 }
 

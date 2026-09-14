@@ -160,6 +160,39 @@ describe("durable session transport", () => {
     expect(app.querySelector(".msg[data-kind='think'] .body")?.textContent || "").toContain("plan");
   });
 
+  it("replaces a streamed thinking snapshot instead of duplicating it", async () => {
+    const app = await connectPiApp();
+    app.durableEvents = true;
+    app.connectEvents = vi.fn();
+    const thinking = {
+      itemId: "thinking:run-1:1",
+      ordinal: 1,
+      kind: "think",
+      origin: "runtime",
+      runId: "run-1",
+      entityId: "thinking:run-1:1",
+      text: "partial",
+      status: "streaming",
+    };
+    globalThis.fetch = vi.fn(async (url) => String(url).includes("/state")
+      ? { ok: true, status: 200, statusText: "OK", json: async () => ({ ...durableState(), items: [thinking], status: "running", seq: "1" }) }
+      : { ok: true, status: 200, statusText: "OK", json: async () => ({}) });
+    await app.loadSession("s1");
+    const source = FakeEventSource.instances.at(-1);
+
+    source.dispatch("session.event", {
+      seq: "2",
+      sessionId: "s1",
+      runId: "run-1",
+      type: "assistant.segment.committed",
+      entityId: "thinking:run-1:1",
+      payload: { kind: "think", text: "complete" },
+    });
+
+    expect(app.querySelectorAll(".msg[data-kind='think']")).toHaveLength(1);
+    expect(app.querySelector(".msg[data-kind='think'] .body").textContent).toContain("complete");
+  });
+
   it("immediately shows a repeated user prompt exactly once", async () => {
     const priorUser = { itemId: "user:prior", ordinal: 1, kind: "user", origin: "runtime", text: "hello" };
     globalThis.fetch = vi.fn(async (url) => {
@@ -214,6 +247,7 @@ describe("durable session transport", () => {
     app.finishRunningTools = vi.fn();
     app.commitStreamingMessages = vi.fn();
     app.removeLoadingMessage = vi.fn();
+    app.renderMessages = vi.fn();
     app.setMode = vi.fn();
     const source = FakeEventSource.instances.at(-1);
     const terminal = { seq: "4", sessionId: "s1", runId: "run-1", type: "run.finished", payload: {} };
@@ -221,9 +255,10 @@ describe("durable session transport", () => {
     source.dispatch("session.event", terminal);
     source.dispatch("session.event", terminal);
 
-    expect(app.finishRunningTools).toHaveBeenCalledTimes(1);
-    expect(app.commitStreamingMessages).toHaveBeenCalledTimes(1);
-    expect(app.removeLoadingMessage).toHaveBeenCalledTimes(1);
+    expect(app.renderMessages).toHaveBeenCalledTimes(1);
+    expect(app.finishRunningTools).not.toHaveBeenCalled();
+    expect(app.commitStreamingMessages).not.toHaveBeenCalled();
+    expect(app.removeLoadingMessage).not.toHaveBeenCalled();
     expect(app.setMode).toHaveBeenCalledTimes(1);
     expect(app.setMode).toHaveBeenCalledWith("idle");
   });

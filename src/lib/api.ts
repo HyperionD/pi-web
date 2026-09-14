@@ -291,10 +291,14 @@ export function compactSession(sessionId: string) {
   return request(`/api/sessions/${encodeURIComponent(sessionId)}/compact`, { method: "POST" });
 }
 
-export function postPrompt(sessionId, text, attachments = []) {
+export function postPrompt(sessionId, text, attachments = [], clientRequestId = "") {
   return request(`/api/sessions/${encodeURIComponent(sessionId)}/prompt`, {
     method: "POST",
-    body: JSON.stringify({ text, attachments }),
+    body: JSON.stringify({
+      text,
+      attachments,
+      ...(clientRequestId ? { clientRequestId } : {}),
+    }),
   });
 }
 

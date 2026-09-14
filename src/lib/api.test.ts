@@ -205,6 +205,15 @@ describe("api adapter", () => {
     expect(JSON.parse(result.options.body)).toEqual({ text: "hello", attachments: [] });
   });
 
+  it("includes the client request id for durable prompt retries", async () => {
+    const result = await postPrompt("s1", "hello", [], "request-1");
+    expect(JSON.parse(result.options.body)).toEqual({
+      text: "hello",
+      attachments: [],
+      clientRequestId: "request-1",
+    });
+  });
+
   it("posts steering messages as json", async () => {
     const result = await steerSession("s1", "look here");
     expect(result.url).toBe("http://backend.test/api/sessions/s1/steer");

@@ -129,6 +129,23 @@ func TestAguiStreamForwardsConsumedBrokerCursor(t *testing.T) {
 	}
 }
 
+func TestAguiCursorFollowsTranslatedEvent(t *testing.T) {
+	res := httptest.NewRecorder()
+	stream := newAguiEventStream(res, t.Context())
+	state := newAguiStreamState("thread", "run", "session")
+
+	state.consume(Event{ID: 9, Type: "session.delta", SessionID: "session", Payload: map[string]string{
+		"kind": "pi", "delta": "hello",
+	}}, stream)
+
+	got := res.Body.String()
+	deltaIndex := strings.Index(got, `"type":"TEXT_MESSAGE_CONTENT"`)
+	cursorIndex := strings.Index(got, `"name":"piweb.broker-cursor"`)
+	if deltaIndex < 0 || cursorIndex < 0 || deltaIndex > cursorIndex {
+		t.Fatalf("translated event must precede cursor:\n%s", got)
+	}
+}
+
 func TestAguiStreamStopsWithRunErrorOnBrokerGap(t *testing.T) {
 	res := httptest.NewRecorder()
 	stream := newAguiEventStream(res, t.Context())
@@ -166,6 +183,27 @@ func TestAguiStreamPreservesToolCallIDs(t *testing.T) {
 	}
 	if !strings.Contains(got, `"type":"TOOL_CALL_RESULT"`) || strings.Contains(got, `"type":"TOOL_CALL_ARGS"`) {
 		t.Fatalf("tool output must use AG-UI result events:\n%s", got)
+	}
+	resultIndex := strings.Index(got, `"type":"TOOL_CALL_RESULT"`)
+	endIndex := strings.Index(got, `"type":"TOOL_CALL_END"`)
+	if resultIndex < 0 || endIndex < 0 || resultIndex > endIndex {
+		t.Fatalf("tool result must precede tool end:\n%s", got)
+	}
+}
+
+func TestAguiToolFinishEmitsResultBeforeEnd(t *testing.T) {
+	res := httptest.NewRecorder()
+	stream := newAguiEventStream(res, t.Context())
+	state := newAguiStreamState("thread", "run", "session")
+
+	state.consume(Event{Type: "tool.started", Payload: Message{ID: "call-1", Tool: "bash"}}, stream)
+	state.consume(Event{Type: "tool.finished", Payload: Message{ID: "call-1", Tool: "bash", Body: "final", Status: "err"}}, stream)
+
+	got := res.Body.String()
+	resultIndex := strings.Index(got, `"type":"TOOL_CALL_RESULT"`)
+	endIndex := strings.Index(got, `"type":"TOOL_CALL_END"`)
+	if resultIndex < 0 || endIndex < 0 || resultIndex > endIndex {
+		t.Fatalf("tool result must precede tool end:\n%s", got)
 	}
 }
 

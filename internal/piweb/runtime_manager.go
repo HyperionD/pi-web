@@ -37,6 +37,19 @@ type PiRuntime interface {
 	Close(ctx context.Context) error
 }
 
+type runtimeFailureProvider interface {
+	Failure() error
+}
+
+func runtimeFailure(runtime PiRuntime) error {
+	if provider, ok := runtime.(runtimeFailureProvider); ok {
+		if err := provider.Failure(); err != nil {
+			return err
+		}
+	}
+	return errors.New("pi runtime exited")
+}
+
 type RuntimeProcessFactory func(ctx context.Context, sessionFile, cwd string) (PiRuntime, error)
 type RuntimeInitializer func(context.Context, PiRuntime) error
 

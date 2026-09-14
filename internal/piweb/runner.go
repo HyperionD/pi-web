@@ -192,7 +192,7 @@ func (r *Runner) consumeRuntimeEvents(ctx context.Context, broker *Broker, store
 			return
 		case event, ok := <-runtime.Events():
 			if !ok {
-				r.finishPrompt(sessionID, run, broker, errors.New("pi runtime exited"))
+				r.finishPrompt(sessionID, run, broker, runtimeFailure(runtime))
 				return
 			}
 			line := string(event.Raw)

@@ -63,6 +63,26 @@ func TestEventsAfterReturnsResetWhenCursorExpired(t *testing.T) {
 	}
 }
 
+func TestEventsAfterReturnsOversizedFirstEvent(t *testing.T) {
+	store := appendTestStore(t)
+	receipt := appendTestRun(t, store, "req-1")
+	payload, _ := json.Marshal(map[string]any{"kind": "pi", "text": "0123456789"})
+	ordinal := int64(1)
+	if _, err := store.Append(t.Context(), "s1", SessionEventDraft{
+		SessionID: "s1", RunID: receipt.RunID, SourceID: receipt.RunID + ":event:1", SourceOrdinal: &ordinal, Type: EventAssistantSegmentCommit,
+		EntityID: "assistant:" + receipt.RunID + ":1", Payload: payload,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	batch, err := store.EventsAfter(t.Context(), "s1", 2, EventReadLimit{MaxRows: 128, MaxBytes: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(batch.Events) != 1 || string(batch.Events[0].Payload) != string(payload) {
+		t.Fatalf("batch = %#v", batch)
+	}
+}
+
 func TestItemContentReadsChunkedBodyAndRange(t *testing.T) {
 	store := appendTestStore(t)
 	receipt := appendTestRun(t, store, "req-1")

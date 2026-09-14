@@ -136,7 +136,7 @@ describe("session stream client", () => {
     expect(api.resets).toEqual(["cursor_expired"]);
     api.sources[0].emit("stream.reset", undefined);
     api.sources[0].emit("stream.reset", { type: "stream.reset", payload: {} });
-    expect(api.resets).toEqual(["cursor_expired", "cursor_expired", "cursor_expired"]);
+    expect(api.resets).toEqual(["cursor_expired"]);
   });
 
   it("honours the fallback reason for a non-JSON reset payload", () => {
@@ -189,6 +189,37 @@ describe("session stream client", () => {
     api.client.stop();
     api.sources[0].emit("session.event", { seq: "8", sessionId: "s1", type: "run.finished" });
     expect(api.events).toHaveLength(0);
+  });
+
+  it("ignores callbacks from a replaced source", () => {
+    const api = harness();
+    api.client.start();
+    const first = api.sources[0];
+    api.client.reset();
+    const second = api.sources[1];
+
+    first.emit("error");
+    first.emit("stream.reset", { type: "stream.reset", payload: { reason: "cursor_expired" } });
+    second.emit("session.event", { seq: "8", sessionId: "s1", type: "run.finished" });
+
+    expect(second.closed).toBe(false);
+    expect(api.events).toEqual([{ seq: "8", sessionId: "s1", type: "run.finished" }]);
+    expect(api.resets).toHaveLength(0);
+    expect(api.timers).toHaveLength(0);
+  });
+
+  it("does not close the replacement source after a parse error from the old source", () => {
+    const api = harness();
+    api.client.start();
+    const first = api.sources[0];
+    api.client.reset();
+    const second = api.sources[1];
+
+    first.listeners.get("session.event")?.({ data: "{" });
+
+    expect(first.closed).toBe(true);
+    expect(second.closed).toBe(false);
+    expect(api.errors).toHaveLength(0);
   });
 
   it("uses browser EventSource and timer defaults", () => {
