@@ -33,6 +33,7 @@ type RuntimeEventAdapter struct {
 	pending    *pendingRuntimeEvent
 	toolArgs   map[string]string
 	toolCounts map[string]int
+	runError   string
 }
 
 type pendingRuntimeEvent struct {
@@ -74,10 +75,14 @@ func (a *RuntimeEventAdapter) Consume(raw []byte) error {
 		return a.poison(err)
 	}
 	switch frame.Type {
+	case "message_start", "message_end", "turn_end":
+		a.recordAssistantError(frame.Message)
+		if frame.Type != "message_end" {
+			return nil
+		}
+		return a.consumeAssistantCommit(frame.Message)
 	case "message_update":
 		return a.consumeAssistantDelta(frame.AssistantMessageEvent.Type, frame.AssistantMessageEvent.Delta, frame.AssistantMessageEvent.Text)
-	case "message_end":
-		return a.consumeAssistantCommit(frame.Message)
 	case "tool_execution_start":
 		return a.consumeToolStart(frame.ToolCallID, frame.ToolName, frame.Args)
 	case "tool_execution_update":
@@ -119,7 +124,19 @@ func (a *RuntimeEventAdapter) Complete(eventType string) error {
 	if err := a.flushPending(); err != nil {
 		return err
 	}
+	if eventType == EventRunFinished && a.runError != "" {
+		return a.emit(EventRunFailed, "", map[string]any{"error": a.runError})
+	}
 	return a.emit(eventType, "", map[string]any{})
+}
+
+func (a *RuntimeEventAdapter) recordAssistantError(raw json.RawMessage) {
+	if a.runError != "" {
+		return
+	}
+	if message := assistantErrorMessage(raw); message != "" {
+		a.runError = message
+	}
 }
 
 func (a *RuntimeEventAdapter) Fail(err error) error {

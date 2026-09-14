@@ -176,3 +176,47 @@ func TestRuntimeEventAdapterRejectsOversizedPayload(t *testing.T) {
 		t.Fatal("expected oversized payload rejection")
 	}
 }
+
+func TestRuntimeEventAdapterFailsRunOnAssistantError(t *testing.T) {
+	sink := &recordingSessionEventSink{}
+	adapter := NewRuntimeEventAdapter("s1", "run-1", sink)
+	consumeJSON(t, adapter, `{"type":"message_end","message":{"role":"assistant","content":[],"stopReason":"error","errorMessage":"429 rate limit"}}`)
+	if err := adapter.Complete(EventRunFinished); err != nil {
+		t.Fatal(err)
+	}
+	types := sink.Types()
+	if types[len(types)-1] != EventRunFailed {
+		t.Fatalf("terminal type = %#v", types)
+	}
+	if got := sink.payloadString(len(types)-1, "error"); got != "429 rate limit" {
+		t.Fatalf("error payload = %q", got)
+	}
+}
+
+func TestRuntimeEventAdapterReportsAssistantErrorOnce(t *testing.T) {
+	sink := &recordingSessionEventSink{}
+	adapter := NewRuntimeEventAdapter("s1", "run-1", sink)
+	errMessage := `{"role":"assistant","content":[],"stopReason":"error","errorMessage":"403 forbidden"}`
+	consumeJSON(t, adapter, `{"type":"message_start","message":`+errMessage+`}`)
+	consumeJSON(t, adapter, `{"type":"turn_end","message":`+errMessage+`}`)
+	if err := adapter.Complete(EventRunFinished); err != nil {
+		t.Fatal(err)
+	}
+	types := sink.Types()
+	if types[len(types)-1] != EventRunFailed || sink.payloadString(len(types)-1, "error") != "403 forbidden" {
+		t.Fatalf("terminal = %#v", types)
+	}
+}
+
+func TestRuntimeEventAdapterFinishesCleanRun(t *testing.T) {
+	sink := &recordingSessionEventSink{}
+	adapter := NewRuntimeEventAdapter("s1", "run-1", sink)
+	consumeJSON(t, adapter, `{"type":"message_end","message":{"role":"assistant","content":[{"type":"text","text":"done"}],"stopReason":"stop"}}`)
+	if err := adapter.Complete(EventRunFinished); err != nil {
+		t.Fatal(err)
+	}
+	types := sink.Types()
+	if types[len(types)-1] != EventRunFinished {
+		t.Fatalf("terminal = %#v", types)
+	}
+}
