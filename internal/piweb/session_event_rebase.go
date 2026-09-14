@@ -46,7 +46,15 @@ func (s *SQLiteSessionEventStore) OpenSession(ctx context.Context, source Sessio
 			report = ImportReport{Deferred: true}
 			return nil
 		}
-		if err := rebaseProjection(conn, source, imported, stream); err != nil {
+		covered, preserved, planErr := runtimeRebasePlan(conn, source.SessionID, stream, imported.Items)
+		if planErr != nil {
+			return planErr
+		}
+		if !covered {
+			report = ImportReport{Deferred: true}
+			return nil
+		}
+		if err := rebaseProjection(conn, source, imported, stream, preserved); err != nil {
 			return err
 		}
 		report = ImportReport{Imported: true}
@@ -89,7 +97,104 @@ func storedManifestsMatch(conn *sql.Conn, sessionID string, imported []Projected
 	return true, rows.Err()
 }
 
-func rebaseProjection(conn *sql.Conn, source SessionSource, imported ImportedSession, stream SessionStreamState) error {
+// runtimeRebasePlan reports whether the strict JSONL import fully represents the
+// current runtime projection. Items the JSONL cannot represent are returned so a
+// rebase can re-append them instead of dropping them, and any runtime item the
+// import misses defers the rebase so the projection stays intact.
+func runtimeRebasePlan(conn *sql.Conn, sessionID string, stream SessionStreamState, imported []ProjectedSessionItem) (bool, []ProjectedSessionItem, error) {
+	view, err := loadProjectionView(conn, sessionID, stream)
+	if err != nil {
+		return false, nil, err
+	}
+	index := newImportIndex(imported)
+	preserved := []ProjectedSessionItem{}
+	for _, itemID := range view.Order {
+		item := view.Items[itemID]
+		if item.Origin == "import" {
+			continue
+		}
+		if item.Origin == "runtime" && jsonlRepresentableKind(item.Kind) {
+			if !index.covers(item) {
+				return false, nil, nil
+			}
+			continue
+		}
+		preserved = append(preserved, item)
+	}
+	return true, preserved, nil
+}
+
+func jsonlRepresentableKind(kind string) bool {
+	switch kind {
+	case "user", "pi", "think", "tool":
+		return true
+	default:
+		return false
+	}
+}
+
+type importedTool struct {
+	toolCallID string
+	tool       string
+	args       string
+	body       string
+	status     string
+}
+
+type importIndex struct {
+	texts map[string]int
+	tools []importedTool
+}
+
+func newImportIndex(items []ProjectedSessionItem) importIndex {
+	index := importIndex{texts: map[string]int{}}
+	for _, item := range items {
+		if item.Kind == "tool" {
+			index.tools = append(index.tools, importedTool{
+				toolCallID: item.ToolCallID, tool: item.Tool, args: RedactSecrets(item.Args), body: RedactSecrets(item.Body),
+				status: canonicalManifestStatus(item.Status),
+			})
+			continue
+		}
+		index.texts[item.Kind+"\x00"+RedactSecrets(item.Text)]++
+	}
+	return index
+}
+
+func (index importIndex) covers(item ProjectedSessionItem) bool {
+	if item.Kind == "tool" {
+		return index.coversTool(item)
+	}
+	return index.texts[item.Kind+"\x00"+item.Text] > 0
+}
+
+// coversTool accepts the split JSONL shape where a tool call and its result are
+// separate rows: any single imported row can supply the arguments or the body.
+func (index importIndex) coversTool(item ProjectedSessionItem) bool {
+	argsMatched := false
+	bodyMatched := item.Body == ""
+	status := canonicalManifestStatus(item.Status)
+	for _, candidate := range index.tools {
+		if candidate.tool != item.Tool {
+			continue
+		}
+		if item.ToolCallID != "" && candidate.toolCallID != item.ToolCallID {
+			continue
+		}
+		if !argsMatched && candidate.args == item.Args {
+			argsMatched = true
+		}
+		if !bodyMatched && candidate.body == item.Body && candidate.status == status {
+			bodyMatched = true
+		}
+		if argsMatched && bodyMatched {
+			return true
+		}
+	}
+	return argsMatched && bodyMatched
+}
+
+func rebaseProjection(conn *sql.Conn, source SessionSource, imported ImportedSession, stream SessionStreamState, preserved []ProjectedSessionItem) error {
 	if err := claimControlReceipt(conn, source.SessionID, "control:rebase:"+imported.Fingerprint.ContentHash); err != nil {
 		return err
 	}
@@ -105,21 +210,27 @@ func rebaseProjection(conn *sql.Conn, source SessionSource, imported ImportedSes
 	if err := insertSessionEvent(conn, event); err != nil {
 		return err
 	}
-	if _, err := conn.ExecContext(context.Background(), `DELETE FROM session_items WHERE session_id=? AND origin='import'`, source.SessionID); err != nil {
+	// The verified import is the source of truth: replace every row so runtime
+	// history is never re-appended next to its imported copy.
+	if _, err := conn.ExecContext(context.Background(), `DELETE FROM session_items WHERE session_id=?`, source.SessionID); err != nil {
 		return err
 	}
-	if _, err := conn.ExecContext(context.Background(), `DELETE FROM session_items WHERE session_id=? AND run_id IN (SELECT run_id FROM session_run_manifests WHERE session_id=?)`, source.SessionID, source.SessionID); err != nil {
-		return err
-	}
-	var maxOrdinal int64
-	if err := conn.QueryRowContext(context.Background(), `SELECT coalesce(max(ordinal), 0) FROM session_items WHERE session_id=?`, source.SessionID).Scan(&maxOrdinal); err != nil {
-		return err
-	}
+	ordinal := int64(0)
 	for index := range imported.Items {
 		item := imported.Items[index]
-		item.Ordinal = maxOrdinal + int64(index) + 1
+		ordinal++
+		item.Ordinal = ordinal
 		item.CreatedSeq, item.UpdatedSeq = seq, seq
 		syncContentMetadata(&item, seq)
+		if err := upsertProjectedItem(conn, source.SessionID, item); err != nil {
+			return err
+		}
+	}
+	for index := range preserved {
+		item := preserved[index]
+		ordinal++
+		item.Ordinal = ordinal
+		item.CreatedSeq, item.UpdatedSeq = seq, seq
 		if err := upsertProjectedItem(conn, source.SessionID, item); err != nil {
 			return err
 		}

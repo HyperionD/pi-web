@@ -163,7 +163,7 @@ func importAssistantContent(raw json.RawMessage) ([]ProjectedSessionItem, error)
 		case "toolCall":
 			flush()
 			if block.Name != "" {
-				items = append(items, ProjectedSessionItem{Kind: "tool", Tool: block.Name, Args: string(block.Arguments), Status: ToolStatusOK, BlockIndex: len(items)})
+				items = append(items, ProjectedSessionItem{Kind: "tool", Tool: block.Name, ToolCallID: block.ID, Args: string(block.Arguments), Status: ToolStatusOK, BlockIndex: len(items)})
 			}
 		}
 	}

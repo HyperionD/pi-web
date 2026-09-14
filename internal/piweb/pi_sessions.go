@@ -62,6 +62,7 @@ type agentMessage struct {
 
 type contentBlock struct {
 	Type      string          `json:"type"`
+	ID        string          `json:"id"`
 	Text      string          `json:"text"`
 	Thinking  string          `json:"thinking"`
 	Data      string          `json:"data"`
