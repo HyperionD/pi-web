@@ -191,7 +191,9 @@ export const sessionMethods = {
 
   clearActiveSession(sessionId) {
     clearStoredActiveSession(sessionId);
+    this.stopDurableStream?.();
     this.invalidateEventStream();
+    this.transcriptState = undefined;
     this.dataset.activeSessionId = "";
     this.resetActiveSessionState();
     this.renderMessages([]);

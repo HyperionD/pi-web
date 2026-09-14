@@ -10,6 +10,7 @@ import {
 import { clearStoredActiveSession, readStoredActiveSession, storeActiveSession } from "../sessions/session-storage";
 import { normalizeEventCursor } from "../sessions/session-recovery";
 import { createSessionStreamClient } from "../sessions/session-stream-client";
+import { createTranscriptRenderScheduler } from "../transcript/transcript-render-scheduler";
 import { emptyTranscriptState, type TranscriptState } from "../sessions/transcript-state";
 import { installSessionSnapshot, mergeHistoryPage, reduceSessionEvent } from "../sessions/transcript-reducer";
 import { isForbiddenWorkspaceError, requestErrorMessage } from "./workspace-methods";
@@ -175,7 +176,9 @@ export const workspaceBootstrapMethods = {
       this.updateSessionMeta?.(row, false);
     });
     this.markSelectedSessionRow?.("");
+    this.stopDurableStream?.();
     this.invalidateEventStream();
+    this.transcriptState = undefined;
     this.backgroundSessionWatches?.forEach((watch) => {
       watch.client?.stop?.();
       watch.source?.close?.();
@@ -455,6 +458,31 @@ export const workspaceBootstrapMethods = {
     this.confirmConnection?.();
   },
 
+  ensureDurableTranscriptRenderScheduler() {
+    if (this.durableTranscriptRenderScheduler) return this.durableTranscriptRenderScheduler;
+    this.durableTranscriptRenderScheduler = createTranscriptRenderScheduler({
+      onFlush: () => this.renderDurableTranscript({ syncMode: false }),
+    });
+    return this.durableTranscriptRenderScheduler;
+  },
+
+  scheduleDurableTranscriptRender() {
+    this.ensureDurableTranscriptRenderScheduler().enqueue("durable-transcript");
+  },
+
+  flushDurableTranscriptRender() {
+    this.durableTranscriptRenderScheduler?.flush();
+  },
+
+  syncDurableTranscriptMode() {
+    const state = this.transcriptState;
+    if (!state) return;
+    const mode = state.status === "running" || state.status === "thinking"
+      ? state.status
+      : state.status === "cancelled" ? "cancelled" : "idle";
+    this.setMode(mode);
+  },
+
   renderDurableTranscript({ syncMode = true } = {}) {
     const state = this.transcriptState;
     if (!state) return;
@@ -481,12 +509,7 @@ export const workspaceBootstrapMethods = {
     } else {
       this.patchDurableTranscriptMessages(messages);
     }
-    if (syncMode) {
-      const mode = state.status === "running" || state.status === "thinking"
-        ? state.status
-        : state.status === "cancelled" ? "cancelled" : "idle";
-      this.setMode(mode);
-    }
+    if (syncMode) this.syncDurableTranscriptMode();
   },
 
   patchDurableTranscriptMessages(messages) {
@@ -542,7 +565,9 @@ export const workspaceBootstrapMethods = {
   },
 
   applyDurableEvent(event) {
-    if (!this.transcriptState || event?.sessionId !== this.transcriptState.sessionId) return;
+    if (!this.transcriptState
+      || event?.sessionId !== this.transcriptState.sessionId
+      || event.sessionId !== this.dataset.activeSessionId) return;
     const previous = this.transcriptState;
     let next: TranscriptState;
     try {
@@ -562,7 +587,21 @@ export const workspaceBootstrapMethods = {
     const lifecycleEvent = [
       "run.started", "run.finished", "run.failed", "run.cancelled", "run.interrupted",
     ].includes(event.type);
-    this.renderDurableTranscript({ syncMode: lifecycleEvent });
+    const structuralEvent = lifecycleEvent || [
+      "user.message.created", "assistant.segment.started", "assistant.segment.committed",
+      "tool.started", "tool.args.delta", "tool.output", "tool.finished",
+    ].includes(event.type);
+    if (structuralEvent) {
+      const hadPendingRender = (this.durableTranscriptRenderScheduler?.pendingCount?.() || 0) > 0;
+      this.flushDurableTranscriptRender();
+      if (hadPendingRender) {
+        if (lifecycleEvent) this.syncDurableTranscriptMode();
+        return;
+      }
+      this.renderDurableTranscript({ syncMode: lifecycleEvent });
+      return;
+    }
+    this.scheduleDurableTranscriptRender();
   },
 
   showSessionSwitchLoading(sessionId) {

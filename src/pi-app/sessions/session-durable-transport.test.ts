@@ -223,6 +223,62 @@ describe("durable session transport", () => {
     expect(app.querySelector(".msg[data-kind='pi'] .body").textContent).toContain("answer");
   });
 
+  it("batches high-frequency durable assistant deltas without losing the latest text", async () => {
+    const app = await connectPiApp();
+    app.durableEvents = true;
+    app.connectEvents = vi.fn();
+    await app.loadSession("s1");
+    const source = FakeEventSource.instances.at(-1);
+    source.dispatch("session.event", {
+      seq: "4", sessionId: "s1", runId: "run-1", type: "assistant.segment.started",
+      entityId: "assistant:run-1:1", payload: { kind: "pi" },
+    });
+    const patch = vi.spyOn(app, "patchDurableTranscriptMessages");
+    const renderMessages = vi.spyOn(app, "renderMessages");
+    for (let index = 1; index <= 500; index += 1) {
+      source.dispatch("session.event", {
+        seq: String(index + 4), sessionId: "s1", runId: "run-1", type: "assistant.segment.delta",
+        entityId: "assistant:run-1:1", payload: { kind: "pi", delta: `${index}\n` },
+      });
+    }
+    const expectedText = Array.from({ length: 500 }, (_, index) => String(index + 1)).join("\n");
+    const expectedNormalizedText = expectedText.replace(/\s+/g, " ").trim();
+
+    expect(patch.mock.calls.length).toBeLessThan(500);
+    expect(renderMessages).not.toHaveBeenCalled();
+    await new Promise((resolve) => requestAnimationFrame(resolve));
+    let bodyText = app.querySelector(".msg[data-kind='pi'] .body").textContent.replace(/\s+/g, " ").trim();
+    expect(bodyText).toContain(expectedNormalizedText);
+
+    source.dispatch("session.event", {
+      seq: "505", sessionId: "s1", runId: "run-1", type: "assistant.segment.committed",
+      entityId: "assistant:run-1:1", payload: { kind: "pi", text: expectedText },
+    });
+    source.dispatch("session.event", {
+      seq: "506", sessionId: "s1", runId: "run-1", type: "run.finished", payload: {},
+    });
+    await new Promise((resolve) => requestAnimationFrame(resolve));
+    bodyText = app.querySelector(".msg[data-kind='pi'] .body").textContent.replace(/\s+/g, " ").trim();
+    expect(bodyText).toContain(expectedNormalizedText);
+  });
+
+  it("ignores durable events after the active session is cleared", async () => {
+    const app = await connectPiApp();
+    app.durableEvents = true;
+    app.connectEvents = vi.fn();
+    await app.loadSession("s1");
+    const source = FakeEventSource.instances.at(-1);
+
+    app.clearActiveSession("s1");
+    source.dispatch("session.event", {
+      seq: "4", sessionId: "s1", runId: "run-1", type: "tool.finished",
+      entityId: "tool:run-1:call-1", payload: { body: "stale output", status: "ok" },
+    });
+
+    expect(app.transcriptState).toBeUndefined();
+    expect(app.querySelector(".tool-card")).toBeNull();
+  });
+
   it("does not render a committed thinking segment as agent text", async () => {
     const app = await connectPiApp();
     app.durableEvents = true;

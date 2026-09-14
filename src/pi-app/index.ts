@@ -82,6 +82,7 @@ class PiApp extends HTMLElement {
     if (this.connectionErrorTimer) clearTimeout(this.connectionErrorTimer);
     this.toastDismissObserver?.disconnect?.();
     this.clearStreamingTail?.();
+    this.durableTranscriptRenderScheduler?.reset?.();
     if (this.scrollFrame != null) {
       window.cancelAnimationFrame(this.scrollFrame);
       this.scrollFrame = undefined;

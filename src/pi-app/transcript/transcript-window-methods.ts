@@ -173,6 +173,7 @@ export const transcriptWindowMethods = {
 
   resetTranscriptWindow() {
     this.clearStreamingTail();
+    this.durableTranscriptRenderScheduler?.reset();
     this.durableTranscriptIds = undefined;
     this.cancelTranscriptScroll();
     this.destroyTranscriptVirtualScroller();
