@@ -72,7 +72,10 @@ class PiApp extends HTMLElement {
     this.destroyFilePreviewEditor?.();
     this.stopDurableStream?.();
     this.invalidateEventStream();
-    this.backgroundSessionWatches?.forEach((watch) => watch.source?.close?.());
+    this.backgroundSessionWatches?.forEach((watch) => {
+      watch.client?.stop?.();
+      watch.source?.close?.();
+    });
     this.backgroundSessionWatches?.clear?.();
     if (this.spinnerTimer) clearInterval(this.spinnerTimer);
     if (this.runtimeStatusTimer) clearInterval(this.runtimeStatusTimer);

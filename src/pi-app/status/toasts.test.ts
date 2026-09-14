@@ -219,6 +219,44 @@ describe("pi-app toast notifications", () => {
     expect(app.querySelector("[data-session='background-session']").classList.contains("unread-completed")).toBe(false);
   });
 
+  it("uses durable background streams instead of legacy events", async () => {
+    const sources = [];
+    class FakeEventSource {
+      constructor(url) {
+        this.url = url;
+        this.listeners = {};
+        this.close = vi.fn();
+        sources.push(this);
+      }
+      addEventListener(type, callback) { this.listeners[type] = callback; }
+      emit(type, payload) { this.listeners[type]?.({ data: JSON.stringify(payload) }); }
+    }
+    vi.stubGlobal("EventSource", FakeEventSource);
+    const app = await connectPiApp();
+    app.apiConnected = true;
+    app.durableEvents = true;
+    app.dataset.activeSessionId = "active-session";
+    app.dataset.activeWorkspaceId = "active-workspace";
+    app.notifySessionCompleted = vi.fn();
+    globalThis.fetch = vi.fn(async (url) => String(url).includes("/state")
+      ? { ok: true, status: 200, statusText: "OK", json: async () => ({ seq: "7", status: "running", projectionGeneration: "1", session: { id: "background-session" }, items: [] }) }
+      : { ok: true, status: 200, statusText: "OK", json: async () => ({}) });
+
+    app.renderWorkspaces([
+      { id: "active-workspace", name: "active", sessionCount: 1, sessions: [{ id: "active-session", title: "now" }] },
+      { id: "other-workspace", name: "other", sessionCount: 1, sessions: [{ id: "background-session", title: "background", active: true }] },
+    ]);
+    expect(app.backgroundWatchRows()).toHaveProperty("size", 1);
+    await vi.waitFor(() => expect(sources).toHaveLength(1));
+
+    expect(sources).toHaveLength(1);
+    expect(sources[0].url).toContain("/events-v2?after=7");
+    expect(globalThis.fetch.mock.calls.every(([url]) => !String(url).includes("/events"))).toBe(true);
+    sources[0].emit("session.event", { seq: "8", sessionId: "background-session", type: "run.finished", payload: {} });
+    expect(app.notifySessionCompleted).toHaveBeenCalled();
+    expect(sources[0].close).toHaveBeenCalled();
+  });
+
   it("drops unread completed sessions that are no longer visible", async () => {
     localStorage.setItem("piweb:unread-completed-sessions", JSON.stringify(["missing"]));
     const app = await connectPiApp();
