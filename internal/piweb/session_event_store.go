@@ -84,6 +84,7 @@ type RetentionLimits struct {
 type SQLiteSessionEventStore struct {
 	db                  *sql.DB
 	hub                 *SessionWakeHub
+	writeSlot           chan struct{}
 	closeMu             sync.Mutex
 	closed              bool
 	eventStoreFaultHook func(EventStoreFaultPoint) error

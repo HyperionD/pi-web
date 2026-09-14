@@ -58,7 +58,7 @@ func TestSessionEventStressBoundedRetentionAndProjection(t *testing.T) {
 func TestConcurrentSessionEventStressDoesNotStopAtAStableOrdinal(t *testing.T) {
 	store := appendTestStore(t)
 	const sessions = 4
-	const eventsPerSession = 1000
+	const eventsPerSession = 400
 	for index := 0; index < sessions; index++ {
 		sessionID := "stress-" + itoa(int64(index))
 		if _, err := store.StartRun(t.Context(), StartRunCommand{

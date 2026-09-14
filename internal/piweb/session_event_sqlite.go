@@ -7,9 +7,10 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
-	_ "modernc.org/sqlite"
+	"modernc.org/sqlite"
 )
 
 func OpenSQLiteSessionEventStore(path string, hub *SessionWakeHub) (*SQLiteSessionEventStore, error) {
@@ -23,7 +24,7 @@ func OpenSQLiteSessionEventStore(path string, hub *SessionWakeHub) (*SQLiteSessi
 	if err != nil {
 		return nil, fmt.Errorf("open event store database: %w", err)
 	}
-	store := &SQLiteSessionEventStore{db: db, hub: hub}
+	store := &SQLiteSessionEventStore{db: db, hub: hub, writeSlot: make(chan struct{}, 1)}
 	if err := configureEventDB(db); err != nil {
 		_ = db.Close()
 		return nil, err
@@ -80,13 +81,60 @@ func migrateSessionEventSchema(db *sql.DB) error {
 	return nil
 }
 
-func (s *SQLiteSessionEventStore) withImmediateTx(ctx context.Context, fn func(*sql.Conn) error) (err error) {
+const (
+	eventStoreBusyRetries   = 8
+	eventStoreBusyBaseDelay = 20 * time.Millisecond
+	eventStoreBusyMaxDelay  = 2 * time.Second
+)
+
+// withImmediateTx serializes writers in-process and retries transient lock
+// contention. SQLite allows a single writer, so without this queue every
+// concurrent session turned normal contention into SQLITE_BUSY, which then
+// poisoned the run and left it without a terminal event.
+func (s *SQLiteSessionEventStore) withImmediateTx(ctx context.Context, fn func(*sql.Conn) error) error {
+	if err := s.acquireWrite(ctx); err != nil {
+		return err
+	}
+	defer s.releaseWrite()
+	delay := eventStoreBusyBaseDelay
+	var err error
+	for attempt := 0; ; attempt++ {
+		err = s.runImmediateTx(ctx, fn)
+		if err == nil || !isSQLiteBusyError(err) || attempt >= eventStoreBusyRetries {
+			return err
+		}
+		if waitErr := sleepContext(ctx, delay); waitErr != nil {
+			return err
+		}
+		if delay < eventStoreBusyMaxDelay {
+			delay *= 2
+			if delay > eventStoreBusyMaxDelay {
+				delay = eventStoreBusyMaxDelay
+			}
+		}
+	}
+}
+
+func (s *SQLiteSessionEventStore) acquireWrite(ctx context.Context) error {
 	s.closeMu.Lock()
 	closed := s.closed
 	s.closeMu.Unlock()
 	if closed {
 		return sql.ErrConnDone
 	}
+	select {
+	case s.writeSlot <- struct{}{}:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+func (s *SQLiteSessionEventStore) releaseWrite() {
+	<-s.writeSlot
+}
+
+func (s *SQLiteSessionEventStore) runImmediateTx(ctx context.Context, fn func(*sql.Conn) error) (err error) {
 	conn, err := s.db.Conn(ctx)
 	if err != nil {
 		return err
@@ -108,6 +156,43 @@ func (s *SQLiteSessionEventStore) withImmediateTx(ctx context.Context, fn func(*
 	}
 	_, err = conn.ExecContext(ctx, "COMMIT")
 	return err
+}
+
+// isSQLiteBusyError reports whether err is a transient write-lock failure that
+// is worth retrying. modernc.org/sqlite returns *sqlite.Error for real lock
+// contention; the string fallback keeps the retry testable and covers wrapped
+// driver errors.
+func isSQLiteBusyError(err error) bool {
+	if err == nil {
+		return false
+	}
+	var sqliteErr *sqlite.Error
+	if errors.As(err, &sqliteErr) {
+		switch sqliteErr.Code() & 0xff {
+		case sqliteBusyCode, sqliteLockedCode:
+			return true
+		default:
+			return false
+		}
+	}
+	message := err.Error()
+	return strings.Contains(message, "database is locked") || strings.Contains(message, "database table is locked")
+}
+
+const (
+	sqliteBusyCode   = 5
+	sqliteLockedCode = 6
+)
+
+func sleepContext(ctx context.Context, delay time.Duration) error {
+	timer := time.NewTimer(delay)
+	defer timer.Stop()
+	select {
+	case <-timer.C:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 }
 
 func (s *SQLiteSessionEventStore) Close(ctx context.Context) error {

@@ -37,6 +37,32 @@ func appendToolStartedDraft(runID string, ordinal int64, callID string) SessionE
 	}
 }
 
+func TestAppendRetriesTransientSQLiteBusy(t *testing.T) {
+	store := appendTestStore(t)
+	receipt := appendTestRun(t, store, "req-busy")
+	attempts := 0
+	store.eventStoreFaultHook = func(point EventStoreFaultPoint) error {
+		if point == FaultBeforeCommit && attempts < 2 {
+			attempts++
+			return errors.New("database is locked (5) (SQLITE_BUSY)")
+		}
+		return nil
+	}
+	if _, err := store.Append(t.Context(), "s1", appendToolStartedDraft(receipt.RunID, 1, "call-1")); err != nil {
+		t.Fatalf("append did not retry past a busy error: %v", err)
+	}
+	if attempts != 2 {
+		t.Fatalf("retry attempts = %d, want 2", attempts)
+	}
+	var count int
+	if err := store.db.QueryRow(`SELECT count(*) FROM session_events WHERE session_id='s1' AND event_type=?`, EventToolStarted).Scan(&count); err != nil {
+		t.Fatal(err)
+	}
+	if count != 1 {
+		t.Fatalf("tool.started count = %d, want 1 (retry must not duplicate)", count)
+	}
+}
+
 func TestStartRunCommitsUserAndRunAtomically(t *testing.T) {
 	store := appendTestStore(t)
 	receipt := appendTestRun(t, store, "req-1")
