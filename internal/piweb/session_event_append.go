@@ -55,7 +55,10 @@ func (s *SQLiteSessionEventStore) StartRun(ctx context.Context, command StartRun
 		if err := insertSessionEvent(conn, user); err != nil {
 			return err
 		}
-		view := ProjectionView{Stream: stream, Items: map[string]ProjectedSessionItem{}}
+		view, err := loadProjectionView(conn, command.SessionID, stream)
+		if err != nil {
+			return err
+		}
 		userChange, err := ReduceSessionEvent(view, user)
 		if err != nil {
 			return err
@@ -78,6 +81,9 @@ func (s *SQLiteSessionEventStore) StartRun(ctx context.Context, command StartRun
 		}
 		startedChange.Stream.CurrentRunID = command.RunID
 		startedChange.Stream.CurrentSeq = started.Seq
+		startedChange.Stream.SourceOrdinal = 0
+		startedChange.Stream.SourceHash = ""
+		startedChange.Stream.SourceSeq = 0
 		if err := persistProjectionChange(conn, command.SessionID, startedChange); err != nil {
 			return err
 		}
@@ -118,7 +124,14 @@ func (s *SQLiteSessionEventStore) Append(ctx context.Context, sessionID string, 
 				return ErrInvalidSourceOrdinal
 			}
 			stored, err = loadEvent(conn, sessionID, stream.SourceSeq)
-			return err
+			if err != nil {
+				return err
+			}
+			if stored.RunID != draft.RunID || stored.SourceID != draft.SourceID ||
+				stored.Type != draft.Type || stored.EntityID != draft.EntityID {
+				return ErrInvalidSourceOrdinal
+			}
+			return nil
 		}
 		if *draft.SourceOrdinal != stream.SourceOrdinal+1 {
 			return ErrInvalidSourceOrdinal
@@ -209,7 +222,11 @@ func insertSessionEvent(conn *sql.Conn, event StoredSessionEvent) error {
 	if occurred.IsZero() {
 		occurred = time.Now().UTC()
 	}
-	_, err = conn.ExecContext(context.Background(), `INSERT INTO session_events(session_id, seq, run_id, source_id, source_ordinal, event_type, entity_id, payload_hash, payload_json, occurred_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, event.SessionID, event.Seq, event.RunID, event.SourceID, ordinal, event.Type, event.EntityID, hash, payload, occurred.Format(time.RFC3339Nano))
+	var runID any
+	if event.RunID != "" {
+		runID = event.RunID
+	}
+	_, err = conn.ExecContext(context.Background(), `INSERT INTO session_events(session_id, seq, run_id, source_id, source_ordinal, event_type, entity_id, payload_hash, payload_json, occurred_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, event.SessionID, event.Seq, runID, event.SourceID, ordinal, event.Type, event.EntityID, hash, payload, occurred.Format(time.RFC3339Nano))
 	return err
 }
 

@@ -42,7 +42,9 @@ export const inputMethods = {
       const hasVisiblePrompt = !!text || attachments.length > 0;
       this.writeLastSessionPrompt(sessionId, text);
       if (hasVisiblePrompt) {
-        if (!waitForServerEcho) this.appendMessage({ kind: "user", text, attachments });
+        if (!waitForServerEcho || useDurablePrompt) {
+          this.appendMessage({ kind: "user", text, attachments, optimistic: useDurablePrompt });
+        }
         this.appendLoadingMessage();
         if (text) this.autonameActiveSession(text);
       }
@@ -57,7 +59,8 @@ export const inputMethods = {
         if (useDurablePrompt) {
           try {
             await postPrompt(sessionId, text, attachments);
-          } catch {
+          } catch (error) {
+            this.notifyResponseFailure?.(error);
             this.setMode("idle");
             this.removeLoadingMessage();
             this.setConnection("err");

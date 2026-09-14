@@ -83,7 +83,14 @@ func upsertProjectedItem(conn *sql.Conn, sessionID string, item ProjectedSession
 	if err != nil {
 		return err
 	}
-	_, err = conn.ExecContext(context.Background(), `INSERT INTO session_items(session_id, item_id, ordinal, kind, origin, run_id, entity_id, payload_json, created_seq, updated_seq) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(session_id, item_id) DO UPDATE SET ordinal=excluded.ordinal, kind=excluded.kind, origin=excluded.origin, run_id=excluded.run_id, entity_id=excluded.entity_id, payload_json=excluded.payload_json, updated_seq=excluded.updated_seq`, sessionID, item.ItemID, item.Ordinal, item.Kind, item.Origin, item.RunID, item.EntityID, payload, item.CreatedSeq, item.UpdatedSeq)
+	var runID, entityID any
+	if item.RunID != "" {
+		runID = item.RunID
+	}
+	if item.EntityID != "" {
+		entityID = item.EntityID
+	}
+	_, err = conn.ExecContext(context.Background(), `INSERT INTO session_items(session_id, item_id, ordinal, kind, origin, run_id, entity_id, payload_json, created_seq, updated_seq) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(session_id, item_id) DO UPDATE SET ordinal=excluded.ordinal, kind=excluded.kind, origin=excluded.origin, run_id=excluded.run_id, entity_id=excluded.entity_id, payload_json=excluded.payload_json, updated_seq=excluded.updated_seq`, sessionID, item.ItemID, item.Ordinal, item.Kind, item.Origin, runID, entityID, payload, item.CreatedSeq, item.UpdatedSeq)
 	if err != nil {
 		return err
 	}

@@ -69,12 +69,20 @@ func (r *Runner) consumeDurableRuntimeEvents(ctx context.Context, sessionID stri
 		case event, ok := <-runtime.Events():
 			if !ok {
 				_ = adapter.Fail(errors.New("pi runtime exited"))
-				r.finishDurableRun(sessionID, run)
+				r.abortDurableRun(sessionID, run)
 				return
 			}
-			_ = adapter.Consume(event.Raw)
+			if err := adapter.Consume(event.Raw); err != nil {
+				_ = adapter.Fail(err)
+				r.abortDurableRun(sessionID, run)
+				return
+			}
 			if event.Type == "agent_end" {
-				_ = adapter.Complete(EventRunFinished)
+				if err := adapter.Complete(EventRunFinished); err != nil {
+					_ = adapter.Fail(err)
+					r.abortDurableRun(sessionID, run)
+					return
+				}
 				r.finishDurableRun(sessionID, run)
 				return
 			}
@@ -86,6 +94,19 @@ func (r *Runner) finishDurableRun(sessionID string, run *activePiRun) {
 	run.cancel()
 	if run.commandCancel != nil {
 		run.commandCancel()
+	}
+	r.finishRun(sessionID, run)
+}
+
+func (r *Runner) abortDurableRun(sessionID string, run *activePiRun) {
+	run.cancel()
+	if run.commandCancel != nil {
+		run.commandCancel()
+	}
+	if r.manager != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), cancelAbortTimeout)
+		_ = r.manager.RetireOwned(ctx, run.ownership)
+		cancel()
 	}
 	r.finishRun(sessionID, run)
 }

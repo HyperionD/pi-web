@@ -70,6 +70,7 @@ class PiApp extends HTMLElement {
   }
   disconnectedCallback() {
     this.destroyFilePreviewEditor?.();
+    this.stopDurableStream?.();
     this.invalidateEventStream();
     this.backgroundSessionWatches?.forEach((watch) => watch.source?.close?.());
     this.backgroundSessionWatches?.clear?.();

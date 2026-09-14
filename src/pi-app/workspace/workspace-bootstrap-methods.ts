@@ -346,6 +346,7 @@ export const workspaceBootstrapMethods = {
     const requestedViewGeneration = options.viewGeneration;
     if (requestedViewGeneration && this.sessionViewGeneration !== requestedViewGeneration) return;
     this.sessionLoadToken = loadToken;
+    this.stopDurableStream?.();
     this.invalidateEventStream?.({ preserveResync: true });
     const loadViewGeneration = this.sessionViewGeneration;
     const isCurrentResource = () => (
@@ -377,21 +378,23 @@ export const workspaceBootstrapMethods = {
   },
 
   async loadDurableSessionState(sessionId) {
+    let state;
     try {
-      const state = await getSessionState(sessionId, { limit: SESSION_MESSAGE_PAGE_SIZE });
-      if (!state || typeof state.projectionGeneration === "undefined") return undefined;
-      this.transcriptState = installSessionSnapshot(
-        emptyTranscriptState(sessionId, this.sessionViewGeneration),
-        state,
-      );
-      return state;
+      state = await getSessionState(sessionId, { limit: SESSION_MESSAGE_PAGE_SIZE });
     } catch {
       return undefined;
     }
+    if (!state || typeof state.projectionGeneration === "undefined") return undefined;
+    if (state.session?.id !== sessionId) throw new Error("durable snapshot session mismatch");
+    return state;
   },
 
   applyLoadedDurableSession(state) {
     const session = state.session || { id: this.dataset.activeSessionId };
+    this.transcriptState = installSessionSnapshot(
+      emptyTranscriptState(session.id, this.sessionViewGeneration),
+      state,
+    );
     this.dataset.activeSessionId = session.id;
     this.resetActiveSessionState?.();
     const workspaceId = session.workspaceId || this.findSessionRow(session.id)?.dataset.workspace;
@@ -459,14 +462,16 @@ export const workspaceBootstrapMethods = {
 
   applyDurableEvent(event) {
     if (!this.transcriptState || event?.sessionId !== this.transcriptState.sessionId) return;
+    const previous = this.transcriptState;
     let next: TranscriptState;
     try {
-      next = reduceSessionEvent(this.transcriptState, event);
+      next = reduceSessionEvent(previous, event);
     } catch {
       this.stopDurableStream();
       void this.requestSessionResync(this.dataset.activeSessionId);
       return;
     }
+    if (next === previous) return;
     this.transcriptState = next;
     this.setSessionEventCursor(event.sessionId, event.seq);
     this.confirmConnection?.();
@@ -500,6 +505,7 @@ export const workspaceBootstrapMethods = {
         break;
       }
       case "run.finished":
+        this.finishRunningTools?.();
         this.commitStreamingMessages?.();
         this.removeLoadingMessage?.();
         this.setMode("idle");
@@ -512,6 +518,7 @@ export const workspaceBootstrapMethods = {
       case "run.failed":
         this.finishRunningTools?.({ status: "err", resultMeta: "failed" });
         this.appendErrorMessage?.(payload.error);
+        this.notifyResponseFailure?.(payload.error || "runtime failed");
         this.setMode("idle");
         break;
       case "run.interrupted":

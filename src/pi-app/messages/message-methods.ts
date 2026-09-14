@@ -74,7 +74,7 @@ export const messageMethods = {
   },
 
   isDuplicateMessage(message) {
-    if (!["user", "pi", "think"].includes(message.kind)) return false;
+    if (message.optimistic || !["user", "pi", "think"].includes(message.kind)) return false;
     const messages = [...this.termInner.querySelectorAll(".msg:not(.loading):not(.streaming)")];
     const last = messages.at(-1);
     return last?.dataset.kind === message.kind && (last.dataset.rawText ?? last.querySelector(".body")?.textContent) === message.text;

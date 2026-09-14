@@ -104,7 +104,7 @@ func (a *RuntimeEventAdapter) Complete(eventType string) error {
 
 func (a *RuntimeEventAdapter) Fail(err error) error {
 	if a.poisoned != nil {
-		return a.poisoned
+		err = a.poisoned
 	}
 	a.pending = nil
 	a.poisoned = err
@@ -308,8 +308,7 @@ func (a *RuntimeEventAdapter) emitWithType(eventType, entityID string, payload a
 	if len(data) > runtimeMaxPayloadBytes {
 		return a.poison(fmt.Errorf("runtime payload exceeds %d bytes", runtimeMaxPayloadBytes))
 	}
-	a.ordinal++
-	ordinal := a.ordinal
+	ordinal := a.ordinal + 1
 	stored, err := a.sink.Append(context.Background(), a.sessionID, SessionEventDraft{
 		SessionID: a.sessionID, RunID: a.runID, SourceID: fmt.Sprintf("%s:event:%d", a.runID, ordinal),
 		SourceOrdinal: &ordinal, Type: eventType, EntityID: entityID, Payload: data, OccurredAt: a.now(),
@@ -317,6 +316,7 @@ func (a *RuntimeEventAdapter) emitWithType(eventType, entityID string, payload a
 	if err != nil {
 		return a.poison(err)
 	}
+	a.ordinal = ordinal
 	_ = stored
 	return nil
 }

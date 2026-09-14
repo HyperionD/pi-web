@@ -158,7 +158,6 @@ export const transcriptWindowMethods = {
   },
 
   clearStreamingTail() {
-    this.stopDurableStream?.();
     this.streamingTail?.replaceChildren();
     this.streamingRows = {};
     this.pendingStreamingRow = undefined;

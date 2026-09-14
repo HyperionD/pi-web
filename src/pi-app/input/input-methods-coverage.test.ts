@@ -177,6 +177,25 @@ describe("pi-app input methods coverage", () => {
     await app.submitSteeringPrompt("no prompt");
   });
 
+  it("reports durable prompt failures without a completion notification", async () => {
+    const app = await connectPiApp();
+    app.apiConnected = true;
+    app.durableEvents = true;
+    app.dataset.activeSessionId = "s-post";
+    app.prompt.value = "post failure";
+    app.notifyResponseFailure = vi.fn((detail) => {
+      app.responseFailureToastShown = true;
+      app.responseFailureDetail = String(detail);
+    });
+    app.notifyResponseCompletedOnce = vi.fn();
+    globalThis.fetch = vi.fn(async () => err("post failed"));
+
+    await app.submitPrompt();
+
+    expect(app.notifyResponseFailure).toHaveBeenCalledWith(expect.any(Error));
+    expect(app.notifyResponseCompletedOnce).not.toHaveBeenCalled();
+  });
+
   it("marks post failures while waiting for server echo", async () => {
     const app = await connectPiApp();
     app.apiConnected = true;

@@ -115,6 +115,39 @@ func TestAppendLatestSourceRetryIsIdempotent(t *testing.T) {
 	}
 }
 
+func TestStartRunResetsRuntimeSourceFenceForNextRun(t *testing.T) {
+	store := appendTestStore(t)
+	first := appendTestRun(t, store, "req-1")
+	ordinal := int64(1)
+	if _, err := store.Append(t.Context(), "s1", SessionEventDraft{
+		SessionID: "s1", RunID: first.RunID, SourceID: first.RunID + ":event:1",
+		SourceOrdinal: &ordinal, Type: EventRunFinished, Payload: json.RawMessage(`{}`),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	second := appendTestRun(t, store, "req-2")
+	if _, err := store.Append(t.Context(), "s1", appendToolStartedDraft(second.RunID, 1, "call-2")); err != nil {
+		t.Fatalf("second run ordinal 1 was rejected: %v", err)
+	}
+}
+
+func TestAppendRejectsSameOrdinalFromDifferentEventIdentity(t *testing.T) {
+	store := appendTestStore(t)
+	receipt := appendTestRun(t, store, "req-1")
+	draft := appendToolStartedDraft(receipt.RunID, 1, "call-1")
+	if _, err := store.Append(t.Context(), "s1", draft); err != nil {
+		t.Fatal(err)
+	}
+	draft.SourceID = receipt.RunID + ":different-source"
+	if _, err := store.Append(t.Context(), "s1", draft); !errors.Is(err, ErrInvalidSourceOrdinal) {
+		t.Fatalf("different source retry error = %v", err)
+	}
+	draft = appendToolStartedDraft("old-run", 1, "call-1")
+	if _, err := store.Append(t.Context(), "s1", draft); !errors.Is(err, ErrInvalidSourceOrdinal) {
+		t.Fatalf("different run retry error = %v", err)
+	}
+}
+
 func TestAppendRejectsStaleRunAndSourceGap(t *testing.T) {
 	store := appendTestStore(t)
 	receipt := appendTestRun(t, store, "req-1")
