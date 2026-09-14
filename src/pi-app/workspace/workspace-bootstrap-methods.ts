@@ -176,7 +176,10 @@ export const workspaceBootstrapMethods = {
     });
     this.markSelectedSessionRow?.("");
     this.invalidateEventStream();
-    this.backgroundSessionWatches?.forEach((watch) => watch.source?.close?.());
+    this.backgroundSessionWatches?.forEach((watch) => {
+      watch.client?.stop?.();
+      watch.source?.close?.();
+    });
     this.backgroundSessionWatches?.clear?.();
     this.sessionLoadToken = Symbol("cleared-workspace");
     this.runtimeStatusRequestToken = Symbol("cleared-workspace");

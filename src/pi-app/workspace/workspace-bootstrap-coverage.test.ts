@@ -192,11 +192,13 @@ describe("workspace bootstrap coverage", () => {
     row.dataset.workspace = "w1";
     app.append(row);
     const watch = vi.spyOn(app, "watchBackgroundSession");
-    app.backgroundSessionWatches = new Map([["s2", { source: { close: vi.fn() } }]]);
+    const clientStop = vi.fn();
+    app.backgroundSessionWatches = new Map([["s2", { client: { stop: clientStop }, source: { close: vi.fn() } }]]);
 
     app.clearActiveWorkspaceView();
 
     expect(watch).not.toHaveBeenCalled();
+    expect(clientStop).toHaveBeenCalled();
     expect(row.classList.contains("active")).toBe(false);
   });
 
