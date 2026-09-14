@@ -131,6 +131,43 @@ describe("durable session transport", () => {
     expect(app.querySelector(".tool-card .tc-body").textContent).toContain("live output");
   });
 
+  it("does not announce completion for the user event before run start", async () => {
+    const app = await connectPiApp();
+    app.durableEvents = true;
+    app.connectEvents = vi.fn();
+    globalThis.fetch = vi.fn(async (url) => String(url).includes("/state")
+      ? { ok: true, status: 200, statusText: "OK", json: async () => ({ ...durableState(), items: [], status: "idle", runId: undefined, seq: "0" }) }
+      : { ok: true, status: 200, statusText: "OK", json: async () => ({}) });
+    await app.loadSession("s1");
+    app.notifyResponseCompletedOnce = vi.fn();
+    app.running = true;
+    const source = FakeEventSource.instances.at(-1);
+
+    source.dispatch("session.event", {
+      seq: "1", sessionId: "s1", runId: "run-2", type: "user.message.created", sourceId: "user:run-2",
+      payload: { text: "hello" },
+    });
+
+    expect(app.notifyResponseCompletedOnce).not.toHaveBeenCalled();
+    expect(app.running).toBe(true);
+  });
+
+  it("keeps the existing tool body node while patching output", async () => {
+    const app = await connectPiApp();
+    app.durableEvents = true;
+    app.connectEvents = vi.fn();
+    await app.loadSession("s1");
+    const source = FakeEventSource.instances.at(-1);
+    const body = app.querySelector(".tool-card .tc-body");
+
+    source.dispatch("session.event", {
+      seq: "4", sessionId: "s1", runId: "run-1", type: "tool.output", entityId: "tool:run-1:call-1",
+      payload: { chunk: "live output", mode: "append" },
+    });
+
+    expect(app.querySelector(".tool-card .tc-body")).toBe(body);
+  });
+
   it("renders assistant output from events after a durable prompt", async () => {
     const app = await connectPiApp();
     app.durableEvents = true;

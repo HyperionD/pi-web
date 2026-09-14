@@ -455,7 +455,7 @@ export const workspaceBootstrapMethods = {
     this.confirmConnection?.();
   },
 
-  renderDurableTranscript() {
+  renderDurableTranscript({ syncMode = true } = {}) {
     const state = this.transcriptState;
     if (!state) return;
     const ids = state.itemOrder;
@@ -470,10 +470,12 @@ export const workspaceBootstrapMethods = {
     } else {
       this.patchDurableTranscriptMessages(messages);
     }
-    const mode = state.status === "running" || state.status === "thinking"
-      ? state.status
-      : state.status === "cancelled" ? "cancelled" : "idle";
-    this.setMode(mode);
+    if (syncMode) {
+      const mode = state.status === "running" || state.status === "thinking"
+        ? state.status
+        : state.status === "cancelled" ? "cancelled" : "idle";
+      this.setMode(mode);
+    }
   },
 
   patchDurableTranscriptMessages(messages) {
@@ -482,14 +484,50 @@ export const workspaceBootstrapMethods = {
       const message = messages[index];
       if (!item || JSON.stringify(item.message) === JSON.stringify(message)) continue;
       item.message = message;
-      item.nodes = undefined;
       const wrapper = this.termInner?.querySelector(`[data-transcript-item='${item.id}']`);
-      if (!wrapper) continue;
-      const nodes = this.transcriptElementNodes(this.messageNode(message));
-      item.nodes = nodes;
-      wrapper.replaceChildren(...nodes);
+      if (!wrapper) {
+        item.nodes = undefined;
+        continue;
+      }
+      if (!this.patchDurableTranscriptNode(wrapper, message)) {
+        const nodes = this.transcriptElementNodes(this.messageNode(message));
+        item.nodes = nodes;
+        wrapper.replaceChildren(...nodes);
+      }
       this.notifyTranscriptItemHeightDidChange?.(item, wrapper);
     }
+  },
+
+  patchDurableTranscriptNode(wrapper, message) {
+    const current = wrapper.firstElementChild;
+    if (!current || message.kind === "tool" && !current.matches(".tool-card")) return false;
+    const rendered = this.transcriptElementNodes(this.messageNode(message))[0];
+    if (!rendered || rendered.nodeType !== Node.ELEMENT_NODE) return false;
+    if (message.kind === "tool") {
+      current.dataset.status = rendered.dataset.status || "";
+      current.querySelector(".tc-name").textContent = rendered.querySelector(".tc-name")?.textContent || "tool";
+      current.querySelector(".tc-args").textContent = rendered.querySelector(".tc-args")?.textContent || "";
+      current.querySelector(".tc-meta").innerHTML = rendered.querySelector(".tc-meta")?.innerHTML || "";
+      const body = current.querySelector(".tc-body");
+      const nextBody = rendered.querySelector(".tc-body");
+      if (body && nextBody) {
+        body.innerHTML = nextBody.innerHTML;
+        if (message.body) this.storeDurableToolBody?.(body, message.body);
+      }
+      this.latestToolCards = { ...(this.latestToolCards || {}), [message.id]: current };
+      return true;
+    }
+    const body = current.querySelector(".body");
+    const nextBody = rendered.querySelector(".body");
+    if (!body || !nextBody) return false;
+    current.dataset.rawText = message.text || "";
+    body.innerHTML = nextBody.innerHTML;
+    return true;
+  },
+
+  storeDurableToolBody(body, text) {
+    body.__fullToolBody = text;
+    body.dataset.largeToolBody = "true";
   },
 
   applyDurableEvent(event) {
@@ -510,7 +548,10 @@ export const workspaceBootstrapMethods = {
     if (event.type === "run.failed") {
       this.notifyResponseFailure?.(String(event.payload?.error || "runtime failed"));
     }
-    this.renderDurableTranscript();
+    const lifecycleEvent = [
+      "run.started", "run.finished", "run.failed", "run.cancelled", "run.interrupted",
+    ].includes(event.type);
+    this.renderDurableTranscript({ syncMode: lifecycleEvent });
   },
 
   showSessionSwitchLoading(sessionId) {
