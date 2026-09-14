@@ -494,7 +494,10 @@ export const workspaceBootstrapMethods = {
         if (payload.delta) this.appendDelta({ kind: payload.kind === "think" ? "think" : "pi", delta: payload.delta });
         break;
       case "assistant.segment.committed":
-        if (payload.text) this.finalizePiStream(payload.text);
+        if (payload.text) {
+          if (payload.kind === "think") this.finalizeThinkingStream(payload.text);
+          else this.finalizePiStream(payload.text);
+        }
         break;
       case "tool.started": {
         const tool = this.durableToolMessage(event, payload);

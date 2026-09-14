@@ -185,6 +185,19 @@ export const messageMethods = {
     this.scrollTerm();
   },
 
+  finalizeThinkingStream(text) {
+    if (!this.termInner || !text) return;
+    this.flushStreamingRender();
+    const message = { kind: "think", text };
+    const isDuplicate = this.isDuplicateMessage(message);
+    this.removeLoadingMessage();
+    for (const row of this.streamingRowsForKind("think")) this.removeStreamingNode(row);
+    if (!isDuplicate) this.appendTranscriptNode(this.messageNode(message), { stickToBottom: true });
+    this.clearStreamingState("think");
+    this.syncLoadingMessage();
+    this.scrollTerm();
+  },
+
   clearStreamingState(kind) {
     this.flushStreamingRender();
     if (kind === "pi") {

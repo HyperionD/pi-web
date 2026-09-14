@@ -122,6 +122,24 @@ describe("durable session transport", () => {
     expect(app.querySelector(".msg[data-kind='pi'] .body").textContent).toContain("answer");
   });
 
+  it("does not render a committed thinking segment as agent text", async () => {
+    const app = await connectPiApp();
+    app.durableEvents = true;
+    app.connectEvents = vi.fn();
+    globalThis.fetch = vi.fn(async (url) => String(url).includes("/state")
+      ? { ok: true, status: 200, statusText: "OK", json: async () => ({ ...durableState(), items: [], status: "running", runId: "run-1", seq: "0" }) }
+      : { ok: true, status: 200, statusText: "OK", json: async () => ({}) });
+    await app.loadSession("s1");
+    const source = FakeEventSource.instances.at(-1);
+
+    source.dispatch("session.event", { seq: "1", sessionId: "s1", runId: "run-1", type: "assistant.segment.started", entityId: "thinking:run-1:1", payload: { kind: "think" } });
+    source.dispatch("session.event", { seq: "2", sessionId: "s1", runId: "run-1", type: "assistant.segment.delta", entityId: "thinking:run-1:1", payload: { kind: "think", delta: "plan" } });
+    source.dispatch("session.event", { seq: "3", sessionId: "s1", runId: "run-1", type: "assistant.segment.committed", entityId: "thinking:run-1:1", payload: { kind: "think", text: "plan" } });
+
+    expect(app.querySelector(".msg[data-kind='pi'] .body")?.textContent || "").not.toContain("plan");
+    expect(app.querySelector(".msg[data-kind='think'] .body")?.textContent || "").toContain("plan");
+  });
+
   it("immediately shows a repeated user prompt exactly once", async () => {
     const priorUser = { itemId: "user:prior", ordinal: 1, kind: "user", origin: "runtime", text: "hello" };
     globalThis.fetch = vi.fn(async (url) => {
