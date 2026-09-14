@@ -182,7 +182,33 @@ func reduceTerminalRun(view ProjectionView, event StoredSessionEvent) (Projectio
 		item.UpdatedSeq = event.Seq
 		change.Terminalize = append(change.Terminalize, item)
 	}
+	if event.Type == EventRunFailed {
+		errorItem, err := projectRunFailureError(view, event)
+		if err != nil {
+			return ProjectionChange{}, err
+		}
+		change.Upsert = errorItem
+	}
 	return change, nil
+}
+
+// projectRunFailureError converts a run failure payload into a durable transcript
+// item so the message survives snapshot resyncs, rebases and session reloads.
+func projectRunFailureError(view ProjectionView, event StoredSessionEvent) (*ProjectedSessionItem, error) {
+	var payload struct {
+		Error string `json:"error"`
+	}
+	if err := decodeEventPayload(event, &payload); err != nil {
+		return nil, err
+	}
+	if strings.TrimSpace(payload.Error) == "" {
+		return nil, nil
+	}
+	item := ProjectedSessionItem{
+		ItemID: "error:" + event.RunID, Ordinal: nextOrdinal(view), Kind: "error", Origin: "runtime",
+		RunID: event.RunID, Text: payload.Error, CreatedSeq: event.Seq, UpdatedSeq: event.Seq,
+	}
+	return &item, nil
 }
 
 func terminalStatuses(eventType string) (string, string) {

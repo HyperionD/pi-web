@@ -124,6 +124,38 @@ func TestReduceSessionEventTerminalizesToolsAndSegments(t *testing.T) {
 	}
 }
 
+func TestReduceSessionEventProjectsRunFailureError(t *testing.T) {
+	view := activeProjection("run-1")
+	view.Items = map[string]ProjectedSessionItem{
+		"assistant:run-1:1": {ItemID: "assistant:run-1:1", Kind: "pi", RunID: "run-1", Status: ItemStatusStreaming, Ordinal: 1},
+	}
+	view.Order = []string{"assistant:run-1:1"}
+	change, err := ReduceSessionEvent(view, storedProjectionEvent("run-1", 2, EventRunFailed, "", map[string]any{"error": "429 rate limit"}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if change.Stream.Status != SessionStatusError {
+		t.Fatalf("status = %q", change.Stream.Status)
+	}
+	if change.Upsert == nil || change.Upsert.Kind != "error" || change.Upsert.Text != "429 rate limit" {
+		t.Fatalf("error item = %#v", change.Upsert)
+	}
+	if change.Upsert.RunID != "run-1" || change.Upsert.Ordinal != 2 || change.Upsert.ItemID != "error:run-1" {
+		t.Fatalf("error item metadata = %#v", change.Upsert)
+	}
+}
+
+func TestReduceSessionEventSkipsRunFailureWithoutErrorText(t *testing.T) {
+	view := activeProjection("run-1")
+	change, err := ReduceSessionEvent(view, storedProjectionEvent("run-1", 2, EventRunFailed, "", map[string]any{}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if change.Upsert != nil {
+		t.Fatalf("unexpected error item = %#v", change.Upsert)
+	}
+}
+
 func TestReduceSessionEventRejectsStaleRunAndInvalidEntity(t *testing.T) {
 	stale := storedProjectionEvent("run-old", 1, EventToolOutput, "tool:run-old:call-1", map[string]any{"chunk": "x"})
 	if _, err := ReduceSessionEvent(activeProjection("run-new"), stale); !errors.Is(err, ErrStaleSessionRun) {

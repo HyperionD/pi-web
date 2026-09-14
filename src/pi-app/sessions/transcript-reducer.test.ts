@@ -182,6 +182,43 @@ describe("transcript reducer", () => {
     }
   });
 
+  it("projects the run failure error as a durable transcript item", () => {
+    let state = installSessionSnapshot(emptyTranscriptState("s1"), snapshot({ seq: "0", status: "running" }));
+    state = reduceSessionEvent(state, event({ seq: "1", type: "assistant.segment.started", entityId: "assistant:run-1:1", payload: { kind: "pi" } }));
+    state = reduceSessionEvent(state, event({ seq: "2", type: "run.failed", payload: { error: "429 rate limit" } }));
+    const errorItem = state.itemsById.get("error:run-1");
+    expect(errorItem?.kind).toBe("error");
+    expect(errorItem?.text).toBe("429 rate limit");
+    expect(state.status).toBe("error");
+    expect(state.itemOrder).toContain("error:run-1");
+  });
+
+  it("does not project a run failure item without an error message", () => {
+    let state = installSessionSnapshot(emptyTranscriptState("s1"), snapshot({ seq: "0", status: "running" }));
+    state = reduceSessionEvent(state, event({ seq: "1", type: "run.failed", payload: {} }));
+    expect([...state.itemsById.keys()]).toHaveLength(0);
+  });
+
+  it("keys a run failure item by sequence when the run id is missing", () => {
+    let state = installSessionSnapshot(emptyTranscriptState("s1"), snapshot({ seq: "0", status: "running" }));
+    state = reduceSessionEvent(state, event({ seq: "1", type: "run.failed", runId: undefined, payload: { error: "  boom  " } }));
+    expect(state.itemsById.get("error:1")?.text).toBe("boom");
+  });
+
+  it("normalizes snapshot items without ids, ordinals or kinds", () => {
+    const state = installSessionSnapshot(emptyTranscriptState("s1"), snapshot({
+      items: [
+        { id: "explicit", ordinal: 7, kind: "", origin: "", text: "", bodyPreview: "b" },
+        { itemId: "from-item", body: "body" },
+        {},
+      ] as unknown as TranscriptItem[],
+    }));
+    expect(state.itemsById.get("explicit")?.kind).toBe("pi");
+    expect(state.itemsById.get("explicit")?.ordinal).toBe(7);
+    expect(state.itemsById.get("from-item")?.bodyPreview).toBe("body");
+    expect(state.itemsById.get("item:3")?.origin).toBe("runtime");
+  });
+
   it("ignores duplicate, stale and foreign events and rejects gaps and rebases", () => {
     const state = { ...emptyTranscriptState("s1"), appliedSeq: "5" };
     expect(reduceSessionEvent(state, event({ seq: "5" }))).toBe(state);

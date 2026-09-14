@@ -2,7 +2,7 @@ export type SessionSeq = string;
 
 export const MAX_SESSION_SEQ = 9_223_372_036_854_775_807n;
 
-export type TranscriptItemKind = "user" | "pi" | "think" | "tool" | "annotation" | "banner";
+export type TranscriptItemKind = "user" | "pi" | "think" | "tool" | "error" | "annotation" | "banner";
 
 export type TranscriptItem = {
   id: string;

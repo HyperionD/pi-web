@@ -90,6 +90,26 @@ describe("durable session transport", () => {
     expect(app.transcriptState.appliedSeq).toBe("4");
   });
 
+  it("renders a durable run failure error from the snapshot", async () => {
+    const app = await connectPiApp();
+    app.durableEvents = true;
+    app.connectEvents = vi.fn();
+    globalThis.fetch = vi.fn(async (url) => String(url).includes("/state")
+      ? {
+        ok: true, status: 200, statusText: "OK", json: async () => ({
+          ...durableState(),
+          items: [{ itemId: "error:run-1", ordinal: 2, kind: "error", origin: "runtime", runId: "run-1", text: "429 rate limit", bodyPreview: "" }],
+          status: "error", runId: undefined, seq: "4",
+        }),
+      }
+      : { ok: true, status: 200, statusText: "OK", json: async () => ({ workspaces: [] }) });
+    await app.loadSession("s1");
+
+    const errorRow = app.querySelector(".msg[data-kind='error']");
+    expect(errorRow).not.toBeNull();
+    expect(errorRow.textContent).toContain("429 rate limit");
+  });
+
   it("renders assistant output from events after a durable prompt", async () => {
     const app = await connectPiApp();
     app.durableEvents = true;

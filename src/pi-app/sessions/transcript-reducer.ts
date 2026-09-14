@@ -196,8 +196,21 @@ function applyEvent(state: TranscriptState, event: DurableSessionEvent): Transcr
     }
     case "run.finished":
       return terminalizeRun(state, "ok", "idle");
-    case "run.failed":
-      return terminalizeRun(state, "err", "error");
+    case "run.failed": {
+      const next = terminalizeRun(state, "err", "error");
+      const errorText = typeof payload.error === "string" ? payload.error.trim() : "";
+      if (!errorText) return next;
+      const id = `error:${event.runId || event.seq}`;
+      return upsertItem(next, {
+        id,
+        ordinal: next.itemOrder.length + 1,
+        kind: "error",
+        origin: "runtime",
+        runId: event.runId,
+        text: errorText,
+        bodyPreview: "",
+      });
+    }
     case "run.cancelled":
       return terminalizeRun(state, "cancelled", "cancelled");
     case "run.interrupted":
