@@ -16,8 +16,9 @@
 
 - 后端 durable 栈：**已完成**，生产路径默认启用（`OpenServer` 打开事件库并执行启动恢复）。
 - 前端 durable 渲染：**已接入**，通过 `/api/health` 的 `durableEvents` 能力位启用；无事件库时回退旧路径（mock/dev）。
-- 旧链路删除与 Playwright 验收矩阵启用：**未完成**（见第 6 节）。
-- 所有自动化测试当前全绿（见第 5 节）。
+- durable prompt 已接入普通 Web UI；新建会话也直接连接 v2 durable stream。
+- Playwright 验收矩阵：**已启用并通过 8/8**。
+- 旧 Broker 删除与 DOM-owned tool state 清理：**未完成**（见第 6 节）。
 
 ## 3. 已完成提交（`990804be..HEAD`，共 16 个）
 
@@ -39,6 +40,9 @@
 | `1c5f2452` | 可配置 retention、10k 事件/10MiB 压力测试、Playwright 脚手架 |
 | `ccbc42db` | 后端端到端：`StartDurablePrompt`、`/prompt` 走命令服务、生产 `OpenServer` |
 | `48115aa4` | 前端端到端：`/state` + reducer + v2 SSE，health 能力探测与回退 |
+| `5cc61bc3` | 修复 `OpenServer`：启动时正确 attach durable command service |
+| `68adc223` | 普通 prompt 走 durable `/prompt`；真实快照字段归一化；durable 历史分页；启用并实现 Playwright fixture |
+| `38cea484` | 新建会话直接连接 durable v2 stream |
 
 ## 4. 关键架构与不变量（继续开发前必读）
 
@@ -55,7 +59,7 @@
 ## 5. 校验结果（可复现）
 
 ```bash
-bun run test          # 553 passed
+bun run test          # 557 passed
 bun run lint          # ok
 bun run typecheck     # ok
 go build ./...        # ok
@@ -80,9 +84,10 @@ go test -race ./internal/piweb -run 'TestAppend|TestStartRun|TestStartPrompt|Tes
 
 ### 6.2 启用 Playwright 验收矩阵
 
-- `e2e/session-stream-recovery.spec.ts` 当前为 `test.fixme()`。
-- 需要实现 fixture 的浏览器侧桥：把 fixture 产生的持久化事件通过 `MockEventSource.dispatch("session.event", …)` 推给页面；目前 fixture 只记录事件、不推送。
-- `playwright.config.ts`、`.env.test` 已就绪；`bun run test:e2e` 可启动 Astro dev server（8 个用例被跳过）。
+- `e2e/session-stream-recovery.spec.ts` 已移除 `test.fixme()`。
+- fixture 已实现 health/workspaces/state、动态 projection、`MockEventSource` 推送、断流后的按 cursor replay。
+- `bun run test:e2e` 当前 8/8 通过。
+- E2E 仍是确定性 UI fixture，不替代真实 SQLite backend 的浏览器联调。
 
 ### 6.3 前端覆盖率缺口（既有）
 
@@ -125,6 +130,7 @@ go test -race ./internal/piweb -run 'TestAppend|TestStartRun|TestStartPrompt|Tes
 ## 9. 约束与偏好（延续）
 
 - 所有提交包含 `Co-authored-by: JuunAI <juunai.ai.i@gmail.com>`。
-- 不修改/提交生成的 `static/`、`dist/`。
+- 不修改/提交生成的 `static/`、`dist/`；当前工作区已有未提交 static 变更，继续开发时不要 stage。
+- 最近一次 Go 全量测试曾出现一次 `TestSnapshotCursorSafelyBridgesPublishBeforeSubscribe` flaky 失败；单独连续复跑 3 次通过，未修改旧 Broker 代码。
 - TDD：先失败测试再实现；遵循 Conventional Commits。
 - 当前分支非 `main`，可直接继续；如需隔离可建 worktree。
