@@ -50,6 +50,28 @@ func eventMustJSON(t *testing.T, value any) []byte {
 	return data
 }
 
+func TestSessionStateOpensTheSessionFileInsteadOfCWD(t *testing.T) {
+	events := appendTestStore(t)
+	hub := NewSessionWakeHub()
+	webStore := NewMockStore()
+	path := writePiSessionFile(t, sessionHeaderLine(), userMessageLine("e1", "hello"))
+	webStore.sessionFiles["8e7c-44ff"] = path
+	webStore.sessionCWD["8e7c-44ff"] = t.TempDir()
+	seedEventStream(t, events, "8e7c-44ff")
+	server := NewServerWithEventStore(Config{}, webStore, NewBroker(), events, hub)
+	httpServer := httptest.NewServer(server.Handler())
+	defer httpServer.Close()
+
+	response, err := http.Get(httpServer.URL + "/api/sessions/8e7c-44ff/state")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d", response.StatusCode)
+	}
+}
+
 func TestSessionStateReturnsProjectionAndCursor(t *testing.T) {
 	_, store, httpServer := newEventHTTPTestServer(t, "8e7c-44ff")
 	defer httpServer.Close()

@@ -42,7 +42,7 @@ func (s *Server) sessionState(w http.ResponseWriter, r *http.Request) {
 		writeStoreError(w, err)
 		return
 	}
-	if _, file, ok := s.store.SessionRuntime(sessionID); ok && file != "" {
+	if file, _, ok := s.store.SessionRuntime(sessionID); ok && file != "" {
 		if _, err := s.events.OpenSession(r.Context(), SessionSource{SessionID: sessionID, Path: file}); err != nil {
 			writeError(w, http.StatusInternalServerError, err)
 			return
