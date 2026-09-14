@@ -70,8 +70,9 @@ func (s *SessionCommandService) StartPromptWith(ctx context.Context, command Sta
 	}
 	adapter := NewRuntimeEventAdapter(command.SessionID, receipt.RunID, s.events)
 	images := imagePromptAttachments(command.Attachments)
+	runtimeContext := context.WithoutCancel(ctx)
 	s.launch(func() {
-		if startErr := starter.StartPrompt(ctx, command.SessionID, receipt.RunID, command.Text, images, adapter); startErr != nil {
+		if startErr := starter.StartPrompt(runtimeContext, command.SessionID, receipt.RunID, command.Text, images, adapter); startErr != nil {
 			_ = adapter.Fail(startErr)
 		}
 	})

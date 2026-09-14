@@ -90,6 +90,35 @@ describe("durable session transport", () => {
     expect(app.transcriptState.appliedSeq).toBe("4");
   });
 
+  it("renders assistant output from events after a durable prompt", async () => {
+    const app = await connectPiApp();
+    app.durableEvents = true;
+    app.apiConnected = true;
+    app.dataset.activeSessionId = "s1";
+    app.prompt.value = "hello";
+    app.connectEvents = vi.fn();
+    globalThis.fetch = vi.fn(async (url) => {
+      if (String(url).includes("/state")) {
+        return { ok: true, status: 200, statusText: "OK", json: async () => ({ ...durableState(), items: [], status: "idle", runId: undefined, seq: "0" }) };
+      }
+      if (String(url).includes("/prompt")) {
+        return { ok: true, status: 202, statusText: "Accepted", json: async () => ({ accepted: true, runId: "run-2" }) };
+      }
+      return { ok: true, status: 200, statusText: "OK", json: async () => ({ workspaces: [] }) };
+    });
+    await app.loadSession("s1");
+    await app.submitPrompt();
+    const source = FakeEventSource.instances.at(-1);
+    source.dispatch("session.event", { seq: "1", sessionId: "s1", type: "user.message.created", sourceId: "command:req:user", payload: { text: "hello" } });
+    source.dispatch("session.event", { seq: "2", sessionId: "s1", runId: "run-2", type: "run.started", payload: {} });
+    source.dispatch("session.event", { seq: "3", sessionId: "s1", runId: "run-2", type: "assistant.segment.started", entityId: "assistant:run-2:1", payload: { kind: "pi" } });
+    source.dispatch("session.event", { seq: "4", sessionId: "s1", runId: "run-2", type: "assistant.segment.delta", entityId: "assistant:run-2:1", payload: { kind: "pi", delta: "answer" } });
+    source.dispatch("session.event", { seq: "5", sessionId: "s1", runId: "run-2", type: "assistant.segment.committed", entityId: "assistant:run-2:1", payload: { kind: "pi", text: "answer" } });
+    source.dispatch("session.event", { seq: "6", sessionId: "s1", runId: "run-2", type: "run.finished", payload: {} });
+
+    expect(app.querySelector(".msg[data-kind='pi'] .body").textContent).toContain("answer");
+  });
+
   it("loads older durable projection pages with the durable cursor", async () => {
     const app = await connectPiApp();
     app.durableEvents = true;

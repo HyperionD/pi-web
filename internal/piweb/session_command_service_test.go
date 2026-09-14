@@ -34,6 +34,37 @@ func newCommandServiceForTest(store SessionEventStore, starter RuntimePromptStar
 	return service
 }
 
+func TestStartPromptDetachesRuntimeFromRequestCancellation(t *testing.T) {
+	store := appendTestStore(t)
+	requestContext, cancel := context.WithCancel(context.Background())
+	var task func()
+	var runtimeContext context.Context
+	starter := promptStarterFunc(func(ctx context.Context, _ string, _ string, _ string, _ []PromptAttachment, _ *RuntimeEventAdapter) error {
+		runtimeContext = ctx
+		return nil
+	})
+	service := NewSessionCommandService(store, starter)
+	service.newRunID = func() string { return "run-1" }
+	service.launch = func(next func()) { task = next }
+	if _, err := service.StartPrompt(requestContext, StartPromptCommand{SessionID: "s1", ClientRequestID: "req-1", Text: "hello", DisplayText: "hello"}); err != nil {
+		t.Fatal(err)
+	}
+	cancel()
+	if task == nil {
+		t.Fatal("runtime task was not launched")
+	}
+	task()
+	if runtimeContext == nil || runtimeContext.Err() != nil {
+		t.Fatalf("runtime context was cancelled with request: %v", runtimeContext.Err())
+	}
+}
+
+type promptStarterFunc func(context.Context, string, string, string, []PromptAttachment, *RuntimeEventAdapter) error
+
+func (starter promptStarterFunc) StartPrompt(ctx context.Context, sessionID, runID, text string, images []PromptAttachment, adapter *RuntimeEventAdapter) error {
+	return starter(ctx, sessionID, runID, text, images, adapter)
+}
+
 func TestStartPromptCommitsBeforeSendingRuntimeCommand(t *testing.T) {
 	order := []string{}
 	store := &orderingEventStore{inner: appendTestStore(t), order: &order}
