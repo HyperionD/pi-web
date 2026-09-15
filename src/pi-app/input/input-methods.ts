@@ -44,8 +44,8 @@ export const inputMethods = {
       const hasVisiblePrompt = !!text || attachments.length > 0;
       this.writeLastSessionPrompt(sessionId, text);
       if (hasVisiblePrompt) {
-        if (!waitForServerEcho || useDurablePrompt) {
-          this.appendMessage({ kind: "user", text, attachments, optimistic: useDurablePrompt });
+        if (!waitForServerEcho) {
+          this.appendMessage({ kind: "user", text, attachments });
         }
         this.appendLoadingMessage();
         if (text) this.autonameActiveSession(text);
@@ -57,8 +57,11 @@ export const inputMethods = {
       this.updatePrompt();
       if (waitForServerEcho) {
         this.invalidateEventStream();
-        if (!useDurablePrompt && typeof EventSource === "function") this.connectEvents(sessionId, { replay: true });
-        this.setMode("running");
+        if (!useDurablePrompt) {
+          this.invalidateEventStream();
+          if (typeof EventSource === "function") this.connectEvents(sessionId, { replay: true });
+          this.setMode("running");
+        }
         try {
           await postPrompt(sessionId, text, attachments, clientRequestId);
         } catch (error) {
@@ -93,7 +96,7 @@ export const inputMethods = {
     this.writeLastSessionPrompt(sessionId, normalizedText);
     try {
       await steerSession(sessionId, normalizedText, attachments);
-      this.appendMessage({ kind: "user", text: normalizedText, attachments });
+      if (!this.durableEvents) this.appendMessage({ kind: "user", text: normalizedText, attachments });
       if (this.prompt) this.prompt.value = "";
       this.attachmentContents = [];
       this.attachments?.replaceChildren();
@@ -160,7 +163,7 @@ export const inputMethods = {
     try {
       const result = await cancelSession(sessionId);
       if (result?.cancelled) {
-        this.setMode("cancelled");
+        if (!this.durableEvents) this.setMode("cancelled");
         return;
       }
       this.clearSessionCancellationPending(sessionId);
@@ -339,14 +342,16 @@ export const inputMethods = {
     panel?.querySelectorAll("button, input").forEach((item) => item.disabled = true);
     this.finalizeStreamingMessages();
     const useDurablePrompt = this.durableEvents === true;
-    this.appendMessage({ kind: "user", text: prompt, optimistic: useDurablePrompt });
+    if (!useDurablePrompt) this.appendMessage({ kind: "user", text: prompt });
     this.appendLoadingMessage();
-    this.setMode("running");
+    if (!useDurablePrompt) this.setMode("running");
     const sessionId = this.dataset.activeSessionId;
     const clientRequestId = globalThis.crypto?.randomUUID?.()
       || `request-${Date.now()}-${Math.random().toString(36).slice(2)}`;
     this.invalidateEventStream();
-    if (!useDurablePrompt && typeof EventSource === "function") this.connectEvents(sessionId, { replay: true });
+    if (!useDurablePrompt) {
+      if (typeof EventSource === "function") this.connectEvents(sessionId, { replay: true });
+    }
     try {
       await postPrompt(sessionId, prompt, [], clientRequestId);
     } catch (error) {

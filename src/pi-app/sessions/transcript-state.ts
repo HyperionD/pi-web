@@ -34,6 +34,9 @@ export type TranscriptState = {
   appliedSeq: SessionSeq;
   status: TranscriptStatus;
   runId?: string;
+  sessionTitle?: string;
+  sessionModel?: { provider?: string; model?: string; thinkingLevel?: string };
+  contextUsage?: unknown;
   itemOrder: string[];
   itemsById: Map<string, TranscriptItem>;
   toolsByCallId: Map<string, string>;
@@ -54,6 +57,13 @@ export type DurableSessionEvent = {
 
 export type SessionStateSnapshot = {
   sessionId: string;
+  metadata?: {
+    title?: string;
+    provider?: string;
+    model?: string;
+    thinkingLevel?: string;
+    contextUsage?: unknown;
+  };
   items: TranscriptItem[];
   status: string;
   runId?: string;
