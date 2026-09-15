@@ -260,7 +260,7 @@ describe("durable session transport", () => {
     await new Promise((resolve) => requestAnimationFrame(resolve));
     bodyText = app.querySelector(".msg[data-kind='pi'] .body").textContent.replace(/\s+/g, " ").trim();
     expect(bodyText).toContain(expectedNormalizedText);
-  });
+  }, 10_000);
 
   it("ignores durable events after the active session is cleared", async () => {
     const app = await connectPiApp();

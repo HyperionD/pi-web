@@ -10,6 +10,13 @@ const BOUNDARIES: LifecycleBoundary[] = [
   "run-finish",
 ];
 
+test("shows a durable assistant delta before the run completes", async ({ page }) => {
+  const fixture = await installSessionStreamFixture(page, "assistant-delta", { seedTranscript: true });
+  await fixture.runUntilBoundary();
+
+  await expect(page.locator(".term-inner .msg[data-kind='pi'] .body")).toHaveText("hello");
+});
+
 for (const boundary of BOUNDARIES) {
   test(`refresh at ${boundary} preserves the exact transcript`, async ({ page }) => {
     const fixture = await installSessionStreamFixture(page, boundary);

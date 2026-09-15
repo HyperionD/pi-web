@@ -105,11 +105,23 @@ function projectItems(committed: Array<Record<string, any>>) {
 export async function installSessionStreamFixture(
   page: Page,
   boundary: LifecycleBoundary,
+  options: { seedTranscript?: boolean } = {},
 ): Promise<SessionStreamFixture> {
   await page.addInitScript(MOCK_EVENT_SOURCE);
 
-  let seq = 0;
-  const committed: Array<Record<string, any>> = [];
+  let seq = options.seedTranscript ? 1 : 0;
+  const committed: Array<Record<string, any>> = options.seedTranscript
+    ? [{
+        seq: "1",
+        sessionId: "e2e-session",
+        type: "user.message.created",
+        sourceId: "history:user",
+        payload: { text: "prior message" },
+      }]
+    : [];
+  const waitForStream = () => page.waitForFunction(
+    () => customElements.get("pi-app") && (window as any).__mockSources?.some((source) => !source.closed),
+  );
   const push = async (event: Record<string, unknown>) => {
     seq += 1;
     const stored = { ...event, seq: String(seq), sessionId: "e2e-session" };
@@ -162,6 +174,7 @@ export async function installSessionStreamFixture(
   });
 
   await page.goto("/");
+  await waitForStream();
 
   return {
     async runUntilBoundary() {
@@ -179,6 +192,7 @@ export async function installSessionStreamFixture(
       await push({ type: "run.finished", runId: "run-1" });
     },
     async finishRun() {
+      await waitForStream();
       if (!committed.some((event) => event.type === "tool.finished")) {
         await push({ type: "tool.finished", entityId: "tool:run-1:call-1", payload: { body: "final bash output", status: "ok" } });
       }
