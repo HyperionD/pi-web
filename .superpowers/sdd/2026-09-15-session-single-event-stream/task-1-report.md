@@ -145,3 +145,23 @@ error: script "check:session-stream" exited with code 1
 ## Commit
 
 已提交 fix commit；commit message 使用 Conventional Commits，并包含 `Co-authored-by: JuunAI <juunai.ai@gmail.com>`。
+
+---
+
+# Task 1 Fix Round 2 报告
+
+## 修复内容
+
+1. 新增生产 seam `src/pi-app/sessions/session-command-state.ts`，导出 `SessionCommandReceipt` 与 `applySessionCommandReceipt`；receipt 仅确认 durable command 已接受，不推进 transcript、status 或 applied sequence。`session-domain-events.test.ts` 改为调用该 seam，移除 `seq === appliedSeq` 的 reducer 绕过，并断言 durable `user.message.created` 事件后 transcript 才出现。
+2. `internal/piweb/server_session_handlers.go` 的 durable prompt response 显式返回 `acceptedSeq: receipt.AcceptedSeq`；`server_durable_prompt_test.go` 增加 handler 契约断言。
+3. 未迁移 Broker/legacy 代码，未触碰 `static/`。
+
+## 验证结果
+
+- `go test ./internal/piweb -run 'TestSessionDomainPromptProducesOneDurableSequence|TestRepositoryContract|TestPromptUsesDurableCommandServiceWhenConfigured|TestPromptWithoutClientRequestIdGeneratesOne|TestSessionEventsV2' -count=1`：通过。
+- `go test ./internal/piweb -count=1`：通过。
+- `bun run test -- src/pi-app/sessions/session-domain-events.test.ts`：1 file / 1 test 通过。
+- `bun run test:session-stream-check`：4 tests 通过。
+- `bun run test`：50 files / 533 tests 通过。
+- `bun run typecheck`、`bun run lint`、`git diff --check`：通过。
+- `bun run check:session-stream -- --compat`：按预期退出码 1；现有 Broker/legacy 写入、旧订阅和 `/events` 路径仍是后续迁移任务缺口，本轮未放宽静态检查。

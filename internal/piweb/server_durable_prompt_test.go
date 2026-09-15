@@ -34,13 +34,17 @@ func TestPromptUsesDurableCommandServiceWhenConfigured(t *testing.T) {
 		t.Fatalf("status = %d", response.StatusCode)
 	}
 	var payload struct {
-		RunID string `json:"runId"`
+		RunID       string `json:"runId"`
+		AcceptedSeq int64  `json:"acceptedSeq"`
 	}
 	if err := json.NewDecoder(response.Body).Decode(&payload); err != nil {
 		t.Fatal(err)
 	}
 	if payload.RunID == "" {
 		t.Fatal("durable prompt did not return a run id")
+	}
+	if payload.AcceptedSeq != 2 {
+		t.Fatalf("durable prompt accepted seq = %d, want 2", payload.AcceptedSeq)
 	}
 	deadline := time.Now().Add(time.Second)
 	for time.Now().Before(deadline) {

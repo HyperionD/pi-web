@@ -1,34 +1,23 @@
 import { describe, expect, it } from "vitest";
+import { applySessionCommandReceipt, type SessionCommandReceipt } from "./session-command-state";
 import { emptyTranscriptState } from "./transcript-state";
 import { reduceSessionEvent } from "./transcript-reducer";
-
-type CommandReceipt = {
-  clientRequestId: string;
-  runId: string;
-  acceptedSeq: string;
-};
-
-function dispatchCommandReceipt(state: ReturnType<typeof emptyTranscriptState>, receipt: CommandReceipt) {
-  return reduceSessionEvent(state, {
-    seq: state.appliedSeq,
-    sessionId: state.sessionId,
-    sourceId: `command:${receipt.clientRequestId}`,
-    type: "command.receipt",
-    payload: receipt,
-  });
-}
 
 describe("session command/event contract", () => {
   it("keeps state unchanged until user.message.created arrives", () => {
     const before = emptyTranscriptState("s1", Symbol("view-1"));
-    const afterReceipt = dispatchCommandReceipt(before, {
+    const receipt: SessionCommandReceipt = {
       clientRequestId: "req-1",
       runId: "run-1",
       acceptedSeq: "0",
-    });
+    };
+    const afterReceipt = applySessionCommandReceipt(before, receipt);
 
-    expect(afterReceipt).toEqual(before);
-    expect(afterReceipt.itemsById.size).toBe(0);
+    expect(afterReceipt.itemOrder).toEqual(before.itemOrder);
+    expect(afterReceipt.itemsById).toEqual(before.itemsById);
+    expect(afterReceipt.status).toBe(before.status);
+    expect(afterReceipt.runId).toBe(before.runId);
+    expect(afterReceipt.appliedSeq).toBe(before.appliedSeq);
 
     const afterEvent = reduceSessionEvent(afterReceipt, {
       seq: "1",

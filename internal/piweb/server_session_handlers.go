@@ -127,7 +127,13 @@ func (s *Server) prompt(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusConflict, err)
 			return
 		}
-		writeJSON(w, http.StatusAccepted, map[string]any{"accepted": true, "runId": receipt.RunID, "existing": receipt.Existing, "realPi": s.config.EnablePiExecution})
+		writeJSON(w, http.StatusAccepted, map[string]any{
+			"accepted":    true,
+			"runId":       receipt.RunID,
+			"acceptedSeq": receipt.AcceptedSeq,
+			"existing":    receipt.Existing,
+			"realPi":      s.config.EnablePiExecution,
+		})
 		return
 	}
 	if s.config.EnablePiExecution {
