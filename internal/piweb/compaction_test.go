@@ -11,6 +11,39 @@ import (
 	"testing"
 )
 
+func TestRunnerCompactDurableWritesCompactionEvents(t *testing.T) {
+	root := t.TempDir()
+	writeFakePi(t, root, `#!/bin/sh
+read request
+id=$(printf '%s' "$request" | sed 's/.*"id":"\([^\"]*\)".*/\1/')
+printf '%s\n' "{\"id\":\"$id\",\"type\":\"response\",\"command\":\"compact\",\"success\":true,\"data\":{\"tokensBefore\":120,\"estimatedTokensAfter\":40}}"
+`)
+	store := NewMockStore()
+	workspace, err := store.OpenWorkspace(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	session, err := store.CreateSession(workspace.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	events := appendTestStore(t)
+	result, err := NewRunner().CompactDurable(context.Background(), events, store, session.ID, "compact-1")
+	if err != nil {
+		t.Fatalf("compact durable: %v", err)
+	}
+	if result.TokensBefore != 120 {
+		t.Fatalf("unexpected result: %+v", result)
+	}
+	batch, err := events.EventsAfter(t.Context(), session.ID, 0, EventReadLimit{MaxRows: 10})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(batch.Events) != 2 || batch.Events[0].Type != EventCompactionStarted || batch.Events[1].Type != EventCompactionCommitted {
+		t.Fatalf("events = %#v", batch.Events)
+	}
+}
+
 func TestRunnerCompactUsesPiRPCAndPublishesSummary(t *testing.T) {
 	root := t.TempDir()
 	requestPath := filepath.Join(root, "compact-request.json")

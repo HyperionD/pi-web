@@ -1,5 +1,5 @@
 import { Notyf, NotyfEvent } from "notyf";
-import { getSessionState, sessionEvents } from "../../lib/api";
+import { getSessionState } from "../../lib/api";
 import { escapeHtml } from "../../lib/renderers";
 import { createSessionStreamClient } from "../sessions/session-stream-client";
 import { parseFallbackChoices } from "../input/fallback-choices";
@@ -313,26 +313,18 @@ export const toastMethods = {
   watchBackgroundSession(row) {
     const sessionId = row.dataset.session;
     const watch: any = { failed: false, row, wasRunning: true, stopped: false, appliedSeq: "0" };
-    if (this.durableEvents) {
-      watch.client = createSessionStreamClient({
-        sessionId,
-        appliedSeq: () => watch.appliedSeq,
-        onOpen: () => this.confirmConnection?.(),
-        onError: () => undefined,
-        onReset: () => void this.startDurableBackgroundWatch(watch),
-        onEvent: (event) => {
-          watch.appliedSeq = event.seq || watch.appliedSeq;
-          this.handleDurableBackgroundSessionEvent(event, watch);
-        },
-      });
-      void this.startDurableBackgroundWatch(watch);
-      return watch;
-    }
-    watch.source = sessionEvents(sessionId, {
-      replay: false,
+    watch.client = createSessionStreamClient({
+      sessionId,
+      appliedSeq: () => watch.appliedSeq,
+      onOpen: () => this.confirmConnection?.(),
       onError: () => undefined,
-      onEvent: (event) => this.handleBackgroundSessionEvent(event, watch),
+      onReset: () => void this.startDurableBackgroundWatch(watch),
+      onEvent: (event) => {
+        watch.appliedSeq = event.seq || watch.appliedSeq;
+        this.handleDurableBackgroundSessionEvent(event, watch);
+      },
     });
+    void this.startDurableBackgroundWatch(watch);
     return watch;
   },
 
@@ -360,7 +352,7 @@ export const toastMethods = {
   closeBackgroundSessionWatch(watch) {
     watch.stopped = true;
     watch.client?.stop?.();
-    watch.source?.close?.();
+
   },
 
   handleDurableBackgroundSessionEvent(event, watch) {
@@ -385,26 +377,6 @@ export const toastMethods = {
     if (event.type === "run.finished" && watch.wasRunning && !watch.failed) {
       this.notifySessionCompleted(context);
     }
-  },
-
-  handleBackgroundSessionEvent(event, watch) {
-    if (!event || event.type === "heartbeat") return;
-    const context = this.toastContextForSessionRow(watch.row);
-    if (event.type === "error") {
-      watch.failed = true;
-      this.notifyResponseFailure(event.payload?.error, context);
-      return;
-    }
-    if (event.type === "session.message" && parseFallbackChoices(event.payload?.text).length) {
-      this.notifyChoiceRequested(context);
-      return;
-    }
-    if (event.type !== "session.status") return;
-    const status = event.payload?.status;
-    if (status === "running" || status === "thinking") watch.wasRunning = true;
-    if (status !== "idle" && status !== "cancelled") return;
-    this.dismissBackgroundSessionWatch(event.sessionId, watch);
-    if (watch.wasRunning && status === "idle" && !watch.failed) this.notifySessionCompleted(context);
   },
 
   dismissBackgroundSessionWatch(sessionId, watch) {

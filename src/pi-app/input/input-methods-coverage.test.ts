@@ -81,7 +81,7 @@ describe("pi-app input methods coverage", () => {
 
     await app.submitPrompt();
 
-    expect(app.invalidateEventStream).toHaveBeenCalledTimes(1);
+    expect(app.invalidateEventStream).not.toHaveBeenCalled();
     expect(globalThis.fetch).toHaveBeenCalledWith(
       "http://backend.test/api/sessions/s1/prompt",
       expect.objectContaining({ method: "POST" }),
@@ -174,7 +174,6 @@ describe("pi-app input methods coverage", () => {
 
     await app.submitPrompt();
 
-    expect(app.setMode).toHaveBeenCalledWith("running");
     expect(app.setMode).toHaveBeenCalledWith("idle");
     expect(app.setConnection).toHaveBeenCalledWith("err");
   });
@@ -345,7 +344,7 @@ describe("pi-app input methods coverage", () => {
     app.attachments.append(document.createElement("span"));
     await app.submitPrompt();
     expect(String(globalThis.fetch.mock.calls.at(-1)[0])).toContain("/steer");
-    expect([...app.querySelectorAll(".msg[data-kind='user'] .body")].at(-1).textContent).toBe("more");
+    expect(app.querySelector(".msg[data-kind='user'] .body")).toBeNull();
     expect(app.prompt.value).toBe("");
 
     globalThis.fetch = vi.fn(async () => err("steer fail"));

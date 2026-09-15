@@ -247,7 +247,6 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("POST /api/sessions/{sessionID}/compact", s.requireSessionAccess(s.compactSession))
 	s.mux.HandleFunc("POST /api/sessions/{sessionID}/steer", s.requireSessionAccess(s.steerSession))
 	s.mux.HandleFunc("POST /api/sessions/{sessionID}/cancel", s.requireSessionAccess(s.cancelSession))
-	s.mux.HandleFunc("GET /api/sessions/{sessionID}/events", s.requireSessionAccess(s.sessionEvents))
 	s.mux.HandleFunc("GET /api/sessions/{sessionID}/state", s.requireSessionAccess(s.sessionState))
 	s.mux.HandleFunc("GET /api/sessions/{sessionID}/events-v2", s.requireSessionAccess(s.sessionEventsV2))
 	s.mux.HandleFunc("GET /api/sessions/{sessionID}/items/{itemID}/content", s.requireSessionAccess(s.sessionItemContent))

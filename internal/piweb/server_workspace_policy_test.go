@@ -99,7 +99,7 @@ func TestSessionRoutesRejectForbiddenWorkspace(t *testing.T) {
 		{http.MethodPost, "/compact"},
 		{http.MethodPost, "/steer"},
 		{http.MethodPost, "/cancel"},
-		{http.MethodGet, "/events"},
+		{http.MethodGet, "/events-v2"},
 	}
 	for _, tc := range cases {
 		requestPath := "/api/sessions/" + outsideSession.ID + tc.suffix

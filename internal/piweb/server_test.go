@@ -1,7 +1,6 @@
 package piweb
 
 import (
-	"bufio"
 	"bytes"
 	"encoding/json"
 	"net/http"
@@ -11,7 +10,6 @@ import (
 	"strings"
 	"testing"
 	"testing/fstest"
-	"time"
 )
 
 func TestHealthEndpoint(t *testing.T) {
@@ -133,7 +131,7 @@ func TestServesStaticUI(t *testing.T) {
 	}
 }
 
-func TestWorkspaceAndSessionManagementEndpoints(t *testing.T) {
+func TestSessionManagementEndpointsRequireDurableEventStore(t *testing.T) {
 	t.Setenv("PI_CODING_AGENT_SESSION_DIR", t.TempDir())
 	store := NewMockStore()
 	workspace, err := store.OpenWorkspace(t.TempDir())
@@ -158,14 +156,14 @@ func TestWorkspaceAndSessionManagementEndpoints(t *testing.T) {
 	renameReq := httptest.NewRequest(http.MethodPatch, "/api/sessions/"+body.Session.ID, bytes.NewBufferString(`{"title":"renamed"}`))
 	renameRes := httptest.NewRecorder()
 	server.Handler().ServeHTTP(renameRes, renameReq)
-	if renameRes.Code != http.StatusOK || !strings.Contains(renameRes.Body.String(), "renamed") {
-		t.Fatalf("rename failed: %d %s", renameRes.Code, renameRes.Body.String())
+	if renameRes.Code != http.StatusServiceUnavailable {
+		t.Fatalf("rename status = %d, want service unavailable", renameRes.Code)
 	}
 	deleteReq := httptest.NewRequest(http.MethodDelete, "/api/sessions/"+body.Session.ID, nil)
 	deleteRes := httptest.NewRecorder()
 	server.Handler().ServeHTTP(deleteRes, deleteReq)
-	if deleteRes.Code != http.StatusOK {
-		t.Fatalf("delete failed: %d %s", deleteRes.Code, deleteRes.Body.String())
+	if deleteRes.Code != http.StatusServiceUnavailable {
+		t.Fatalf("delete status = %d, want service unavailable", deleteRes.Code)
 	}
 }
 
@@ -475,7 +473,7 @@ func TestSessionContextUsageEndpointUsesMockWhenPiDisabled(t *testing.T) {
 	}
 }
 
-func TestSessionCompactEndpointUsesPiRPC(t *testing.T) {
+func TestSessionCompactEndpointRequiresDurableEventStore(t *testing.T) {
 	root := t.TempDir()
 	writeFakePi(t, root, `#!/bin/sh
 read request
@@ -495,7 +493,7 @@ printf '%s\n' "{\"id\":\"$id\",\"type\":\"response\",\"command\":\"compact\",\"s
 	req := httptest.NewRequest(http.MethodPost, "/api/sessions/"+session.ID+"/compact", nil)
 	res := httptest.NewRecorder()
 	server.Handler().ServeHTTP(res, req)
-	if res.Code != http.StatusOK || !strings.Contains(res.Body.String(), `"compacted":true`) || !strings.Contains(res.Body.String(), `"tokensBefore":99`) {
+	if res.Code != http.StatusServiceUnavailable || !strings.Contains(res.Body.String(), "session event store operation is not ready") {
 		t.Fatalf("unexpected compact response: %d %s", res.Code, res.Body.String())
 	}
 }
@@ -530,73 +528,12 @@ func TestCreateSessionEndpoint(t *testing.T) {
 	}
 }
 
-func TestSteerPublishesQueuedUserMessage(t *testing.T) {
-	broker := NewBroker()
-	broker.heartbeat = time.Hour
-	server := NewServer(Config{}, NewMockStore(), broker)
-	testServer := httptest.NewServer(server.Handler())
-	defer testServer.Close()
-
-	res, err := testServer.Client().Post(
-		testServer.URL+"/api/sessions/8e7c-44ff/steer",
-		"application/json",
-		bytes.NewBufferString(`{"text":"one more thing"}`),
-	)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer res.Body.Close()
-	if res.StatusCode != http.StatusAccepted {
-		t.Fatalf("expected steer 202, got %d", res.StatusCode)
-	}
-}
-
-func TestPromptPublishesSSE(t *testing.T) {
-	broker := NewBroker()
-	broker.heartbeat = time.Hour
-	server := NewServer(Config{}, NewMockStore(), broker)
-	testServer := httptest.NewServer(server.Handler())
-	defer testServer.Close()
-
-	eventsReq, err := http.NewRequest(http.MethodGet, testServer.URL+"/api/sessions/8e7c-44ff/events", nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	eventsRes, err := testServer.Client().Do(eventsReq)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer eventsRes.Body.Close()
-	if eventsRes.StatusCode != http.StatusOK {
-		t.Fatalf("expected event stream 200, got %d", eventsRes.StatusCode)
-	}
-
-	promptRes, err := testServer.Client().Post(testServer.URL+"/api/sessions/8e7c-44ff/prompt", "application/json", bytes.NewBufferString(`{"text":"hello"}`))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer promptRes.Body.Close()
-	if promptRes.StatusCode != http.StatusAccepted {
-		t.Fatalf("expected prompt 202, got %d", promptRes.StatusCode)
-	}
-
-	lines := make(chan string, 16)
-	go func() {
-		scanner := bufio.NewScanner(eventsRes.Body)
-		for scanner.Scan() {
-			lines <- scanner.Text()
-		}
-	}()
-
-	deadline := time.After(2 * time.Second)
-	for {
-		select {
-		case line := <-lines:
-			if line == "event: session.message" {
-				return
-			}
-		case <-deadline:
-			t.Fatal("timed out waiting for session.message event")
-		}
+func TestSteerRequiresDurableEventStore(t *testing.T) {
+	server := NewServer(Config{}, NewMockStore(), NewBroker())
+	request := httptest.NewRequest(http.MethodPost, "/api/sessions/8e7c-44ff/steer", strings.NewReader(`{"text":"one more thing"}`))
+	response := httptest.NewRecorder()
+	server.Handler().ServeHTTP(response, request)
+	if response.Code != http.StatusServiceUnavailable {
+		t.Fatalf("expected 503, got %d: %s", response.Code, response.Body.String())
 	}
 }

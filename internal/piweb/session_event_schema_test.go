@@ -15,7 +15,7 @@ func TestOpenSQLiteSessionEventStoreCreatesSchemaAndDurabilityPragmas(t *testing
 	}
 	defer store.Close(t.Context())
 	for _, table := range []string{
-		"session_streams", "session_events", "session_items", "session_item_chunks",
+		"session_streams", "session_events", "session_metadata", "session_items", "session_item_chunks",
 		"session_commands", "session_control_receipts", "session_run_manifests",
 	} {
 		if !sqliteTableExists(t, store.db, table) {

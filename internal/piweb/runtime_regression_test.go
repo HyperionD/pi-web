@@ -128,30 +128,14 @@ func TestDeleteAccountSessionsClosesRuntimes(t *testing.T) {
 	}
 }
 
-func TestDeleteSessionRollsBackRuntimeTombstoneOnStoreFailure(t *testing.T) {
-	store := runtimeTestStore()
-	var created atomic.Int32
-	manager := NewRuntimeManagerWithFactory(store, func(context.Context, string, string) (PiRuntime, error) {
-		created.Add(1)
-		return newFakePiRuntime(), nil
-	})
-	defer manager.Shutdown(context.Background())
-	if _, err := manager.Ensure(context.Background(), "runtime-session"); err != nil {
-		t.Fatal(err)
-	}
-	server := NewServerWithRuntimeManager(Config{}, store, NewBroker(), manager)
+func TestDeleteSessionRequiresDurableEventStore(t *testing.T) {
+	server := NewServer(Config{}, NewMockStore(), NewBroker())
 	req := httptest.NewRequest(http.MethodDelete, "/api/sessions/runtime-session", nil)
 	req.SetPathValue("sessionID", "runtime-session")
 	res := httptest.NewRecorder()
 	server.deleteSession(res, req)
-	if res.Code != http.StatusNotFound {
-		t.Fatalf("delete status = %d, want not found", res.Code)
-	}
-	if _, err := manager.Ensure(context.Background(), "runtime-session"); err != nil {
-		t.Fatalf("Ensure after failed delete: %v", err)
-	}
-	if created.Load() != 2 {
-		t.Fatalf("factory called %d times, want two", created.Load())
+	if res.Code != http.StatusServiceUnavailable {
+		t.Fatalf("delete status = %d, want service unavailable", res.Code)
 	}
 }
 

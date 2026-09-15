@@ -90,6 +90,17 @@ func (s *SQLiteSessionEventStore) Snapshot(ctx context.Context, sessionID string
 	if err != nil {
 		return SessionStateSnapshot{}, err
 	}
+	metadata := SessionMetadataProjection{SessionID: sessionID}
+	var metadataPayload []byte
+	metadataErr := tx.QueryRowContext(ctx, `SELECT payload_json FROM session_metadata WHERE session_id=?`, sessionID).Scan(&metadataPayload)
+	if metadataErr != nil && metadataErr != sql.ErrNoRows {
+		return SessionStateSnapshot{}, metadataErr
+	}
+	if len(metadataPayload) > 0 {
+		if err := json.Unmarshal(metadataPayload, &metadata); err != nil {
+			return SessionStateSnapshot{}, fmt.Errorf("decode session metadata %s: %w", sessionID, err)
+		}
+	}
 	rows, err := tx.QueryContext(ctx, `SELECT item_id, ordinal, payload_json FROM session_items WHERE session_id=? AND ordinal<? ORDER BY ordinal DESC LIMIT ?`, sessionID, before, limit)
 	if err != nil {
 		return SessionStateSnapshot{}, err
@@ -114,7 +125,7 @@ func (s *SQLiteSessionEventStore) Snapshot(ctx context.Context, sessionID string
 			}
 		}
 	}
-	return SessionStateSnapshot{Items: items, Status: stream.Status, RunID: stream.CurrentRunID, Seq: stream.CurrentSeq, Cursor: cursor, HasMore: hasMore, Limit: limit, ProjectionSchemaVersion: 1, ProjectionGeneration: stream.ProjectionVersion}, nil
+	return SessionStateSnapshot{Metadata: metadata, Items: items, Status: stream.Status, RunID: stream.CurrentRunID, Seq: stream.CurrentSeq, Cursor: cursor, HasMore: hasMore, Limit: limit, ProjectionSchemaVersion: 1, ProjectionGeneration: stream.ProjectionVersion}, nil
 }
 
 func snapshotBefore(value string, generation int64) (int64, error) {

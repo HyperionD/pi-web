@@ -48,6 +48,18 @@ func PromptRequestHash(command StartPromptCommand) string {
 	return hex.EncodeToString(digest[:])
 }
 
+func (s *SessionCommandService) AppendControlEvent(ctx context.Context, sessionID, requestID, eventType string, value any) (StoredSessionEvent, error) {
+	appender, ok := s.events.(SessionControlEventStore)
+	if !ok {
+		return StoredSessionEvent{}, ErrEventStoreNotReady
+	}
+	payload, err := json.Marshal(value)
+	if err != nil {
+		return StoredSessionEvent{}, err
+	}
+	return appender.AppendControl(ctx, sessionID, "command:"+requestID, eventType, payload)
+}
+
 func (s *SessionCommandService) StartPrompt(ctx context.Context, command StartPromptCommand) (RunReceipt, error) {
 	return s.StartPromptWith(ctx, command, s.starter)
 }

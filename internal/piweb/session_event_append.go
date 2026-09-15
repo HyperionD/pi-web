@@ -178,6 +178,72 @@ func (s *SQLiteSessionEventStore) Append(ctx context.Context, sessionID string, 
 	return stored, nil
 }
 
+func (s *SQLiteSessionEventStore) AppendControl(ctx context.Context, sessionID, sourceID, eventType string, rawPayload []byte) (StoredSessionEvent, error) {
+	if sessionID == "" || sourceID == "" || eventType == "" {
+		return StoredSessionEvent{}, ErrInvalidSessionEvent
+	}
+	var stored StoredSessionEvent
+	err := s.withImmediateTx(ctx, func(conn *sql.Conn) error {
+		stream, err := ensureStream(conn, sessionID)
+		if err != nil {
+			return err
+		}
+		payload, hash, err := redactAndHashPayload(rawPayload)
+		if err != nil {
+			return err
+		}
+		var existingSeq int64
+		var existingHash, existingType string
+		err = conn.QueryRowContext(context.Background(), `SELECT seq, payload_hash, event_type FROM session_events WHERE session_id=? AND source_id=?`, sessionID, sourceID).Scan(&existingSeq, &existingHash, &existingType)
+		if err == nil {
+			if existingHash != hash || existingType != eventType {
+				return ErrCommandHashConflict
+			}
+			stored, err = loadEvent(conn, sessionID, existingSeq)
+			return err
+		}
+		if !errors.Is(err, sql.ErrNoRows) {
+			return err
+		}
+		ordinal := stream.SourceOrdinal + 1
+		draft := SessionEventDraft{
+			SessionID: sessionID, SourceID: sourceID, SourceOrdinal: &ordinal,
+			Type: eventType, Payload: payload, OccurredAt: time.Now().UTC(),
+		}
+		stored = StoredSessionEvent{Seq: streamSeq(stream), SessionEventDraft: draft}
+		view, err := loadProjectionView(conn, sessionID, stream)
+		if err != nil {
+			return err
+		}
+		change, err := ReduceSessionEvent(view, stored)
+		if err != nil {
+			return err
+		}
+		if err := insertSessionEvent(conn, stored); err != nil {
+			return err
+		}
+		if err := persistProjectionChange(conn, sessionID, change); err != nil {
+			return err
+		}
+		if err := s.enforceEventRetention(conn, sessionID); err != nil {
+			return err
+		}
+		change.Stream.CurrentSeq = stored.Seq
+		change.Stream.SourceOrdinal = ordinal
+		change.Stream.SourceHash = hash
+		change.Stream.SourceSeq = stored.Seq
+		if err := updateStream(conn, change.Stream); err != nil {
+			return err
+		}
+		return nil
+	})
+	if err != nil {
+		return StoredSessionEvent{}, err
+	}
+	s.notify(sessionID)
+	return stored, nil
+}
+
 func (s *SQLiteSessionEventStore) notify(sessionID string) {
 	if s.hub != nil {
 		s.hub.Notify(sessionID)

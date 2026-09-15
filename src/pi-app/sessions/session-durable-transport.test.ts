@@ -90,6 +90,27 @@ describe("durable session transport", () => {
     expect(app.transcriptState.appliedSeq).toBe("4");
   });
 
+  it("applies durable session rename events to the active metadata", async () => {
+    const app = await connectPiApp();
+    app.durableEvents = true;
+    await app.loadSession("s1");
+    const row = document.createElement("button");
+    row.dataset.session = "s1";
+    row.dataset.title = "durable";
+    row.innerHTML = '<span class="title">durable</span><span class="session-main"></span>';
+    const activeTitle = document.createElement("span");
+    activeTitle.dataset.activeSessionTitle = "";
+    app.append(row, activeTitle);
+
+    FakeEventSource.instances.at(-1).dispatch("session.event", {
+      seq: "4", sessionId: "s1", type: "session.renamed", payload: { title: "renamed" },
+    });
+
+    expect(row.dataset.title).toBe("renamed");
+    expect(row.querySelector(".title").textContent).toBe("renamed");
+    expect(activeTitle.textContent).toBe("renamed");
+  });
+
   it("renders a durable run failure error from the snapshot", async () => {
     const app = await connectPiApp();
     app.durableEvents = true;
@@ -209,10 +230,10 @@ describe("durable session transport", () => {
     });
     await app.loadSession("s1");
     await app.submitPrompt();
-    expect(app.querySelector(".msg[data-kind='user'] .body").textContent).toContain("hello");
-    expect(app.querySelectorAll(".msg[data-kind='user']")).toHaveLength(1);
+    expect(app.querySelector(".msg[data-kind='user']")).toBeNull();
     const source = FakeEventSource.instances.at(-1);
     source.dispatch("session.event", { seq: "1", sessionId: "s1", type: "user.message.created", sourceId: "command:req:user", payload: { text: "hello" } });
+    expect(app.querySelector(".msg[data-kind='user'] .body").textContent).toContain("hello");
     expect(app.querySelectorAll(".msg[data-kind='user']")).toHaveLength(1);
     source.dispatch("session.event", { seq: "2", sessionId: "s1", runId: "run-2", type: "run.started", payload: {} });
     source.dispatch("session.event", { seq: "3", sessionId: "s1", runId: "run-2", type: "assistant.segment.started", entityId: "assistant:run-2:1", payload: { kind: "pi" } });
@@ -347,7 +368,7 @@ describe("durable session transport", () => {
     app.prompt.value = "hello";
 
     await app.submitPrompt();
-    expect(app.querySelectorAll(".msg[data-kind='user']")).toHaveLength(2);
+    expect(app.querySelectorAll(".msg[data-kind='user']")).toHaveLength(1);
     FakeEventSource.instances.at(-1).dispatch("session.event", {
       seq: "2", sessionId: "s1", type: "user.message.created",
       sourceId: "command:req:user", payload: { text: "hello" },

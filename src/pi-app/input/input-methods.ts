@@ -40,15 +40,15 @@ export const inputMethods = {
       const clientRequestId = waitForServerEcho
         ? (globalThis.crypto?.randomUUID?.() || `request-${Date.now()}-${Math.random().toString(36).slice(2)}`)
         : "";
-      const useDurablePrompt = waitForServerEcho && this.durableEvents === true;
+      const useDurablePrompt = Boolean(waitForServerEcho);
       const hasVisiblePrompt = !!text || attachments.length > 0;
       this.writeLastSessionPrompt(sessionId, text);
       if (hasVisiblePrompt) {
-        if (!waitForServerEcho || useDurablePrompt) {
-          this.appendMessage({ kind: "user", text, attachments, optimistic: useDurablePrompt });
+        if (!waitForServerEcho) {
+          this.appendMessage({ kind: "user", text, attachments });
         }
         this.appendLoadingMessage();
-        if (text) this.autonameActiveSession(text);
+        if (text && !waitForServerEcho) this.autonameActiveSession(text);
       }
       if (this.prompt) this.prompt.value = "";
       this.attachmentContents = [];
@@ -56,9 +56,6 @@ export const inputMethods = {
       if (this.attachments) this.attachments.hidden = true;
       this.updatePrompt();
       if (waitForServerEcho) {
-        this.invalidateEventStream();
-        if (!useDurablePrompt && typeof EventSource === "function") this.connectEvents(sessionId, { replay: true });
-        this.setMode("running");
         try {
           await postPrompt(sessionId, text, attachments, clientRequestId);
         } catch (error) {
@@ -93,7 +90,6 @@ export const inputMethods = {
     this.writeLastSessionPrompt(sessionId, normalizedText);
     try {
       await steerSession(sessionId, normalizedText, attachments);
-      this.appendMessage({ kind: "user", text: normalizedText, attachments });
       if (this.prompt) this.prompt.value = "";
       this.attachmentContents = [];
       this.attachments?.replaceChildren();
@@ -159,10 +155,7 @@ export const inputMethods = {
     this.markSessionCancellationPending(sessionId);
     try {
       const result = await cancelSession(sessionId);
-      if (result?.cancelled) {
-        this.setMode("cancelled");
-        return;
-      }
+      if (result?.cancelled) return;
       this.clearSessionCancellationPending(sessionId);
     } catch {
       this.clearSessionCancellationPending(sessionId);
@@ -174,7 +167,6 @@ export const inputMethods = {
   },
 
   async resyncCancelledSession(sessionId) {
-    if (!this.durableEvents) return;
     if (this.dataset.activeSessionId !== sessionId) return;
     await this.requestSessionResync(sessionId);
   },
@@ -338,15 +330,10 @@ export const inputMethods = {
     panel?.classList.add("answered");
     panel?.querySelectorAll("button, input").forEach((item) => item.disabled = true);
     this.finalizeStreamingMessages();
-    const useDurablePrompt = this.durableEvents === true;
-    this.appendMessage({ kind: "user", text: prompt, optimistic: useDurablePrompt });
     this.appendLoadingMessage();
-    this.setMode("running");
     const sessionId = this.dataset.activeSessionId;
     const clientRequestId = globalThis.crypto?.randomUUID?.()
       || `request-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-    this.invalidateEventStream();
-    if (!useDurablePrompt && typeof EventSource === "function") this.connectEvents(sessionId, { replay: true });
     try {
       await postPrompt(sessionId, prompt, [], clientRequestId);
     } catch (error) {

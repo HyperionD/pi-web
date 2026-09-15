@@ -9,6 +9,10 @@ import (
 
 var ErrEventStoreNotReady = errors.New("session event store operation is not ready")
 
+type SessionControlEventStore interface {
+	AppendControl(context.Context, string, string, string, []byte) (StoredSessionEvent, error)
+}
+
 type SessionEventStore interface {
 	StartRun(context.Context, StartRunCommand) (RunReceipt, error)
 	Append(context.Context, string, SessionEventDraft) (StoredSessionEvent, error)
@@ -42,15 +46,16 @@ type SessionPageRequest struct {
 }
 
 type SessionStateSnapshot struct {
-	Items                   []ProjectedSessionItem `json:"items"`
-	Status                  string                 `json:"status"`
-	RunID                   string                 `json:"runId,omitempty"`
-	Seq                     int64                  `json:"-"`
-	Cursor                  string                 `json:"cursor,omitempty"`
-	HasMore                 bool                   `json:"hasMore"`
-	Limit                   int                    `json:"limit"`
-	ProjectionSchemaVersion int                    `json:"projectionSchemaVersion"`
-	ProjectionGeneration    int64                  `json:"-"`
+	Metadata                SessionMetadataProjection `json:"metadata"`
+	Items                   []ProjectedSessionItem    `json:"items"`
+	Status                  string                    `json:"status"`
+	RunID                   string                    `json:"runId,omitempty"`
+	Seq                     int64                     `json:"-"`
+	Cursor                  string                    `json:"cursor,omitempty"`
+	HasMore                 bool                      `json:"hasMore"`
+	Limit                   int                       `json:"limit"`
+	ProjectionSchemaVersion int                       `json:"projectionSchemaVersion"`
+	ProjectionGeneration    int64                     `json:"-"`
 }
 
 type EventReadLimit struct {

@@ -287,6 +287,20 @@ describe("transcript reducer", () => {
     expect(state.runId).toBe("run-9");
   });
 
+  it("projects session metadata and compaction control events", () => {
+    let state = emptyTranscriptState("s1");
+    state = reduceSessionEvent(state, event({ seq: "1", type: "session.renamed", payload: { title: "Renamed" } }));
+    expect(state.sessionTitle).toBe("Renamed");
+    state = reduceSessionEvent(state, event({ seq: "2", type: "compaction.started" }));
+    expect(state.status).toBe("compacting");
+    state = reduceSessionEvent(state, event({ seq: "3", type: "compaction.committed" }));
+    expect(state.status).toBe("idle");
+    state = reduceSessionEvent(state, event({ seq: "4", type: "session.model.changed", payload: { provider: "openai", model: "gpt" } }));
+    expect(state.sessionModel).toEqual({ provider: "openai", model: "gpt" });
+    state = reduceSessionEvent(state, event({ seq: "5", type: "session.deleted" }));
+    expect(state.sessionDeleted).toBe(true);
+  });
+
   it("ignores unknown event types while advancing the sequence", () => {
     const state = { ...emptyTranscriptState("s1"), appliedSeq: "5" };
     const next = reduceSessionEvent(state, event({ seq: "6", type: "workspace.files.changed" }));

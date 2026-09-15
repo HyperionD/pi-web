@@ -5,34 +5,12 @@ import {
   stripFallbackChoices,
 } from "../input/fallback-choices";
 import { TERMINAL_SPINNER_HTML } from "../constants";
-import { createLegacyTranscriptState } from "../sessions/legacy-session-event-adapter";
+import { createTranscriptStateFromMessages } from "../sessions/transcript-state";
 
 function responseErrorText(detail) {
   if (typeof detail === "string") return detail.trim();
   if (!detail || typeof detail !== "object") return String(detail || "").trim();
   return String(detail.message || detail.error || "").trim();
-}
-
-function nextLegacyEventId(app) {
-  return String(BigInt(app.transcriptState?.appliedSeq || "0") + 1n);
-}
-
-function dispatchLegacyMessage(app, message) {
-  if (!message?.kind || typeof app.applyEvent !== "function") return false;
-  const id = nextLegacyEventId(app);
-  if (message.kind === "tool") {
-    const eventType = message.status === "running" ? "tool.started" : "tool.finished";
-    const payload = message.status === "running"
-      ? { id: message.id, tool: message.tool, args: message.args || "" }
-      : { id: message.id, tool: message.tool, args: message.args || "", body: message.body || "", status: message.status || "ok", resultMeta: message.resultMeta, durationMs: message.durationMs };
-    app.applyEvent({ id, type: eventType, payload });
-    return true;
-  }
-  if (["user", "pi", "think", "banner", "custom"].includes(message.kind)) {
-    app.applyEvent({ id, type: "session.message", payload: message });
-    return true;
-  }
-  return false;
 }
 
 export const messageMethods = {
@@ -45,7 +23,7 @@ export const messageMethods = {
     this.deferTranscriptRender = false;
     this.answeredChoiceIds = this.answeredChoiceIdsFrom(messages);
     if (!this.transcriptState || (!messages.length && this.transcriptState.sessionId === "legacy")) {
-      this.transcriptState = createLegacyTranscriptState(
+      this.transcriptState = createTranscriptStateFromMessages(
         this.dataset.activeSessionId || "legacy",
         messages,
         "idle",
@@ -72,16 +50,27 @@ export const messageMethods = {
     if (!this.termInner || !message) return;
     if (this.isDuplicateMessage(message)) return;
     this.removeLoadingMessage();
-    if (dispatchLegacyMessage(this, message)) {
-      if (message.kind === "user") this.disableAnsweredChoice(parseFallbackChoiceAnswer(message.text));
-      return;
+    if (this.transcriptState?.sessionId === "legacy") {
+      const messages = (this.transcriptItems || []).map((item) => item.message).filter(Boolean);
+      this.renderMessages([...messages, message]);
+    } else {
+      this.appendTranscriptMessage(message, { stickToBottom: true });
     }
-    this.appendTranscriptMessage(message, { stickToBottom: true });
+    if (message.kind === "user") this.disableAnsweredChoice(parseFallbackChoiceAnswer(message.text));
+    if (message.kind === "pi") this.notifyPiMessageCommitted?.(message);
     this.scrollTerm();
   },
 
   isDuplicateMessage(message) {
-    if (message.optimistic || !["user", "pi", "think"].includes(message.kind)) return false;
+    if (message.optimistic) return false;
+    if (message.kind === "tool") {
+      const toolCallId = message.toolCallId || message.id;
+      return !!toolCallId && (this.transcriptItems || []).some((item) => {
+        const existing = item.message;
+        return existing?.kind === "tool" && (existing.toolCallId || existing.id) === toolCallId;
+      });
+    }
+    if (!["user", "pi", "think"].includes(message.kind)) return false;
     const messages = [...this.termInner.querySelectorAll(".msg:not(.loading):not(.streaming)")];
     const last = messages.at(-1);
     return last?.dataset.kind === message.kind && (last.dataset.rawText ?? last.querySelector(".body")?.textContent) === message.text;

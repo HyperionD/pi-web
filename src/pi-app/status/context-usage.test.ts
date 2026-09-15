@@ -69,6 +69,7 @@ describe("context usage status", () => {
     app.apiConnected = true;
     app.dataset.activeSessionId = "s1";
     globalThis.PI_WEB_API_BASE = "http://backend.test";
+    app.durableEvents = true;
     app.loadSession = vi.fn();
     let resolveRequest;
     globalThis.fetch = vi.fn(() => new Promise((resolve) => { resolveRequest = resolve; }));
@@ -87,7 +88,7 @@ describe("context usage status", () => {
       "http://backend.test/api/sessions/s1/compact",
       expect.objectContaining({ method: "POST" }),
     );
-    expect(app.loadSession).toHaveBeenCalledWith("s1");
+    expect(app.loadSession).not.toHaveBeenCalled();
     expect(button.disabled).toBe(false);
     expect(button.textContent).toBe("压缩上下文");
   });
@@ -141,6 +142,34 @@ describe("context usage status", () => {
     await loading;
 
     expect(app.querySelector("[data-prompt-meta]").textContent).not.toContain("Ctx");
+  });
+
+  it("derives context usage from durable transcript state", async () => {
+    const app = await connectPiApp();
+    app.apiConnected = true;
+    app.durableEvents = true;
+    app.dataset.activeSessionId = "s1";
+    app.transcriptState = { contextUsage: { tokens: 60000, contextWindow: 200000, percent: 30 } };
+    globalThis.fetch = vi.fn(async () => ({ ok: true, json: async () => ({}) }));
+
+    await app.loadContextUsage();
+
+    expect(globalThis.fetch).not.toHaveBeenCalledWith(
+      expect.stringContaining("/context-usage"),
+      expect.anything(),
+    );
+    expect(app.querySelector("[data-prompt-meta]").textContent).toContain("Ctx 60K / 200K (30%)");
+  });
+
+  it("keeps durable session model metadata authoritative over runtime polling", async () => {
+    const app = await connectPiApp();
+    app.durableEvents = true;
+    app.transcriptState = { sessionModel: { model: "durable-model", thinkingLevel: "high" } };
+
+    app.applyRuntimeStatus({ model: "stale-model", thinkingLevel: "low" });
+
+    expect(app.querySelector("[data-prompt-meta]").textContent).toContain("durable-model (high)");
+    expect(app.querySelector("[data-prompt-meta]").textContent).not.toContain("stale-model");
   });
 
   it("loads active-session context usage with runtime status polling", async () => {

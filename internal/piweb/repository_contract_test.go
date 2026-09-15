@@ -61,6 +61,9 @@ func TestRepositoryContract(t *testing.T) {
 	if packageManifest.Scripts["lint"] != "eslint ." {
 		t.Errorf("lint script = %q, want %q", packageManifest.Scripts["lint"], "eslint .")
 	}
+	if packageManifest.Scripts["check:session-stream"] != "node scripts/check-session-single-stream.mjs" {
+		t.Errorf("session stream check script = %q", packageManifest.Scripts["check:session-stream"])
+	}
 	for _, dependency := range []string{"eslint", "typescript-eslint", "eslint-plugin-astro"} {
 		if _, ok := packageManifest.DevDependencies[dependency]; !ok {
 			t.Errorf("package.json is missing lint dependency %q", dependency)
@@ -138,7 +141,7 @@ func TestRoutes(t *testing.T) {
 		{"POST /api/sessions/{sessionID}/compact", "compactSession", "requireSessionAccess"},
 		{"POST /api/sessions/{sessionID}/steer", "steerSession", "requireSessionAccess"},
 		{"POST /api/sessions/{sessionID}/cancel", "cancelSession", "requireSessionAccess"},
-		{"GET /api/sessions/{sessionID}/events", "sessionEvents", "requireSessionAccess"},
+		{"GET /api/sessions/{sessionID}/events-v2", "sessionEventsV2", "requireSessionAccess"},
 	}
 
 	for _, route := range protectedRoutes {

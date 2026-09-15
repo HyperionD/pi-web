@@ -1,18 +1,11 @@
 import { applyUiLocale, currentUiLocale, setUiLocale } from "../i18n/client";
 import { normalizeUiLocale } from "../i18n/locales";
-import { sessionEvents } from "../lib/api";
 import { escapeHtml } from "../lib/renderers";
 import {
   compareEventCursors,
   normalizeEventCursor,
   shouldResyncAfterGap,
-  type SessionEventEnvelope,
 } from "./sessions/session-recovery";
-import {
-  adaptLegacySessionEvent,
-  createLegacyTranscriptState,
-} from "./sessions/legacy-session-event-adapter";
-import { reduceSessionEvent, TranscriptResetError } from "./sessions/transcript-reducer";
 import { SPINNER_FRAME_COUNT } from "./constants";
 import { filePreviewMethods } from "./editor/file-preview-methods";
 import { attachmentMethods } from "./input/attachment-methods";
@@ -46,7 +39,6 @@ class PiApp extends HTMLElement {
     this.termInner = this.querySelector(".term-inner");
     this.streamingTail = this.querySelector("[data-streaming-tail]");
     this.initTranscriptWindow();
-    this.eventSource = null;
     this.sessionEventCursors = new Map();
     this.sessionViewGeneration = Symbol("initial-session-view");
     this.sessionResync = undefined;
@@ -75,10 +67,8 @@ class PiApp extends HTMLElement {
   disconnectedCallback() {
     this.destroyFilePreviewEditor?.();
     this.stopDurableStream?.();
-    this.invalidateEventStream();
     this.backgroundSessionWatches?.forEach((watch) => {
       watch.client?.stop?.();
-      watch.source?.close?.();
     });
     this.backgroundSessionWatches?.clear?.();
     if (this.spinnerTimer) clearInterval(this.spinnerTimer);
@@ -202,45 +192,6 @@ class PiApp extends HTMLElement {
     window.parent?.postMessage({ type: "__edit_mode_available" }, "*");
   }
 
-  invalidateEventStream({ preserveResync = false } = {}) {
-    this.sessionViewGeneration = Symbol("session-view");
-    if (!preserveResync) this.sessionResync = undefined;
-    this.eventStreamId = undefined;
-    this.eventSource?.close();
-    this.eventSource = null;
-  }
-
-  connectEvents(sessionId: string, options: any = {}) {
-    this.invalidateEventStream();
-    const streamGeneration = this.sessionViewGeneration;
-    const cursor = options.after ?? this.sessionEventCursors?.get(sessionId);
-    if (normalizeEventCursor(cursor) && normalizeEventCursor(cursor) !== "0") {
-      this.setSessionEventCursor(sessionId, cursor);
-    }
-    const reloadOnOpen = options.reloadOnOpen ?? (options.replay === undefined && cursor == null);
-    const eventStreamId = Symbol(sessionId);
-    this.eventStreamId = eventStreamId;
-    this.eventSource = sessionEvents(sessionId, {
-      replay: options.replay,
-      after: cursor,
-      onOpen: () => {
-        if (!this.isActiveEventStream(eventStreamId, sessionId)) return;
-        this.confirmConnection();
-        if (reloadOnOpen) void this.requestSessionResync(sessionId);
-      },
-      onError: () => {
-        if (this.isActiveEventStream(eventStreamId, sessionId)) this.deferEventStreamError();
-      },
-      onEvent: (event: SessionEventEnvelope) => {
-        if (!this.isActiveEventStream(eventStreamId, sessionId, streamGeneration)) return;
-        if (this.isDuplicateSessionEvent(event)) return;
-        this.setSessionEventCursor(sessionId, event.id);
-        this.confirmConnection();
-        this.applyEvent(event);
-      },
-    });
-  }
-
   requestSessionResync(sessionId: string) {
     if (!sessionId || this.dataset.activeSessionId !== sessionId) return Promise.resolve();
     const generation = this.sessionViewGeneration;
@@ -261,18 +212,6 @@ class PiApp extends HTMLElement {
     if (compareEventCursors(cursor, current) > 0) this.sessionEventCursors.set(sessionId, cursor);
   }
 
-  isDuplicateSessionEvent(event: SessionEventEnvelope) {
-    const cursor = normalizeEventCursor(event?.id);
-    if (!cursor || cursor === "0" || !event.sessionId) return false;
-    return compareEventCursors(cursor, this.sessionEventCursors?.get(event.sessionId) || "0") <= 0;
-  }
-
-  isActiveEventStream(eventStreamId, sessionId, generation = undefined) {
-    return this.eventStreamId === eventStreamId
-      && this.dataset.activeSessionId === sessionId
-      && (!generation || this.sessionViewGeneration === generation);
-  }
-
   applyEvent(event) {
     if (!this.isCurrentSessionEvent(event)) return;
     if (shouldResyncAfterGap(event)) {
@@ -281,62 +220,47 @@ class PiApp extends HTMLElement {
       return;
     }
     if (event.type === "heartbeat") return;
+    this.setSessionEventCursor(event.sessionId, event.id);
     if (event.type === "session.renamed") {
       this.updateSessionTitle(event.payload);
       return;
     }
-    const status = event.type === "session.status" ? event.payload?.status : undefined;
-    if (status === "compacting") {
-      this.setMode(status);
+    if (event.type === "session.status") {
+      const status = event.payload?.status;
+      if (status) this.setMode(status);
+      if (status === "cancelled") this.notifySessionCompleted?.();
       return;
     }
-    if (!this.transcriptState || (event.sessionId && this.transcriptState.sessionId !== event.sessionId)) {
-      this.transcriptState = createLegacyTranscriptState(
-        event.sessionId || this.dataset.activeSessionId,
-        [],
-        "idle",
-        this.sessionEventCursors?.get(event.sessionId) || "0",
-      );
-      this.legacyEventContext = {
-        sessionId: this.transcriptState.sessionId,
-        runId: this.transcriptState.runId,
-        activeToolIds: new Map([...this.transcriptState.itemsById.values()]
-          .filter((item) => item.kind === "tool" && item.toolCallId)
-          .map((item) => [item.toolCallId, item.id])),
-        activeSegmentIds: new Map(),
-      };
+    if (event.type === "session.message") {
+      this.appendMessage(event.payload);
+      return;
     }
-    const context = this.legacyEventContext || {
-      sessionId: this.transcriptState.sessionId,
-      runId: this.transcriptState.runId,
-      activeToolIds: new Map([...this.transcriptState.itemsById.values()]
-        .filter((item) => item.kind === "tool" && item.toolCallId)
-        .map((item) => [item.toolCallId, item.id])),
-      activeSegmentIds: new Map(),
-    };
-    this.legacyEventContext = context;
-    const incomingEvent = event.id === undefined
-      ? { ...event, id: String(BigInt(this.transcriptState.appliedSeq || "0") + 1n) }
-      : event;
-    const incomingSeq = normalizeEventCursor(incomingEvent.id);
-    if (incomingSeq && this.transcriptState.appliedSeq === "0" && BigInt(incomingSeq) > 1n) {
-      this.transcriptState = { ...this.transcriptState, appliedSeq: (BigInt(incomingSeq) - 1n).toString() };
+    if (event.type === "session.delta") {
+      const kind = event.payload?.kind === "think" ? "think" : "pi";
+      const message = { kind, text: event.payload?.delta || "" };
+      this.appendMessage(message);
+      return;
     }
-    for (const translated of adaptLegacySessionEvent(incomingEvent, context)) {
-      try {
-        this.transcriptState = reduceSessionEvent(this.transcriptState, translated);
-      } catch (error) {
-        if (error instanceof TranscriptResetError) {
-          void this.requestSessionResync(this.transcriptState.sessionId);
-          return;
-        }
-        throw error;
-      }
-      this.setSessionEventCursor(event.sessionId, event.id);
-      if (translated.type === "run.failed") {
-        this.notifyResponseFailure?.(String(translated.payload?.error || "runtime failed"));
-      }
-      this.renderDurableTranscript?.({ syncMode: true });
+    if (event.type === "tool.started") {
+      this.appendMessage({ kind: "tool", ...event.payload, status: "running" });
+      return;
+    }
+    if (event.type === "tool.args.delta") {
+      this.updateToolArgs(event.payload);
+      return;
+    }
+    if (event.type === "tool.output") {
+      this.appendToolOutput(event.payload);
+      return;
+    }
+    if (event.type === "tool.finished") {
+      this.finishTool({ kind: "tool", ...event.payload, status: event.payload?.status || "ok" });
+      return;
+    }
+    if (event.type === "error") {
+      const detail = event.payload?.error || event.payload?.message;
+      this.appendErrorMessage(detail);
+      this.notifyResponseFailure?.(detail);
     }
   }
 
@@ -344,20 +268,6 @@ class PiApp extends HTMLElement {
     if (this.connectionErrorTimer) clearTimeout(this.connectionErrorTimer);
     this.connectionErrorTimer = undefined;
     this.setConnection("ok");
-  }
-
-  deferEventStreamError() {
-    const source = this.eventSource;
-    const closedState = globalThis.EventSource?.CLOSED ?? 2;
-    if (source?.readyState === closedState) {
-      this.setConnection("err");
-      return;
-    }
-    this.setConnection("reconnecting");
-    if (this.connectionErrorTimer) clearTimeout(this.connectionErrorTimer);
-    this.connectionErrorTimer = window.setTimeout(() => {
-      if (this.eventSource === source) this.setConnection("err");
-    }, 20000);
   }
 
   setConnection(status) {

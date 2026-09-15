@@ -165,14 +165,6 @@ export const toolMessageMethods = {
 
   updateToolArgs(payload) {
     if (!payload?.chunk) return;
-    if (typeof this.applyEvent === "function") {
-      this.applyEvent({
-        id: String(BigInt(this.transcriptState?.appliedSeq || "0") + 1n),
-        type: "tool.args.delta",
-        payload,
-      });
-      return;
-    }
     const card = latestToolCard(this, payload?.tool, payload?.id);
     if (!card) return;
     card.__toolArgsText = `${card.__toolArgsText || ""}${payload.chunk}`;
@@ -181,26 +173,29 @@ export const toolMessageMethods = {
   },
 
   appendToolOutput(payload) {
-    if (!payload?.chunk || typeof this.applyEvent !== "function") return;
-    this.applyEvent({
-      id: String(BigInt(this.transcriptState?.appliedSeq || "0") + 1n),
-      type: "tool.output",
-      payload,
-    });
+    if (!payload?.chunk) return;
+    const card = latestToolCard(this, payload?.tool, payload?.id);
+    if (!card) return;
+    const body = card.querySelector(".tc-body");
+    const fullBody = `${body?.__fullToolBody || body?.textContent || ""}${payload.chunk}`;
+    if (body) {
+      body.innerHTML = renderToolBody(fullBody);
+      storeFullToolBody(body, fullBody);
+    }
+    this.renderTranscriptWindow?.({ stickToBottom: true });
+    this.scrollTerm?.();
   },
 
   finishTool(message) {
-    if (typeof this.applyEvent === "function") {
-      this.applyEvent({
-        id: String(BigInt(this.transcriptState?.appliedSeq || "0") + 1n),
-        type: "tool.finished",
-        payload: message,
-      });
+    const card = latestToolCard(this, message?.tool, message?.id);
+    if (!card) {
+      this.appendMessage(message);
       return;
     }
-    const card = latestToolCard(this, message?.tool, message?.id);
-    if (!card) return;
     const next = this.toolCard(message);
-    if (!this.replaceTranscriptNode(card, next)) card.replaceWith(next);
+    const wrapper = card.closest?.(".transcript-item");
+    const item = this.transcriptItems?.find((candidate) => String(candidate.id) === wrapper?.dataset?.transcriptItem);
+    if (item) item.message = message;
+    card.replaceWith(next);
   },
 };

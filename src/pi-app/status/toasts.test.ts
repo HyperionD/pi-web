@@ -181,6 +181,12 @@ describe("pi-app toast notifications", () => {
       addEventListener(type, callback) { this.listeners[type] = callback; }
     }
     vi.stubGlobal("EventSource", FakeEventSource);
+    globalThis.fetch = vi.fn(async (url) => {
+      if (String(url).includes("/state")) {
+        return { ok: true, status: 200, json: async () => ({ seq: "1", status: "running" }) };
+      }
+      return bootstrapOkResponse(url);
+    });
     const app = await connectPiApp();
     app.apiConnected = true;
     app.dataset.activeSessionId = "active-session";
@@ -194,12 +200,14 @@ describe("pi-app toast notifications", () => {
       ] },
     ]);
 
+    await new Promise((resolve) => setTimeout(resolve, 0));
     expect(sources).toHaveLength(1);
-    sources[0].listeners["session.status"]({
+    sources[0].listeners["session.event"]({
       data: JSON.stringify({
-        type: "session.status",
+        seq: "2",
+        type: "run.finished",
         sessionId: "background-session",
-        payload: { status: "idle" },
+        payload: {},
       }),
     });
 

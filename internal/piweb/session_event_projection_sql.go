@@ -11,7 +11,17 @@ import (
 )
 
 func loadProjectionView(conn *sql.Conn, sessionID string, stream SessionStreamState) (ProjectionView, error) {
-	view := ProjectionView{Stream: stream, Items: map[string]ProjectedSessionItem{}}
+	view := ProjectionView{Stream: stream, Metadata: SessionMetadataProjection{SessionID: sessionID}, Items: map[string]ProjectedSessionItem{}}
+	var metadataPayload []byte
+	err := conn.QueryRowContext(context.Background(), `SELECT payload_json FROM session_metadata WHERE session_id=?`, sessionID).Scan(&metadataPayload)
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return ProjectionView{}, err
+	}
+	if len(metadataPayload) > 0 {
+		if err := json.Unmarshal(metadataPayload, &view.Metadata); err != nil {
+			return ProjectionView{}, fmt.Errorf("decode session metadata %s: %w", sessionID, err)
+		}
+	}
 	rows, err := conn.QueryContext(context.Background(), `SELECT item_id, ordinal, payload_json FROM session_items WHERE session_id=? ORDER BY ordinal ASC`, sessionID)
 	if err != nil {
 		return ProjectionView{}, err
@@ -37,6 +47,9 @@ func loadProjectionView(conn *sql.Conn, sessionID string, stream SessionStreamSt
 
 func applyStoredChange(view ProjectionView, change ProjectionChange) ProjectionView {
 	view.Stream = change.Stream
+	if change.Metadata != nil {
+		view.Metadata = *change.Metadata
+	}
 	if view.Items == nil {
 		view.Items = map[string]ProjectedSessionItem{}
 	}
@@ -56,6 +69,11 @@ func applyStoredChange(view ProjectionView, change ProjectionChange) ProjectionV
 }
 
 func persistProjectionChange(conn *sql.Conn, sessionID string, change ProjectionChange) error {
+	if change.Metadata != nil {
+		if err := upsertSessionMetadata(conn, sessionID, *change.Metadata); err != nil {
+			return err
+		}
+	}
 	if change.Upsert != nil {
 		if err := upsertProjectedItem(conn, sessionID, *change.Upsert); err != nil {
 			return err
@@ -72,6 +90,15 @@ func persistProjectionChange(conn *sql.Conn, sessionID string, change Projection
 		}
 	}
 	return nil
+}
+
+func upsertSessionMetadata(conn *sql.Conn, sessionID string, metadata SessionMetadataProjection) error {
+	payload, err := json.Marshal(metadata)
+	if err != nil {
+		return err
+	}
+	_, err = conn.ExecContext(context.Background(), `INSERT INTO session_metadata(session_id, payload_json, updated_seq) VALUES (?, ?, ?) ON CONFLICT(session_id) DO UPDATE SET payload_json=excluded.payload_json, updated_seq=excluded.updated_seq`, sessionID, payload, metadata.UpdatedSeq)
+	return err
 }
 
 func upsertProjectedItem(conn *sql.Conn, sessionID string, item ProjectedSessionItem) error {

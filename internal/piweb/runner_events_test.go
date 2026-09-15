@@ -151,21 +151,6 @@ func reportAssistantError(raw json.RawMessage, broker *Broker, sessionID string,
 	broker.Publish(sessionID, "error", map[string]string{"error": message})
 }
 
-func assistantErrorMessage(raw json.RawMessage) string {
-	var msg struct {
-		Role         string `json:"role"`
-		StopReason   string `json:"stopReason"`
-		ErrorMessage string `json:"errorMessage"`
-	}
-	if err := json.Unmarshal(raw, &msg); err != nil || msg.Role != "assistant" {
-		return ""
-	}
-	if msg.StopReason != "error" || msg.ErrorMessage == "" {
-		return ""
-	}
-	return msg.ErrorMessage
-}
-
 func jsonChunk(raw json.RawMessage) string {
 	if len(raw) == 0 || string(raw) == "null" {
 		return ""

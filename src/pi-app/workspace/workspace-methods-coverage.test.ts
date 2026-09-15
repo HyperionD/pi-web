@@ -673,8 +673,12 @@ describe("workspace folder/render/bootstrap coverage", () => {
 
     app.activateBootstrapSession({ id: "s-default", title: "default" });
     app.renderMessages = vi.fn();
-    app.connectEvents = vi.fn();
-    app.applyLoadedSession({ id: "s-default", title: "default" }, undefined, "");
+    app.connectDurableEvents = vi.fn();
+    app.applyLoadedDurableSession({
+      session: { id: "s-default", title: "default" }, metadata: { title: "default" },
+      items: [], status: "idle", seq: "0", cursor: "", hasMore: false, limit: 120,
+      projectionSchemaVersion: 1, projectionGeneration: "1",
+    });
   });
 
   it("renders git history as a commit-only list", async () => {

@@ -143,15 +143,7 @@ export const sessionMethods = {
     if (!title) return;
     try {
       const { session } = await renameSessionRequest(sessionId, title);
-      const row = this.querySelector(`[data-session='${sessionId}']`);
-      if (row) {
-        row.dataset.title = session.title;
-        const main = row.querySelector(".session-main");
-        if (main) main.dataset.title = session.title;
-        if (row.querySelector(".title")) row.querySelector(".title").textContent = session.title;
-      }
-      const activeTitle = this.querySelector("[data-active-session-title]");
-      if (activeTitle && this.dataset.activeSessionId === sessionId) activeTitle.textContent = session.title;
+      if (!this.durableEvents) this.updateSessionTitle(session);
     } catch {
       this.setConnection("err");
     }
@@ -163,10 +155,12 @@ export const sessionMethods = {
     if (!confirm(`要删除会话 ${sessionId} 吗？这将移除本地 JSONL 文件。`)) return;
     try {
       await deleteSessionRequest(sessionId);
-      const workspaceId = this.findWorkspaceIdForSession(sessionId);
-      this.querySelector(`[data-session='${sessionId}']`)?.remove();
-      this.refreshWorkspaceSessionControls(workspaceId);
-      if (this.dataset.activeSessionId === sessionId) this.clearActiveSession(sessionId);
+      if (!this.durableEvents) {
+        const workspaceId = this.findWorkspaceIdForSession(sessionId);
+        this.querySelector(`[data-session='${sessionId}']`)?.remove();
+        this.refreshWorkspaceSessionControls(workspaceId);
+        if (this.dataset.activeSessionId === sessionId) this.clearActiveSession(sessionId);
+      }
     } catch {
       this.setConnection("err");
     }
@@ -192,7 +186,8 @@ export const sessionMethods = {
   clearActiveSession(sessionId) {
     clearStoredActiveSession(sessionId);
     this.stopDurableStream?.();
-    this.invalidateEventStream();
+    this.sessionViewGeneration = Symbol("session-view");
+    this.sessionResync = undefined;
     this.transcriptState = undefined;
     this.dataset.activeSessionId = "";
     this.resetActiveSessionState();
@@ -277,12 +272,8 @@ export const sessionMethods = {
       title.title = `${session.title} · ${session.id}`;
     }
     this.renderMessages([]);
-    if (this.durableEvents) {
-      this.transcriptState = emptyTranscriptState(session.id, this.sessionViewGeneration);
-      this.connectDurableEvents?.(session.id, "0");
-    } else {
-      this.connectEvents(session.id);
-    }
+    this.transcriptState = emptyTranscriptState(session.id, this.sessionViewGeneration);
+    this.connectDurableEvents?.(session.id, "0");
   },
 
   resetActiveSessionState() {

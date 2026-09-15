@@ -69,6 +69,14 @@ export function installSessionSnapshot(state: TranscriptState, snapshot: Session
     appliedSeq: snapshot.seq,
     status: (snapshot.status as TranscriptState["status"]) || "idle",
     runId: snapshot.runId,
+    sessionTitle: snapshot.metadata?.title,
+    sessionDeleted: snapshot.metadata?.deleted,
+    sessionModel: snapshot.metadata && {
+      provider: snapshot.metadata.provider,
+      model: snapshot.metadata.model,
+      thinkingLevel: snapshot.metadata.thinkingLevel,
+    },
+    contextUsage: snapshot.metadata?.contextUsage,
     itemOrder,
     itemsById,
     toolsByCallId,
@@ -143,6 +151,33 @@ function applyEvent(state: TranscriptState, event: DurableSessionEvent): Transcr
       });
     case "run.started":
       return { ...state, status: "running", runId: event.runId };
+    case "session.created":
+      return { ...state, sessionTitle: payload.title || state.sessionTitle };
+    case "session.renamed":
+      return { ...state, sessionTitle: payload.title || state.sessionTitle };
+    case "session.model.changed":
+    case "runtime.model.updated":
+      return {
+        ...state,
+        sessionModel: {
+          provider: payload.provider as string | undefined,
+          model: payload.model as string | undefined,
+          thinkingLevel: payload.thinkingLevel as string | undefined,
+        },
+      };
+    case "context.usage.updated":
+      return { ...state, contextUsage: payload.contextUsage };
+    case "compaction.started":
+      return { ...state, status: "compacting" };
+    case "compaction.committed":
+      return { ...state, status: "idle" };
+    case "compaction.failed":
+      return { ...state, status: "error" };
+    case "session.deleted":
+      return { ...state, sessionDeleted: true };
+    case "run.cancel.requested":
+    case "steer.accepted":
+      return state;
     case "assistant.segment.started": {
       const item = ensureSegmentItem(state, event, payload.kind);
       const activeSegments = new Map(state.activeSegments);
