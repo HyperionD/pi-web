@@ -90,6 +90,27 @@ describe("durable session transport", () => {
     expect(app.transcriptState.appliedSeq).toBe("4");
   });
 
+  it("applies durable session rename events to the active metadata", async () => {
+    const app = await connectPiApp();
+    app.durableEvents = true;
+    await app.loadSession("s1");
+    const row = document.createElement("button");
+    row.dataset.session = "s1";
+    row.dataset.title = "durable";
+    row.innerHTML = '<span class="title">durable</span><span class="session-main"></span>';
+    const activeTitle = document.createElement("span");
+    activeTitle.dataset.activeSessionTitle = "";
+    app.append(row, activeTitle);
+
+    FakeEventSource.instances.at(-1).dispatch("session.event", {
+      seq: "4", sessionId: "s1", type: "session.renamed", payload: { title: "renamed" },
+    });
+
+    expect(row.dataset.title).toBe("renamed");
+    expect(row.querySelector(".title").textContent).toBe("renamed");
+    expect(activeTitle.textContent).toBe("renamed");
+  });
+
   it("renders a durable run failure error from the snapshot", async () => {
     const app = await connectPiApp();
     app.durableEvents = true;
