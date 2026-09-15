@@ -22,7 +22,8 @@ export default defineConfig({
     },
   ],
   webServer: {
-    command: "bun run dev -- --port 4321",
+    command: "rm -rf /tmp/pi-web-session-e2e && mkdir -p /tmp/pi-web-session-e2e/sessions /tmp/pi-web-session-e2e/workspace && (PI_CODING_AGENT_SESSION_DIR=/tmp/pi-web-session-e2e/sessions go run . --host 127.0.0.1 --port 18732 & backend=$!; trap 'kill $backend 2>/dev/null || true' EXIT; bun run dev -- --port 4321)",
+    env: { PI_WEB_BACKEND_URL: "http://127.0.0.1:18732" },
     url: baseURL,
     reuseExistingServer: true,
     timeout: 120_000,
