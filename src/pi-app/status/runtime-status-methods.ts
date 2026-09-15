@@ -90,7 +90,11 @@ export const runtimeStatusMethods = {
 
   applyRuntimeStatus(status) {
     if (!status) return;
-    this.updatePromptMeta(status);
+    const durableModel = this.durableEvents && this.transcriptState?.sessionModel;
+    const durableStatus = durableModel?.model
+      ? { ...status, model: durableModel.model, thinkingLevel: durableModel.thinkingLevel }
+      : status;
+    this.updatePromptMeta(durableStatus);
     if (status.warning) this.notifyRuntimeWarning?.(status.warning);
   },
 };

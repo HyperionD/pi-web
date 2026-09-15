@@ -161,6 +161,17 @@ describe("context usage status", () => {
     expect(app.querySelector("[data-prompt-meta]").textContent).toContain("Ctx 60K / 200K (30%)");
   });
 
+  it("keeps durable session model metadata authoritative over runtime polling", async () => {
+    const app = await connectPiApp();
+    app.durableEvents = true;
+    app.transcriptState = { sessionModel: { model: "durable-model", thinkingLevel: "high" } };
+
+    app.applyRuntimeStatus({ model: "stale-model", thinkingLevel: "low" });
+
+    expect(app.querySelector("[data-prompt-meta]").textContent).toContain("durable-model (high)");
+    expect(app.querySelector("[data-prompt-meta]").textContent).not.toContain("stale-model");
+  });
+
   it("loads active-session context usage with runtime status polling", async () => {
     const app = await connectPiApp();
     app.apiConnected = true;
