@@ -80,38 +80,6 @@ describe("pi-app session isolation", () => {
     expect(app.querySelector(".msg")).toBeNull();
   });
 
-  it("ignores callbacks from a stale event stream", async () => {
-    const sources = [];
-    globalThis.EventSource = class {
-      constructor(url) {
-        this.url = url;
-        this.listeners = {};
-        this.close = vi.fn();
-        sources.push(this);
-      }
-
-      addEventListener(type, listener) {
-        this.listeners[type] = listener;
-      }
-    };
-    const app = await connectedApp();
-    app.dataset.activeSessionId = "s1";
-    app.connectEvents("s1");
-    app.dataset.activeSessionId = "s2";
-    app.connectEvents("s2");
-
-    sources[0].listeners["session.message"]({
-      data: JSON.stringify({
-        type: "session.message",
-        sessionId: "s1",
-        payload: { kind: "pi", text: "old stream output" },
-      }),
-    });
-
-    expect(sources[0].close).toHaveBeenCalled();
-    expect(app.querySelector(".msg")).toBeNull();
-  });
-
   it("keeps the latest session load when older requests finish later", async () => {
     let resolveFirst;
     globalThis.fetch = vi.fn((url) => {
@@ -154,7 +122,7 @@ describe("pi-app session isolation", () => {
     const app = await connectedApp();
     app.dataset.activeSessionId = "s1";
     const oldLoad = app.loadSession("s1");
-    app.invalidateEventStream();
+    app.sessionViewGeneration = Symbol("new-session-view");
     app.termInner.replaceChildren();
     app.termInner.textContent = "new prompt";
     resolveLoad({

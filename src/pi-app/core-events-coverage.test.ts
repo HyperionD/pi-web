@@ -70,85 +70,11 @@ describe("pi-app core events coverage", () => {
     expect(app.isSessionCancellationPending("s1")).toBe(false);
   });
 
-  it("keeps transient event stream errors from disabling the API", async () => {
+  it("covers durable connection confirmation, mode, and quota labels", async () => {
     const app = await connectPiApp();
-    const indicator = document.createElement("span");
-    indicator.className = "statusbtn";
-    app.append(indicator);
-    app.apiConnected = false;
-    app.eventSource = { readyState: 0, close: vi.fn() };
-
-    app.confirmConnection();
-    expect(app.apiConnected).toBe(true);
-    expect(indicator.title).toBe("已连接");
-
-    app.deferEventStreamError();
-    expect(indicator.title).toBe("正在重新连接事件流");
-    expect(indicator.style.color).toBe("var(--fg-3)");
-    expect(app.apiConnected).toBe(true);
-
-    app.confirmConnection();
-    expect(indicator.title).toBe("已连接");
-
-    globalThis.EventSource = { CLOSED: 2 };
-    app.eventSource = { readyState: 2, close: vi.fn() };
-    app.deferEventStreamError();
-    expect(indicator.title).toBe("后端连接已断开");
-  });
-
-  it("marks the backend disconnected when the event stream stays down", async () => {
-    let timeoutCallback;
-    vi.spyOn(window, "setTimeout").mockImplementation((callback) => {
-      timeoutCallback = callback;
-      return 1;
-    });
-    const app = await connectPiApp();
-    const indicator = document.createElement("span");
-    indicator.className = "statusbtn";
-    app.append(indicator);
-    app.eventSource = { readyState: 0, close: vi.fn() };
-    app.connectionErrorTimer = 7;
-    vi.spyOn(window, "clearTimeout").mockImplementation(() => undefined);
-    app.deferEventStreamError();
-    timeoutCallback();
-    expect(window.clearTimeout).toHaveBeenCalledWith(7);
-    expect(indicator.title).toBe("后端连接已断开");
-
-    app.eventSource = { readyState: 0, close: vi.fn() };
-    app.deferEventStreamError();
-    app.eventSource = { readyState: 0, close: vi.fn() };
-    expect(() => timeoutCallback()).not.toThrow();
-
-    app.setConnection("unexpected");
-    expect(indicator.title).toBe("后端连接已断开");
-  });
-
-  it("connects events, checks stream identity, mode, connection, and quota labels", async () => {
-    const app = await connectPiApp();
-    const source = { close: vi.fn() };
-    app.eventSource = source;
-    let handlers;
-    globalThis.EventSource = undefined;
-    const api = await import("../lib/api");
-    vi.spyOn(api, "sessionEvents").mockImplementation((sessionId, options) => {
-      handlers = options;
-      return { close: vi.fn(), sessionId };
-    });
     app.dataset.activeSessionId = "s1";
-    app.applyEvent = vi.fn();
-    app.connectEvents("s1", { replay: true });
-    handlers.onOpen();
-    handlers.onError();
-    handlers.onEvent({ type: "heartbeat" });
-    expect(source.close).toHaveBeenCalled();
-    expect(app.applyEvent).toHaveBeenCalledWith({ type: "heartbeat" });
-    expect(app.isActiveEventStream(app.eventStreamId, "s1")).toBe(true);
-    expect(app.isActiveEventStream(Symbol("x"), "s1")).toBe(false);
-    expect(app.isCurrentSessionEvent({ sessionId: "s1" })).toBe(true);
-    expect(app.isCurrentSessionEvent({ sessionId: "s2" })).toBe(false);
-    app.dataset.activeSessionId = "";
-    expect(app.isCurrentSessionEvent({ sessionId: "s2" })).toBe(true);
-
+    app.confirmConnection();
+    expect(app.apiConnected).toBe(true);
     app.stopButton = document.createElement("button");
     app.sendButton = document.createElement("button");
     app.finishRunningTools = vi.fn();

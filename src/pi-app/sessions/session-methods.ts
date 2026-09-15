@@ -186,7 +186,8 @@ export const sessionMethods = {
   clearActiveSession(sessionId) {
     clearStoredActiveSession(sessionId);
     this.stopDurableStream?.();
-    this.invalidateEventStream();
+    this.sessionViewGeneration = Symbol("session-view");
+    this.sessionResync = undefined;
     this.transcriptState = undefined;
     this.dataset.activeSessionId = "";
     this.resetActiveSessionState();

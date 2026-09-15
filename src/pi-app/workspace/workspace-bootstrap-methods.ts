@@ -176,7 +176,8 @@ export const workspaceBootstrapMethods = {
     });
     this.markSelectedSessionRow?.("");
     this.stopDurableStream?.();
-    this.invalidateEventStream();
+    this.sessionViewGeneration = Symbol("session-view");
+    this.sessionResync = undefined;
     this.transcriptState = undefined;
     this.backgroundSessionWatches?.forEach((watch) => {
       watch.client?.stop?.();
@@ -353,7 +354,7 @@ export const workspaceBootstrapMethods = {
     if (requestedViewGeneration && this.sessionViewGeneration !== requestedViewGeneration) return;
     this.sessionLoadToken = loadToken;
     this.stopDurableStream?.();
-    this.invalidateEventStream?.({ preserveResync: true });
+    this.sessionViewGeneration = Symbol("session-view");
     const loadViewGeneration = this.sessionViewGeneration;
     const isCurrentResource = () => (
       this.sessionLoadToken === loadToken

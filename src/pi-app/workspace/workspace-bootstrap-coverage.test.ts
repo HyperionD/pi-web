@@ -212,8 +212,8 @@ describe("workspace bootstrap coverage", () => {
     const sessionLabel = document.createElement("span");
     sessionLabel.dataset.activeSessionTitle = "";
     app.append(workspaceLabel, sessionLabel);
-    const closeEventSource = vi.fn();
-    app.eventSource = { close: closeEventSource };
+    const closeDurableStream = vi.fn();
+    app.durableStream = { stop: closeDurableStream };
     app.workspaceFiles = [{ name: "stale.ts" }];
     const dispatchTreeUpdate = vi.spyOn(window, "dispatchEvent");
     localStorage.setItem("pi.activeSession", JSON.stringify({ workspaceId: "outside", sessionId: "stale-session" }));
@@ -227,7 +227,7 @@ describe("workspace bootstrap coverage", () => {
     expect(app.querySelector("[data-active-workspace]")?.textContent).toBe("工作区");
     expect(app.querySelector("[data-active-session-title]")?.textContent).toBe("无会话");
     expect(localStorage.getItem("pi.activeSession")).toBeNull();
-    expect(closeEventSource).toHaveBeenCalled();
+    expect(closeDurableStream).toHaveBeenCalled();
     expect(app.workspaceFiles).toEqual([]);
     expect(dispatchTreeUpdate).toHaveBeenCalledWith(expect.objectContaining({
       type: "pi-workspace-tree:update",

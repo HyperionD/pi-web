@@ -1,12 +1,10 @@
 import { applyUiLocale, currentUiLocale, setUiLocale } from "../i18n/client";
 import { normalizeUiLocale } from "../i18n/locales";
-import { sessionEvents } from "../lib/api";
 import { escapeHtml } from "../lib/renderers";
 import {
   compareEventCursors,
   normalizeEventCursor,
   shouldResyncAfterGap,
-  type SessionEventEnvelope,
 } from "./sessions/session-recovery";
 import {
   adaptLegacySessionEvent,
@@ -46,7 +44,6 @@ class PiApp extends HTMLElement {
     this.termInner = this.querySelector(".term-inner");
     this.streamingTail = this.querySelector("[data-streaming-tail]");
     this.initTranscriptWindow();
-    this.eventSource = null;
     this.sessionEventCursors = new Map();
     this.sessionViewGeneration = Symbol("initial-session-view");
     this.sessionResync = undefined;
@@ -75,10 +72,8 @@ class PiApp extends HTMLElement {
   disconnectedCallback() {
     this.destroyFilePreviewEditor?.();
     this.stopDurableStream?.();
-    this.invalidateEventStream();
     this.backgroundSessionWatches?.forEach((watch) => {
       watch.client?.stop?.();
-      watch.source?.close?.();
     });
     this.backgroundSessionWatches?.clear?.();
     if (this.spinnerTimer) clearInterval(this.spinnerTimer);
@@ -202,45 +197,6 @@ class PiApp extends HTMLElement {
     window.parent?.postMessage({ type: "__edit_mode_available" }, "*");
   }
 
-  invalidateEventStream({ preserveResync = false } = {}) {
-    this.sessionViewGeneration = Symbol("session-view");
-    if (!preserveResync) this.sessionResync = undefined;
-    this.eventStreamId = undefined;
-    this.eventSource?.close();
-    this.eventSource = null;
-  }
-
-  connectEvents(sessionId: string, options: any = {}) {
-    this.invalidateEventStream();
-    const streamGeneration = this.sessionViewGeneration;
-    const cursor = options.after ?? this.sessionEventCursors?.get(sessionId);
-    if (normalizeEventCursor(cursor) && normalizeEventCursor(cursor) !== "0") {
-      this.setSessionEventCursor(sessionId, cursor);
-    }
-    const reloadOnOpen = options.reloadOnOpen ?? (options.replay === undefined && cursor == null);
-    const eventStreamId = Symbol(sessionId);
-    this.eventStreamId = eventStreamId;
-    this.eventSource = sessionEvents(sessionId, {
-      replay: options.replay,
-      after: cursor,
-      onOpen: () => {
-        if (!this.isActiveEventStream(eventStreamId, sessionId)) return;
-        this.confirmConnection();
-        if (reloadOnOpen) void this.requestSessionResync(sessionId);
-      },
-      onError: () => {
-        if (this.isActiveEventStream(eventStreamId, sessionId)) this.deferEventStreamError();
-      },
-      onEvent: (event: SessionEventEnvelope) => {
-        if (!this.isActiveEventStream(eventStreamId, sessionId, streamGeneration)) return;
-        if (this.isDuplicateSessionEvent(event)) return;
-        this.setSessionEventCursor(sessionId, event.id);
-        this.confirmConnection();
-        this.applyEvent(event);
-      },
-    });
-  }
-
   requestSessionResync(sessionId: string) {
     if (!sessionId || this.dataset.activeSessionId !== sessionId) return Promise.resolve();
     const generation = this.sessionViewGeneration;
@@ -259,18 +215,6 @@ class PiApp extends HTMLElement {
     this.sessionEventCursors ??= new Map();
     const current = this.sessionEventCursors.get(sessionId) || "0";
     if (compareEventCursors(cursor, current) > 0) this.sessionEventCursors.set(sessionId, cursor);
-  }
-
-  isDuplicateSessionEvent(event: SessionEventEnvelope) {
-    const cursor = normalizeEventCursor(event?.id);
-    if (!cursor || cursor === "0" || !event.sessionId) return false;
-    return compareEventCursors(cursor, this.sessionEventCursors?.get(event.sessionId) || "0") <= 0;
-  }
-
-  isActiveEventStream(eventStreamId, sessionId, generation = undefined) {
-    return this.eventStreamId === eventStreamId
-      && this.dataset.activeSessionId === sessionId
-      && (!generation || this.sessionViewGeneration === generation);
   }
 
   applyEvent(event) {
@@ -344,20 +288,6 @@ class PiApp extends HTMLElement {
     if (this.connectionErrorTimer) clearTimeout(this.connectionErrorTimer);
     this.connectionErrorTimer = undefined;
     this.setConnection("ok");
-  }
-
-  deferEventStreamError() {
-    const source = this.eventSource;
-    const closedState = globalThis.EventSource?.CLOSED ?? 2;
-    if (source?.readyState === closedState) {
-      this.setConnection("err");
-      return;
-    }
-    this.setConnection("reconnecting");
-    if (this.connectionErrorTimer) clearTimeout(this.connectionErrorTimer);
-    this.connectionErrorTimer = window.setTimeout(() => {
-      if (this.eventSource === source) this.setConnection("err");
-    }, 20000);
   }
 
   setConnection(status) {

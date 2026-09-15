@@ -41,18 +41,14 @@ describe("pi-app core events", () => {
     app.tickSpinners();
     expect(spinner.dataset.frame).toBe("1");
 
-    const backgroundSource = { close: vi.fn() };
-    app.eventSource = { close: vi.fn() };
-    const eventSource = app.eventSource;
-    app.backgroundSessionWatches = new Map([["s2", { source: backgroundSource }]]);
+    const backgroundClient = { stop: vi.fn() };
+    app.backgroundSessionWatches = new Map([["s2", { client: backgroundClient }]]);
     app.scrollFrame = 2;
     app.uninstallViewportSizing = vi.fn();
     app.disconnectedCallback();
-    expect(eventSource.close).toHaveBeenCalled();
-    expect(backgroundSource.close).toHaveBeenCalled();
+    expect(backgroundClient.stop).toHaveBeenCalled();
     expect(app.uninstallViewportSizing).toHaveBeenCalled();
     expect(app.scrollFrame).toBeUndefined();
-    app.eventSource = null;
     app.spinnerTimer = undefined;
     app.runtimeStatusTimer = undefined;
     app.scrollFrame = undefined;
@@ -322,35 +318,6 @@ describe("pi-app core events", () => {
     expect(app.navigateList).toHaveBeenCalledWith(slashEnter, ".slash-item", expect.any(Function));
     expect(app.submitPrompt).toHaveBeenCalledTimes(1);
   });
-
-  it("invalidates event callbacks when the app disconnects", async () => {
-    const listeners = {};
-    class FakeEventSource {
-      constructor(url) { this.url = url; }
-      addEventListener(type, callback) { listeners[type] = callback; }
-      close = vi.fn();
-    }
-    vi.stubGlobal("EventSource", FakeEventSource);
-    const app = await connectPiApp();
-    app.dataset.activeSessionId = "s1";
-    app.applyEvent = vi.fn();
-    app.connectEvents("s1");
-    const staleSource = app.eventSource;
-
-    app.disconnectedCallback();
-    listeners["session.message"]({
-      data: JSON.stringify({
-        type: "session.message",
-        sessionId: "s1",
-        payload: { kind: "pi", text: "stale" },
-      }),
-    });
-
-    expect(staleSource.close).toHaveBeenCalled();
-    expect(app.applyEvent).not.toHaveBeenCalled();
-  });
-
-
 
 
   it("surfaces runtime auth warnings while loading prompt metadata", async () => {
