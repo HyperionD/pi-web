@@ -194,6 +194,24 @@ func (s *SQLiteSessionEventStore) AppendControl(ctx context.Context, sessionID, 
 		}
 		var existingSeq int64
 		var existingHash, existingType string
+		err = conn.QueryRowContext(context.Background(), `SELECT event_type, payload_hash, committed_seq FROM session_control_receipts WHERE session_id=? AND source_id=?`, sessionID, sourceID).Scan(&existingType, &existingHash, &existingSeq)
+		if err == nil {
+			if existingHash != hash || existingType != eventType {
+				return ErrCommandHashConflict
+			}
+			if existingSeq > 0 {
+				stored, err = loadEvent(conn, sessionID, existingSeq)
+				if errors.Is(err, sql.ErrNoRows) {
+					stored = StoredSessionEvent{Seq: existingSeq, SessionEventDraft: SessionEventDraft{
+						SessionID: sessionID, SourceID: sourceID, Type: eventType, Payload: payload,
+					}}
+					return nil
+				}
+				return err
+			}
+		} else if !errors.Is(err, sql.ErrNoRows) {
+			return err
+		}
 		err = conn.QueryRowContext(context.Background(), `SELECT seq, payload_hash, event_type FROM session_events WHERE session_id=? AND source_id=?`, sessionID, sourceID).Scan(&existingSeq, &existingHash, &existingType)
 		if err == nil {
 			if existingHash != hash || existingType != eventType {
@@ -205,7 +223,9 @@ func (s *SQLiteSessionEventStore) AppendControl(ctx context.Context, sessionID, 
 		if !errors.Is(err, sql.ErrNoRows) {
 			return err
 		}
-		ordinal := stream.SourceOrdinal + 1
+		// Control ordinals follow the durable event sequence, not the active
+		// runtime's source cursor. current_seq is never rewound by retention.
+		ordinal := stream.CurrentSeq + 1
 		draft := SessionEventDraft{
 			SessionID: sessionID, SourceID: sourceID, SourceOrdinal: &ordinal,
 			Type: eventType, Payload: payload, OccurredAt: time.Now().UTC(),
@@ -228,10 +248,13 @@ func (s *SQLiteSessionEventStore) AppendControl(ctx context.Context, sessionID, 
 		if err := s.enforceEventRetention(conn, sessionID); err != nil {
 			return err
 		}
+		if _, err := conn.ExecContext(context.Background(), `INSERT INTO session_control_receipts(session_id, source_id, event_type, payload_hash, committed_seq) VALUES (?, ?, ?, ?, ?)`, sessionID, sourceID, eventType, hash, stored.Seq); err != nil {
+			return err
+		}
 		change.Stream.CurrentSeq = stored.Seq
-		change.Stream.SourceOrdinal = ordinal
-		change.Stream.SourceHash = hash
-		change.Stream.SourceSeq = stored.Seq
+		// Control events have their own source-ordinal namespace. Never advance
+		// the active runtime's source cursor or the next runtime event can be
+		// rejected as a duplicate after a cancel/steer command.
 		if err := updateStream(conn, change.Stream); err != nil {
 			return err
 		}

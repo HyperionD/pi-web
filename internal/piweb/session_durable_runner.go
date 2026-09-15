@@ -19,7 +19,7 @@ func (r *Runner) StartDurablePrompt(
 	eventCtx, eventCancel := context.WithCancel(parent)
 	commandCtx, commandCancel := context.WithCancel(parent)
 	activeRun := &activePiRun{
-		cancel: eventCancel, commandCancel: commandCancel, commandContext: commandCtx,
+		runID: runID, cancel: eventCancel, commandCancel: commandCancel, commandContext: commandCtx,
 		eventsDone: make(chan struct{}), runtimeReady: make(chan struct{}), settled: make(chan struct{}),
 		durableComplete: adapter.Complete,
 		durableSteer: func(text string, images []PromptAttachment) error {
@@ -29,6 +29,14 @@ func (r *Runner) StartDurablePrompt(
 	if err := r.claimRun(sessionID, activeRun); err != nil {
 		eventCancel()
 		commandCancel()
+		return err
+	}
+	if activeRun.isCancelling() {
+		err := activeRun.completeDurableTerminal(EventRunCancelled)
+		eventCancel()
+		commandCancel()
+		activeRun.markSettled()
+		r.releaseRun(sessionID, activeRun)
 		return err
 	}
 	initializer := runtimeModelInitializer(startupSettings)
@@ -84,7 +92,11 @@ func (r *Runner) consumeDurableRuntimeEvents(ctx context.Context, sessionID stri
 				return
 			}
 			if event.Type == "agent_end" {
-				if err := run.completeDurableTerminal(EventRunFinished); err != nil {
+				terminalEvent := EventRunFinished
+				if run.isCancelling() {
+					terminalEvent = EventRunCancelled
+				}
+				if err := run.completeDurableTerminal(terminalEvent); err != nil {
 					_ = adapter.Fail(err)
 					r.abortDurableRun(sessionID, run)
 					return

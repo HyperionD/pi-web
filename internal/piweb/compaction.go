@@ -26,10 +26,13 @@ func (r *Runner) compactDurable(parent context.Context, events SessionControlEve
 	if err != nil {
 		return CompactionResult{}, err
 	}
+	if requestID == "" {
+		requestID = "compact:" + createSessionID()
+	}
 	_, eventCancel := context.WithCancel(parent)
 	commandCtx, commandCancel := context.WithTimeout(parent, 5*time.Minute)
 	run := &activePiRun{
-		cancel: eventCancel, commandCancel: commandCancel, commandContext: commandCtx,
+		runID: "compact:" + requestID, cancel: eventCancel, commandCancel: commandCancel, commandContext: commandCtx,
 		compacting: true, eventsDone: make(chan struct{}),
 		runtimeReady: make(chan struct{}), settled: make(chan struct{}),
 	}
@@ -61,9 +64,6 @@ func (r *Runner) compactDurable(parent context.Context, events SessionControlEve
 		}
 		r.finishRun(sessionID, run)
 	}()
-	if requestID == "" {
-		requestID = "compact:" + createSessionID()
-	}
 	if err := appendCompactionEvent(parent, events, sessionID, requestID+":started", EventCompactionStarted, nil); err != nil {
 		return CompactionResult{}, err
 	}
@@ -137,6 +137,16 @@ func (r *Runner) claimRun(sessionID string, run *activePiRun) error {
 		return errSessionBusy
 	}
 	run.generation = r.nextGeneration.Add(1)
+	if expectedRunID, pending := r.pendingCancels[sessionID]; pending {
+		if expectedRunID == run.runID {
+			delete(r.pendingCancels, sessionID)
+			run.beginCancel()
+		} else if run.runID == "" {
+			return errSessionBusy
+		} else {
+			delete(r.pendingCancels, sessionID)
+		}
+	}
 	r.running[sessionID] = run
 	return nil
 }

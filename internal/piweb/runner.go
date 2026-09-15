@@ -34,6 +34,7 @@ const fallbackChoiceSystemPrompt = `Pi Web UI fallback choice protocol:
 type Runner struct {
 	mu             sync.Mutex
 	running        map[string]*activePiRun
+	pendingCancels map[string]string
 	manager        *RuntimeManager
 	nextGeneration atomic.Uint64
 
@@ -79,6 +80,7 @@ func (gate *commandGate) release() {
 }
 
 type activePiRun struct {
+	runID                string
 	cancel               context.CancelFunc
 	commandCancel        context.CancelFunc
 	commandContext       context.Context
@@ -104,7 +106,7 @@ type activePiRun struct {
 }
 
 func NewRunner() *Runner {
-	return &Runner{running: map[string]*activePiRun{}}
+	return &Runner{running: map[string]*activePiRun{}, pendingCancels: map[string]string{}}
 }
 
 func NewRunnerWithRuntimeManager(manager *RuntimeManager) *Runner {
@@ -184,6 +186,16 @@ func (r *Runner) IsRunning(sessionID string) bool {
 	return ok
 }
 
+func (r *Runner) ActiveRunID(sessionID string) string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	run := r.running[sessionID]
+	if run == nil {
+		return ""
+	}
+	return run.runID
+}
+
 func (r *Runner) IsCompacting(sessionID string) bool {
 	r.mu.Lock()
 	run, ok := r.running[sessionID]
@@ -248,10 +260,14 @@ func (r *Runner) releaseRun(sessionID string, run *activePiRun) {
 	r.mu.Unlock()
 }
 
-func (r *Runner) claimCancellation(sessionID string, expected *activePiRun, useHook bool) (*activePiRun, bool) {
+func (r *Runner) claimCancellation(sessionID string, expected *activePiRun, useHook bool, expectedRunID ...string) (*activePiRun, bool) {
 	r.mu.Lock()
 	run, ok := r.running[sessionID]
 	if expected != nil && run != expected {
+		r.mu.Unlock()
+		return nil, false
+	}
+	if len(expectedRunID) > 0 && expectedRunID[0] != "" && (run == nil || run.runID != expectedRunID[0]) {
 		r.mu.Unlock()
 		return nil, false
 	}
@@ -261,6 +277,10 @@ func (r *Runner) claimCancellation(sessionID string, expected *activePiRun, useH
 		hook()
 		r.mu.Lock()
 		if r.running[sessionID] != run {
+			r.mu.Unlock()
+			return nil, false
+		}
+		if len(expectedRunID) > 0 && expectedRunID[0] != "" && (run == nil || run.runID != expectedRunID[0]) {
 			r.mu.Unlock()
 			return nil, false
 		}
@@ -517,7 +537,32 @@ const (
 )
 
 func (r *Runner) Cancel(sessionID string) bool {
-	run, ok := r.claimCancellation(sessionID, nil, true)
+	return r.cancel(sessionID, "")
+}
+
+func (r *Runner) CancelExpected(sessionID, expectedRunID string) bool {
+	if expectedRunID == "" {
+		return false
+	}
+	return r.cancel(sessionID, expectedRunID)
+}
+
+func (r *Runner) cancel(sessionID, expectedRunID string) bool {
+	run, ok := r.claimCancellation(sessionID, nil, true, expectedRunID)
+	if !ok && expectedRunID != "" {
+		r.mu.Lock()
+		current := r.running[sessionID]
+		if current == nil {
+			if r.pendingCancels == nil {
+				r.pendingCancels = map[string]string{}
+			}
+			r.pendingCancels[sessionID] = expectedRunID
+			r.mu.Unlock()
+			return true
+		}
+		r.mu.Unlock()
+		run, ok = r.claimCancellation(sessionID, current, false, expectedRunID)
+	}
 	if !ok {
 		return false
 	}

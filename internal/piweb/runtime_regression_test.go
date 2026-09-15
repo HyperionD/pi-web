@@ -469,6 +469,19 @@ func TestRuntimeManagerRetainsTimedOutClosingRuntime(t *testing.T) {
 	}
 }
 
+func TestRunnerCancelExpectedRequiresRunID(t *testing.T) {
+	runner := NewRunner()
+	run := &activePiRun{runID: "run-2", cancel: func() {}}
+	runner.running["runtime-session"] = run
+
+	if runner.CancelExpected("runtime-session", "") {
+		t.Fatal("cancel without an expected run ID should not claim a run")
+	}
+	if run.isCancelling() {
+		t.Fatal("cancel without an expected run ID changed the active run")
+	}
+}
+
 func TestRunnerCancelDoesNotAbortNewPromptAfterCompletionRace(t *testing.T) {
 	store := runtimeTestStore()
 	runtime := newCancelRegressionRuntime()

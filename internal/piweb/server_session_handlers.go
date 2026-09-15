@@ -1,6 +1,8 @@
 package piweb
 
 import (
+	"database/sql"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"strconv"
@@ -283,16 +285,34 @@ func (s *Server) cancelSession(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusServiceUnavailable, ErrEventStoreNotReady)
 		return
 	}
+	expectedRunID := ""
+	if s.events != nil {
+		snapshot, snapshotErr := s.events.Snapshot(r.Context(), sessionID, SessionPageRequest{Limit: 1})
+		if snapshotErr != nil && !errors.Is(snapshotErr, sql.ErrNoRows) {
+			writeSessionEventError(w, snapshotErr)
+			return
+		}
+		expectedRunID = snapshot.RunID
+	}
+	if expectedRunID == "" {
+		expectedRunID = s.runner.ActiveRunID(sessionID)
+	}
 	requestID := strings.TrimSpace(r.Header.Get("X-Client-Request-ID"))
 	if requestID == "" {
 		requestID = createSessionID()
 	}
-	event, err := s.commands.AppendControlEvent(r.Context(), sessionID, requestID, EventRunCancelRequested, nil)
+	event, err := s.commands.AppendControlEvent(r.Context(), sessionID, requestID, EventRunCancelRequested, map[string]string{"runId": expectedRunID})
 	if err != nil {
 		writeSessionEventError(w, err)
 		return
 	}
-	cancelled := s.runner.Cancel(sessionID)
+	var cancelPayload struct {
+		RunID string `json:"runId"`
+	}
+	if err := json.Unmarshal(event.Payload, &cancelPayload); err == nil && cancelPayload.RunID != "" {
+		expectedRunID = cancelPayload.RunID
+	}
+	cancelled := s.runner.CancelExpected(sessionID, expectedRunID)
 	writeJSON(w, http.StatusAccepted, map[string]any{"accepted": true, "acceptedSeq": event.Seq, "cancelled": cancelled})
 }
 func mergePromptAttachments(text string, attachments []PromptAttachment) string {

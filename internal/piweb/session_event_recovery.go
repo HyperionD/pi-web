@@ -47,14 +47,26 @@ func (s *SQLiteSessionEventStore) recoverSession(ctx context.Context, sessionID 
 			return nil
 		}
 		ordinal := stream.SourceOrdinal + 1
-		payload, err := json.Marshal(map[string]string{"reason": "restart"})
+		eventType := EventRunInterrupted
+		var cancelRequestSeq int64
+		if err := conn.QueryRowContext(context.Background(), `SELECT coalesce(max(seq), 0) FROM session_events WHERE session_id=? AND event_type=? AND json_extract(payload_json, '$.runId')=?`, sessionID, EventRunCancelRequested, stream.CurrentRunID).Scan(&cancelRequestSeq); err != nil {
+			return err
+		}
+		if cancelRequestSeq > 0 {
+			eventType = EventRunCancelled
+		}
+		reason := "restart"
+		if eventType == EventRunCancelled {
+			reason = "restart-after-cancel"
+		}
+		payload, err := json.Marshal(map[string]string{"reason": reason})
 		if err != nil {
 			return err
 		}
 		event := StoredSessionEvent{Seq: stream.CurrentSeq + 1, SessionEventDraft: SessionEventDraft{
 			SessionID: sessionID, RunID: stream.CurrentRunID,
 			SourceID:      fmt.Sprintf("%s:recovery:%d", stream.CurrentRunID, ordinal),
-			SourceOrdinal: &ordinal, Type: EventRunInterrupted, Payload: payload, OccurredAt: time.Now().UTC(),
+			SourceOrdinal: &ordinal, Type: eventType, Payload: payload, OccurredAt: time.Now().UTC(),
 		}}
 		view, err := loadProjectionView(conn, sessionID, stream)
 		if err != nil {
@@ -79,7 +91,7 @@ func (s *SQLiteSessionEventStore) recoverSession(ctx context.Context, sessionID 
 		change.Stream.SourceHash = hash
 		change.Stream.SourceSeq = event.Seq
 		change.Stream.CurrentRunID = ""
-		change.Stream.Status = SessionStatusInterrupted
+		change.Stream.Status, _ = terminalStatuses(eventType)
 		return updateStream(conn, change.Stream)
 	})
 }

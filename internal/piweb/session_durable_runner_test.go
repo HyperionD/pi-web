@@ -349,6 +349,9 @@ func TestCancelDurablePromptPersistsCancelledTerminalEvent(t *testing.T) {
 	if err := runner.StartDurablePrompt(t.Context(), store, "runtime-session", receipt.RunID, "hello", nil, adapter); err != nil {
 		t.Fatal(err)
 	}
+	if _, err := events.AppendControl(t.Context(), "runtime-session", "command:cancel", EventRunCancelRequested, []byte(`null`)); err != nil {
+		t.Fatal(err)
+	}
 	if !runner.Cancel("runtime-session") {
 		t.Fatal("durable run was not cancelled")
 	}
@@ -358,6 +361,48 @@ func TestCancelDurablePromptPersistsCancelledTerminalEvent(t *testing.T) {
 	}
 	if count != 1 {
 		t.Fatalf("run.cancelled count = %d", count)
+	}
+	snapshot, err := events.Snapshot(t.Context(), "runtime-session", SessionPageRequest{Limit: 10})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if snapshot.Status != SessionStatusCancelled || snapshot.RunID != "" {
+		t.Fatalf("cancelled snapshot = status %q run %q", snapshot.Status, snapshot.RunID)
+	}
+	_ = manager.Shutdown(context.Background())
+}
+
+func TestCancelDurablePromptBeforeRunnerClaimPersistsCancellation(t *testing.T) {
+	store := runtimeTestStore()
+	events := appendTestStore(t)
+	receipt, err := events.StartRun(t.Context(), StartRunCommand{
+		SessionID: "runtime-session", ClientRequestID: "req-cancel-before-claim", RequestHash: "hash-cancel-before-claim",
+		RunID: "run-cancel-before-claim", DisplayText: "hello",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := events.AppendControl(t.Context(), "runtime-session", "command:cancel-before-claim", EventRunCancelRequested, []byte(`null`)); err != nil {
+		t.Fatal(err)
+	}
+	runtime := newFakePiRuntime()
+	manager := NewRuntimeManagerWithFactory(store, func(context.Context, string, string) (PiRuntime, error) {
+		return runtime, nil
+	})
+	runner := NewRunnerWithRuntimeManager(manager)
+	if !runner.CancelExpected("runtime-session", receipt.RunID) {
+		t.Fatal("durable run was not marked for cancellation")
+	}
+	adapter := NewRuntimeEventAdapter("runtime-session", receipt.RunID, events)
+	if err := runner.StartDurablePrompt(t.Context(), store, "runtime-session", receipt.RunID, "hello", nil, adapter); err != nil {
+		t.Fatal(err)
+	}
+	snapshot, err := events.Snapshot(t.Context(), "runtime-session", SessionPageRequest{Limit: 10})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if snapshot.Status != SessionStatusCancelled || snapshot.RunID != "" {
+		t.Fatalf("cancelled snapshot = status %q run %q", snapshot.Status, snapshot.RunID)
 	}
 	_ = manager.Shutdown(context.Background())
 }

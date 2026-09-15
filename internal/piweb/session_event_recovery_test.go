@@ -50,6 +50,41 @@ func TestOpenServerRecoversInterruptedRunsBeforeServing(t *testing.T) {
 	}
 }
 
+func TestOpenServerRecoversPendingCancellationAsCancelled(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "pi-web.db")
+	seedStore, err := OpenSQLiteSessionEventStore(path, NewSessionWakeHub())
+	if err != nil {
+		t.Fatal(err)
+	}
+	receipt, err := seedStore.StartRun(t.Context(), StartRunCommand{SessionID: "s1", ClientRequestID: "req-1", RequestHash: "h", RunID: "run-1", DisplayText: "hello"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := seedStore.AppendControl(t.Context(), "s1", "command:cancel", EventRunCancelRequested, []byte(`{"runId":"run-1"}`)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := seedStore.Append(t.Context(), "s1", appendToolStartedDraft(receipt.RunID, 1, "call-1")); err != nil {
+		t.Fatal(err)
+	}
+	if err := seedStore.Close(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+
+	store := NewWebStore(path)
+	server, err := OpenServer(Config{}, store, NewBroker())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer server.Shutdown(t.Context())
+	snapshot, err := server.events.Snapshot(t.Context(), "s1", SessionPageRequest{Limit: 10})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if snapshot.Status != SessionStatusCancelled || snapshot.RunID != "" {
+		t.Fatalf("snapshot status = %q run = %q", snapshot.Status, snapshot.RunID)
+	}
+}
+
 func TestRecoverInterruptedIsIdempotent(t *testing.T) {
 	store := appendTestStore(t)
 	receipt := appendTestRun(t, store, "req-1")
