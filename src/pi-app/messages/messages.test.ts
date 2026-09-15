@@ -12,7 +12,6 @@ describe("pi-app messages", () => {
     expect(() => app.renderMessages([{ kind: "pi", text: "ignored" }])).not.toThrow();
     expect(() => app.appendMessage({ kind: "pi", text: "ignored" })).not.toThrow();
     expect(() => app.appendMessage()).not.toThrow();
-    expect(() => app.appendDelta({ kind: "pi", delta: "ignored" })).not.toThrow();
   });
 
   it("does not render a welcome banner for a new session", async () => {
@@ -31,9 +30,6 @@ describe("pi-app messages", () => {
 
     app.updatePromptMeta({ model: "GPT-5.5" });
     expect(app.querySelector(".msg[data-kind='think'] .prefix").textContent).toBe("GPT-5.5");
-
-    app.appendDelta({ kind: "think", delta: "streamed" });
-    expect(app.querySelector(".streaming-tail .msg[data-kind='think'] .prefix").textContent).toBe("GPT-5.5");
 
     app.appendMessage({ kind: "user", text: "hello" });
     app.appendMessage({ kind: "pi", text: "world" });
@@ -63,7 +59,7 @@ describe("pi-app messages", () => {
     expect(app.querySelector(".msg-image").getAttribute("alt")).toBe("shot");
     expect(app.querySelector(".fallback-choice-list [data-choice-value='a'] small").textContent).toBe("Alpha");
     expect(app.querySelector("[data-choice-custom-input]")).not.toBeNull();
-    expect(app.querySelector(".msg[data-kind='pi'] .body").textContent).toContain("value");
+    expect(app.querySelector(".msg[data-kind='pi'] .body").textContent).toBe("");
 
     app.appendMessage({ kind: "user", text: "unnamed", attachments: [{ type: "image", dataUrl: "data:image/png;base64,b" }] });
     expect([...app.querySelectorAll(".msg-image")].at(-1).getAttribute("alt")).toBe("attached image");
@@ -78,21 +74,6 @@ describe("pi-app messages", () => {
     expect(app.querySelector(".fallback-choice-list button").disabled).toBe(true);
   });
 
-  it("handles streaming and tool cleanup nodes with missing child elements", async () => {
-    const app = await connectPiApp();
-    app.renderMessages([]);
-    const streaming = document.createElement("div");
-    streaming.className = "msg streaming";
-    streaming.dataset.kind = "think";
-    app.termInner.append(streaming);
-    app.appendDelta({ kind: "think", delta: "ignored" });
-
-    const tool = document.createElement("div");
-    tool.className = "tool-card";
-    tool.dataset.status = "running";
-    app.termInner.append(tool);
-    expect(() => app.finishRunningTools()).not.toThrow();
-  });
 
   it("deduplicates echoed user prompts and removes loading on response", async () => {
     const app = await connectPiApp();
@@ -153,28 +134,7 @@ describe("pi-app messages", () => {
     expect(button.textContent).toBe("copied");
   });
 
-  it("does not append new deltas to a finalized streaming tail row", async () => {
-    const app = await connectPiApp();
-    app.renderMessages([]);
-    app.appendDelta({ kind: "pi", delta: "old" });
-    app.finalizeStreamingMessages();
-    app.appendMessage({ kind: "user", text: "next" });
-    app.appendDelta({ kind: "pi", delta: "new" });
-    app.flushStreamingRender();
-    const bodies = [...app.querySelectorAll(".msg[data-kind='pi'] .body")].map((node) => node.textContent);
-    expect(bodies).toEqual(["new"]);
-  });
 
-  it("starts a new stream segment after tool cards", async () => {
-    const app = await connectPiApp();
-    app.renderMessages([]);
-    app.appendDelta({ kind: "pi", delta: "before" });
-    app.appendMessage({ kind: "tool", tool: "bash", status: "running" });
-    app.appendDelta({ kind: "pi", delta: "after" });
-    app.flushStreamingRender();
-    const bodies = [...app.querySelectorAll(".streaming-tail .msg[data-kind='pi'] .body")].map((node) => node.textContent);
-    expect(bodies).toEqual(["after"]);
-  });
 
   it("covers fallback defaults for images and detached choice lookup", async () => {
     const app = await connectPiApp();
@@ -186,61 +146,7 @@ describe("pi-app messages", () => {
     app.termInner = term;
   });
 
-  it("clears uncached streaming rows from the tail", async () => {
-    const app = await connectPiApp();
-    app.renderMessages([]);
-    const row = app.simpleMessage("pi streaming", "pi >", "stream");
-    row.classList.add("streaming");
-    app.appendStreamingNode(row);
-    app.finalizeStreamingMessages();
-    expect(app.streamingTail.contains(row)).toBe(false);
-  });
 
-  it("keeps loading visible through tool activity until assistant output arrives", async () => {
-    const app = await connectPiApp();
-    app.renderMessages([]);
-    app.setMode("running");
-    app.appendMessage({ kind: "tool", tool: "read", status: "running" });
-    expect(app.querySelector(".msg.loading .spinner")).not.toBeNull();
-    app.finishTool({ kind: "tool", tool: "read", status: "ok" });
-    app.syncLoadingMessage();
-    expect(app.querySelector(".msg.loading .spinner")).not.toBeNull();
-    app.setMode("idle");
-    expect(app.querySelector(".msg.loading")).toBeNull();
-  });
-
-  it("clears the streaming tail when rendering another session", async () => {
-    const app = await connectPiApp();
-    app.renderMessages([]);
-    app.appendDelta({ kind: "pi", delta: "session-a" });
-    app.flushStreamingRender();
-
-    app.renderMessages([{ kind: "user", text: "session-b" }]);
-    app.appendDelta({ kind: "pi", delta: "session-b" });
-    app.flushStreamingRender();
-
-    const streams = app.streamingTail.querySelectorAll(".msg.streaming[data-kind='pi']");
-    expect(streams).toHaveLength(1);
-    expect(streams[0].querySelector(".body").textContent).toBe("session-b");
-  });
-
-  it("does not duplicate persisted tools during active stream replay", async () => {
-    const app = await connectPiApp();
-    app.renderMessages([{
-      kind: "tool",
-      id: "call-1",
-      tool: "read",
-      status: "ok",
-      body: "done",
-    }]);
-
-    app.applyEvent({
-      type: "tool.started",
-      payload: { id: "call-1", kind: "tool", tool: "read", status: "running" },
-    });
-
-    expect(app.querySelectorAll(".tool-card[data-tool-call-id='call-1']")).toHaveLength(1);
-  });
 
   it("deduplicates replayed tools that are outside the virtualized DOM", async () => {
     const app = await connectPiApp();
@@ -284,295 +190,23 @@ describe("pi-app messages", () => {
     expect(glyphs[6].textContent).toBe("●");
   });
 
-  it("marks stale running tools complete when assistant output resumes without height notification", async () => {
-    const app = await connectPiApp();
-    app.renderMessages([]);
-    app.setMode("running");
-    app.appendMessage({ kind: "tool", tool: "read", status: "running" });
-    const heightNotification = vi.spyOn(app, "notifyTranscriptNodeHeightDidChange");
 
-    app.appendDelta({ kind: "pi", delta: "done" });
 
-    const tool = app.querySelector(".tool-card");
-    expect(tool.dataset.status).toBe("ok");
-    expect(tool.querySelector(".tc-meta").textContent).toContain("done");
-    expect(tool.querySelector(".tc-meta .spinner")).toBeNull();
-    expect(heightNotification).not.toHaveBeenCalled();
-  });
 
-  it("marks stale running tools complete when a session becomes idle", async () => {
-    const app = await connectPiApp();
-    app.renderMessages([]);
-    app.setMode("running");
-    app.appendMessage({ kind: "tool", tool: "read", status: "running" });
-    app.setMode("idle");
-    const tool = app.querySelector(".tool-card");
-    expect(tool.dataset.status).toBe("ok");
-    expect(tool.querySelector(".tc-meta .spinner")).toBeNull();
-  });
 
-  it("keeps streaming deltas in one row while the session is running", async () => {
-    const app = await connectPiApp();
-    app.renderMessages([]);
-    app.setMode("running");
-    app.appendDelta({ kind: "pi", delta: "hel" });
-    app.appendDelta({ kind: "pi", delta: "lo" });
-    app.flushStreamingRender();
-    const bodies = [...app.querySelectorAll(".msg[data-kind='pi'] .body")].map((node) => node.textContent);
-    expect(bodies).toEqual(["hello"]);
-  });
 
-  it("removes duplicate tail rows before appending a delta", async () => {
-    const app = await connectPiApp();
-    app.renderMessages([]);
-    const first = app.simpleMessage("pi streaming", "pi >", "first");
-    const duplicate = app.simpleMessage("pi streaming", "pi >", "duplicate");
-    first.classList.add("streaming");
-    duplicate.classList.add("streaming");
-    first.dataset.kind = "pi";
-    first.dataset.streamText = "first";
-    duplicate.dataset.kind = "pi";
-    app.appendStreamingNode(first);
-    app.appendStreamingNode(duplicate);
 
-    app.appendDelta({ kind: "pi", delta: "tail" });
-    app.flushStreamingRender();
 
-    const rows = app.streamingTail.querySelectorAll(".msg.streaming[data-kind='pi']");
-    expect(rows).toHaveLength(1);
-    expect(rows[0]).toBe(first);
-    expect(rows[0].querySelector(".body").textContent).toBe("firsttail");
-  });
 
-  it("only returns connected matching rows from the streaming tail", async () => {
-    const app = await connectPiApp();
-    app.renderMessages([]);
-    const row = app.simpleMessage("pi streaming", "pi >", "tail");
-    row.classList.add("streaming");
-    row.dataset.kind = "pi";
-    const detached = app.simpleMessage("pi streaming", "pi >", "detached");
-    detached.classList.add("streaming");
-    detached.dataset.kind = "pi";
-    app.appendStreamingNode(row);
-    app.streamingRows = { pi: detached };
 
-    expect(app.streamingRowsForKind("pi")).toEqual([row]);
-  });
 
-  it("keeps streaming markdown outside the virtual transcript items", async () => {
-    const app = await connectPiApp();
-    app.renderMessages([{ kind: "pi", text: "history" }]);
 
-    app.appendDelta({ kind: "pi", delta: "**live**" });
-    app.flushStreamingRender();
 
-    expect(app.transcriptItems).toHaveLength(1);
-    expect(app.querySelectorAll(".term-inner .msg.streaming")).toHaveLength(0);
-    expect(app.querySelectorAll(".streaming-tail .msg.streaming")).toHaveLength(1);
-    expect(app.querySelector(".streaming-tail .body").innerHTML).toContain("<strong>live</strong>");
-  });
 
-  it("moves the final assistant message from streaming tail into history once", async () => {
-    const app = await connectPiApp();
-    app.renderMessages([]);
-    app.appendDelta({ kind: "pi", delta: "partial" });
 
-    app.finalizePiStream("complete");
 
-    expect(app.querySelectorAll(".streaming-tail .msg.streaming")).toHaveLength(0);
-    expect(app.querySelectorAll(".term-inner .msg[data-kind='pi']")).toHaveLength(1);
-    expect(app.transcriptItems).toHaveLength(1);
-    expect(app.querySelector(".term-inner .msg[data-kind='pi']").textContent).toContain("complete");
-  });
 
-  it("keeps a live AG-UI stream out of idle-event commits", async () => {
-    const app = await connectPiApp();
-    app.dataset.activeSessionId = "s1";
-    app.renderMessages([]);
-    const subscriber = app.aguiSubscriber("s1");
-    subscriber.onRunStarted();
-    subscriber.onTextDelta("partial");
 
-    app.applyEvent({ type: "session.status", payload: { status: "idle" } });
-    subscriber.onTextDelta(" complete");
-    subscriber.onTextEnd("partial complete");
-
-    expect(app.querySelectorAll(".term-inner .msg[data-kind='pi']")).toHaveLength(1);
-    expect(app.querySelector(".term-inner .msg[data-kind='pi']").dataset.rawText).toBe("partial complete");
-  });
-
-  it("replaces each streamed segment with its canonical message around tools", async () => {
-    const app = await connectPiApp();
-    app.renderMessages([]);
-    app.setMode("running");
-
-    app.applyEvent({ type: "session.delta", payload: { kind: "pi", delta: "工具前说明" } });
-    app.applyEvent({ type: "session.message", payload: { kind: "pi", text: "工具前说明" } });
-    app.applyEvent({
-      type: "tool.started",
-      payload: { id: "call-1", kind: "tool", tool: "bash", status: "running" },
-    });
-    app.applyEvent({
-      type: "tool.finished",
-      payload: { id: "call-1", kind: "tool", tool: "bash", status: "ok" },
-    });
-    app.applyEvent({ type: "session.delta", payload: { kind: "pi", delta: "最终总结" } });
-    app.applyEvent({ type: "session.message", payload: { kind: "pi", text: "最终总结" } });
-    app.applyEvent({ type: "session.status", payload: { status: "idle" } });
-
-    expect([...app.querySelectorAll(".term-inner .msg[data-kind='pi']")]
-      .map((row) => row.dataset.rawText)).toEqual(["工具前说明", "最终总结"]);
-    expect(app.querySelector(".streaming-tail .msg.streaming")).toBeNull();
-  });
-
-  it("cleans a duplicate message's matching streaming tail row", async () => {
-    const app = await connectPiApp();
-    app.renderMessages([{ kind: "pi", text: "answer" }]);
-    app.appendDelta({ kind: "pi", delta: "answer" });
-
-    app.appendMessage({ kind: "pi", text: "answer" });
-
-    expect(app.querySelector(".streaming-tail .msg.streaming[data-kind='pi']")).toBeNull();
-    expect(app.querySelectorAll(".term-inner .msg[data-kind='pi']")).toHaveLength(1);
-    expect(app.transcriptItems).toHaveLength(1);
-  });
-
-  it("does not duplicate history when finalizing the same assistant message twice", async () => {
-    const app = await connectPiApp();
-    app.renderMessages([]);
-    app.finalizePiStream("complete");
-    app.finalizePiStream("complete");
-
-    expect(app.querySelectorAll(".term-inner .msg[data-kind='pi']")).toHaveLength(1);
-    expect(app.transcriptItems).toHaveLength(1);
-  });
-
-  it("clears duplicate assistant streaming state before returning", async () => {
-    let nextFrameId = 0;
-    vi.spyOn(window, "requestAnimationFrame").mockImplementation(() => ++nextFrameId);
-    const cancelAnimationFrame = vi.spyOn(window, "cancelAnimationFrame").mockImplementation(() => undefined);
-    const app = await connectPiApp();
-    app.renderMessages([{ kind: "pi", text: "answer" }]);
-    app.appendDelta({ kind: "pi", delta: "answer" });
-    app.appendDelta({ kind: "pi", delta: "```j" });
-    const pendingFrame = app.streamingRenderFrame;
-
-    app.appendMessage({ kind: "pi", text: "answer" });
-
-    expect(cancelAnimationFrame).toHaveBeenCalledWith(pendingFrame);
-    expect(app.querySelector(".streaming-tail .msg.streaming[data-kind='pi']")).toBeNull();
-    expect(app.piDeltaBuffer).toBe("");
-    expect(app.streamingRenderFrame).toBeUndefined();
-    expect(app.pendingStreamingRow).toBeUndefined();
-  });
-
-  it("cancels pending streaming render when rendering a new transcript", async () => {
-    let nextFrameId = 0;
-    vi.spyOn(window, "requestAnimationFrame").mockImplementation(() => ++nextFrameId);
-    const cancelAnimationFrame = vi.spyOn(window, "cancelAnimationFrame").mockImplementation(() => undefined);
-    const app = await connectPiApp();
-    app.renderMessages([]);
-    app.appendDelta({ kind: "pi", delta: "pending" });
-    const pendingFrame = app.streamingRenderFrame;
-
-    expect(pendingFrame).toBeDefined();
-    expect(app.querySelector(".streaming-tail .msg.streaming")).not.toBeNull();
-    app.renderMessages([{ kind: "pi", text: "history" }]);
-
-    expect(cancelAnimationFrame).toHaveBeenCalledWith(pendingFrame);
-    expect(app.streamingRenderFrame).toBeUndefined();
-    expect(app.pendingStreamingRow).toBeUndefined();
-    expect(app.querySelector(".streaming-tail").childElementCount).toBe(0);
-    expect(app.transcriptItems).toHaveLength(1);
-  });
-
-  it("renders streaming assistant markdown", async () => {
-    const app = await connectPiApp();
-    app.renderMessages([]);
-    app.appendDelta({ kind: "pi", delta: "**bo" });
-    app.appendDelta({ kind: "pi", delta: "ld**" });
-    app.flushStreamingRender();
-    const body = app.querySelector(".streaming-tail .msg.streaming .body");
-    expect(body.classList.contains("markdown-body")).toBe(true);
-    expect(body.innerHTML).toContain("<strong>bold</strong>");
-  });
-
-  it("streams assistant deltas before the final message", async () => {
-    const app = await connectPiApp();
-    app.renderMessages([]);
-    app.appendLoadingMessage();
-    app.appendDelta({ kind: "pi", delta: "hel" });
-    app.appendDelta({ kind: "pi", delta: "lo" });
-    app.flushStreamingRender();
-    expect(app.querySelector(".msg.loading")).toBeNull();
-    expect(app.querySelector(".streaming-tail .msg.streaming .body").textContent).toBe("hello");
-  });
-
-  it("replaces streamed AG-UI text with one final assistant message", async () => {
-    const app = await connectPiApp();
-    const text = [
-      "계획: `.pi/tasks/fix-agui-stream-duplicate-final-render.md` 확인",
-      "",
-      "- inline `code` 유지",
-      "```ts",
-      "const path = '.pi/tasks/example.md';",
-      "```",
-    ].join("\n");
-    app.dataset.activeSessionId = "s1";
-    app.renderMessages([]);
-
-    const subscriber = app.aguiSubscriber("s1");
-    subscriber.onRunStarted();
-    subscriber.onTextDelta(text.slice(0, 12));
-    subscriber.onTextDelta(text.slice(12));
-    subscriber.onTextEnd(text);
-
-    const messages = [...app.querySelectorAll(".msg[data-kind='pi']")];
-    expect(messages).toHaveLength(1);
-    expect(app.querySelector(".streaming-tail .msg.streaming")).toBeNull();
-    expect(messages[0].dataset.rawText).toBe(text);
-    expect(messages[0].textContent).toContain("계획:");
-    expect(messages[0].textContent).not.toContain("계획계획");
-    expect(messages[0].textContent).not.toContain(". .pipi");
-  });
-
-  it("finalizes a virtualized streaming assistant row in transcript state", async () => {
-    const app = await connectPiApp();
-    app.renderMessages([]);
-    app.appendDelta({ kind: "pi", delta: "계획: `.pi/tasks/example.md`" });
-    const streaming = app.querySelector(".streaming-tail .msg.streaming[data-kind='pi']");
-    app.termInner.replaceChildren();
-
-    app.finalizePiStream("계획: `.pi/tasks/example.md`");
-
-    const messages = [...app.querySelectorAll(".msg[data-kind='pi']")];
-    expect(messages).toHaveLength(1);
-    expect(messages[0]).not.toBe(streaming);
-    expect(app.transcriptItems).toHaveLength(1);
-    expect(app.transcriptItems[0].nodes).toEqual([messages[0]]);
-    expect(app.streamingRows?.pi).toBeUndefined();
-    expect(app.pendingStreamingRow).toBeUndefined();
-  });
-
-  it("removes the streamed tail row before adding the final assistant message to history", async () => {
-    const app = await connectPiApp();
-    app.renderMessages([]);
-    app.appendDelta({ kind: "pi", delta: "hello " });
-    const streaming = app.querySelector(".streaming-tail .msg.streaming[data-kind='pi']");
-    expect(streaming).not.toBeNull();
-
-    app.finalizePiStream("hello world");
-
-    const final = app.querySelector(".term-inner .msg[data-kind='pi']");
-    expect(app.querySelector(".streaming-tail .msg.streaming")).toBeNull();
-    expect(final).not.toBeNull();
-    expect(final).not.toBe(streaming);
-    expect(final.dataset.rawText).toBe("hello world");
-    expect(app.transcriptItems).toHaveLength(1);
-    expect(app.transcriptItems[0].nodes).toEqual([final]);
-    expect(app.streamingRows?.pi).toBeUndefined();
-    expect(app.pendingStreamingRow).toBeUndefined();
-  });
 
   it("does not show loading after a final assistant message while waiting for idle status", async () => {
     const app = await connectPiApp();
@@ -582,57 +216,8 @@ describe("pi-app messages", () => {
     expect(app.querySelector(".msg.loading")).toBeNull();
   });
 
-  it("wraps streaming thinking deltas while keeping response loading visible", async () => {
-    const app = await connectPiApp();
-    app.renderMessages([]);
-    const heightNotification = vi.spyOn(app, "notifyTranscriptNodeHeightDidChange");
-    app.setMode("running");
-    app.appendDelta({ kind: "think", delta: "rea" });
-    app.appendDelta({ kind: "think", delta: "son" });
-    const block = app.querySelector(".streaming-tail .msg.streaming[data-kind='think'] .thinking-block");
-    expect(app.querySelector(".msg.loading .spinner")).not.toBeNull();
-    expect(app.transcriptItems).toHaveLength(0);
-    expect(heightNotification).not.toHaveBeenCalled();
-    expect(block).not.toBeNull();
-    expect(block.querySelector(".label").textContent).toBe("thinking");
-    expect(block.querySelector("[data-stream-text]").textContent).toBe("reason");
-  });
 
-  it("commits streamed thinking when the AG-UI run finishes", async () => {
-    const app = await connectPiApp();
-    app.dataset.activeSessionId = "s1";
-    app.renderMessages([]);
-    const subscriber = app.aguiSubscriber("s1");
 
-    subscriber.onRunStarted();
-    subscriber.onThinkingDelta("reasoning");
-    subscriber.onTextDelta("answer");
-    subscriber.onTextEnd("answer");
-    subscriber.onRunFinished();
-
-    expect(app.querySelector(".term-inner .msg[data-kind='think']")?.textContent).toContain("reasoning");
-    expect(app.querySelector(".streaming-tail .msg.streaming[data-kind='think']")).toBeNull();
-    expect([...app.querySelectorAll(".term-inner .msg")].map((row) => row.dataset.kind)).toEqual(["think", "pi"]);
-  });
-
-  it("keeps partial streamed content visible when the AG-UI run fails", async () => {
-    const app = await connectPiApp();
-    app.dataset.activeSessionId = "s1";
-    app.notifyResponseFailure = vi.fn();
-    app.renderMessages([]);
-    const subscriber = app.aguiSubscriber("s1");
-
-    subscriber.onRunStarted();
-    subscriber.onThinkingDelta("reasoning");
-    subscriber.onTextDelta("partial answer");
-    subscriber.onRunError("backend failed");
-    subscriber.onRunFinished();
-
-    expect(app.termInner.textContent).toContain("reasoning");
-    expect(app.termInner.textContent).toContain("partial answer");
-    expect(app.termInner.textContent).toContain("backend failed");
-    expect(app.querySelector(".streaming-tail .msg.streaming")).toBeNull();
-  });
 
   it("renders response errors as escaped transcript messages", async () => {
     const app = await connectPiApp();
@@ -647,101 +232,7 @@ describe("pi-app messages", () => {
     expect(app.querySelector(".streaming-tail .msg.error")).toBeNull();
   });
 
-  it("commits streamed content when the session status becomes idle", async () => {
-    const app = await connectPiApp();
-    app.notifyResponseCompletedOnce = vi.fn();
-    app.renderMessages([]);
-    app.setMode("running");
-    app.appendDelta({ kind: "think", delta: "reasoning" });
-    app.appendDelta({ kind: "pi", delta: "summary" });
 
-    app.applyEvent({ type: "session.status", payload: { status: "idle" } });
-
-    expect(app.termInner.textContent).toContain("reasoning");
-    expect(app.termInner.textContent).toContain("summary");
-    expect(app.querySelector(".streaming-tail .msg.streaming")).toBeNull();
-  });
-
-  it("preserves streamed thinking and text when a new tool starts", async () => {
-    const app = await connectPiApp();
-    app.renderMessages([]);
-    app.setMode("running");
-    app.appendDelta({ kind: "think", delta: "reasoning" });
-    app.appendDelta({ kind: "pi", delta: "summary" });
-
-    app.appendMessage({ kind: "tool", tool: "bash", status: "running" });
-
-    expect(app.termInner.textContent).toContain("reasoning");
-    expect(app.termInner.textContent).toContain("summary");
-    expect(app.querySelector(".streaming-tail .msg.streaming")).toBeNull();
-  });
-
-  it("keeps assistant streaming in the tail without height notification", async () => {
-    const app = await connectPiApp();
-    const heightNotification = vi.spyOn(app, "notifyTranscriptNodeHeightDidChange");
-    app.renderMessages([]);
-
-    app.appendDelta({ kind: "pi", delta: "answer" });
-
-    expect(app.querySelector(".streaming-tail .msg.streaming[data-kind='pi']")).not.toBeNull();
-    expect(app.transcriptItems).toHaveLength(0);
-    expect(heightNotification).not.toHaveBeenCalled();
-  });
-
-  it("batches streaming assistant markdown rendering to an animation frame", async () => {
-    const frames = [];
-    vi.spyOn(window, "requestAnimationFrame").mockImplementation((callback) => {
-      frames.push(callback);
-      return frames.length;
-    });
-    vi.spyOn(window, "cancelAnimationFrame").mockImplementation(() => undefined);
-
-    const app = await connectPiApp();
-    app.renderMessages([]);
-    app.appendDelta({ kind: "pi", delta: "**bo" });
-    app.appendDelta({ kind: "pi", delta: "ld**" });
-
-    const body = app.querySelector(".streaming-tail .msg.streaming .body");
-    expect(body.textContent).toBe("");
-
-    frames.splice(0).forEach((callback) => callback(0));
-
-    expect(body.innerHTML).toContain("<strong>bold</strong>");
-  });
-
-  it("renders progress when animation frames are starved by replayed deltas", async () => {
-    vi.spyOn(window, "requestAnimationFrame").mockImplementation(() => 1);
-    vi.spyOn(window, "cancelAnimationFrame").mockImplementation(() => undefined);
-    const app = await connectPiApp();
-    app.renderMessages([]);
-
-    for (let number = 1; number <= 32; number += 1) {
-      app.appendDelta({ kind: "pi", delta: `${number}\n` });
-    }
-    const body = app.querySelector(".streaming-tail .msg.streaming .body");
-    expect(body.textContent).toContain("32");
-
-    for (let number = 33; number <= 64; number += 1) {
-      app.appendDelta({ kind: "pi", delta: `${number}\n` });
-    }
-    expect(body.textContent).toContain("64");
-  });
-
-  it("resets the forced render budget when switching transcripts", async () => {
-    vi.spyOn(window, "requestAnimationFrame").mockImplementation(() => 1);
-    vi.spyOn(window, "cancelAnimationFrame").mockImplementation(() => undefined);
-    const app = await connectPiApp();
-    app.renderMessages([]);
-    for (let update = 1; update < 32; update += 1) {
-      app.appendDelta({ kind: "pi", delta: "old" });
-    }
-
-    app.renderMessages([]);
-    app.appendDelta({ kind: "pi", delta: "new" });
-
-    const body = app.querySelector(".streaming-tail .msg.streaming .body");
-    expect(body.textContent).toBe("");
-  });
 
   it("coalesces repeated terminal scroll requests into one animation frame", async () => {
     const frames = [];
@@ -776,23 +267,6 @@ describe("pi-app messages", () => {
     expect(heightNotification).not.toHaveBeenCalled();
   });
 
-  it("keeps continuous streaming deltas in one tail row outside transcript state", async () => {
-    const app = await connectPiApp();
-    app.renderMessages([{ kind: "pi", text: "history" }]);
-    app.appendDelta({ kind: "pi", delta: "part1" });
-    app.flushStreamingRender();
-    const firstRow = app.querySelector(".streaming-tail .msg.streaming");
-    expect(firstRow).not.toBeNull();
-
-    app.appendDelta({ kind: "pi", delta: " part2" });
-    app.flushStreamingRender();
-
-    const rows = app.querySelectorAll(".streaming-tail .msg.streaming");
-    expect(rows).toHaveLength(1);
-    expect(rows[0]).toBe(firstRow);
-    expect(rows[0].dataset.streamText).toBe("part1 part2");
-    expect(app.transcriptItems).toHaveLength(1);
-  });
 
   it("keeps following the bottom when the virtual scroller scrolls programmatically", async () => {
     const app = await connectPiApp();

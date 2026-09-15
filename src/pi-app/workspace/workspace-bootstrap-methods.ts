@@ -197,6 +197,7 @@ export const workspaceBootstrapMethods = {
     }));
     this.resetActiveSessionState?.();
     this.renderMessages?.([]);
+    this.transcriptState = undefined;
     this.resetActiveSessionDisplay();
     this.syncActiveWorkspaceRows?.();
     this.showEmptyMain?.();
@@ -486,14 +487,18 @@ export const workspaceBootstrapMethods = {
       this.durableTranscriptIds = [...ids];
     } else if (canAppend) {
       this.patchDurableTranscriptMessages(messages);
-      this.transcriptItems.push(
-        ...messages.slice(currentIds.length).map((message) => this.createTranscriptItem(message)),
-      );
+      const appendedItems = messages.slice(currentIds.length).map((message) => this.createTranscriptItem(message));
+      this.transcriptItems.push(...appendedItems);
+      if (!this.transcriptVirtualScrollerStarted) {
+        this.termInner?.append(...appendedItems.map((item) => this.renderVirtualTranscriptItem(item)));
+      }
       this.durableTranscriptIds = [...ids];
       this.renderTranscriptWindow({ stickToBottom: true });
     } else {
       this.patchDurableTranscriptMessages(messages);
     }
+    const latestMessage = messages.at(-1);
+    if (latestMessage?.kind === "pi") this.notifyPiMessageCommitted?.(latestMessage);
     if (syncMode) this.syncDurableTranscriptMode();
   },
 
@@ -599,7 +604,8 @@ export const workspaceBootstrapMethods = {
     skeleton.className = "session-switch-skeleton";
     skeleton.setAttribute("aria-hidden", "true");
     row.querySelector(".body")?.replaceChildren(label, skeleton);
-    this.appendTranscriptNode?.(row, { stickToBottom: false });
+    if (this.streamingTail) this.appendStreamingNode?.(row);
+    else this.termInner.append(row);
   },
 
   applyLoadedSession(session, messages, status = "idle", page: any = {}) {

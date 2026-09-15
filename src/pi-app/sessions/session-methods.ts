@@ -197,6 +197,7 @@ export const sessionMethods = {
     this.dataset.activeSessionId = "";
     this.resetActiveSessionState();
     this.renderMessages([]);
+    this.transcriptState = undefined;
     this.showEmptyMain();
     const title = this.querySelector("[data-active-session-title]");
     if (title) {
@@ -288,7 +289,6 @@ export const sessionMethods = {
     this.running = false;
     this.compacting = false;
     this.syncCompactionControl?.();
-    this.piDeltaBuffer = "";
     this.syncBackgroundSessionWatches?.();
     this.removeLoadingMessage?.();
     this.stopButton?.setAttribute("hidden", "");

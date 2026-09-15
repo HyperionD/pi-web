@@ -1,6 +1,6 @@
 import { escapeHtml } from "../../lib/renderers";
 import { TERMINAL_SPINNER_HTML } from "../constants";
-import { fullToolBody, renderToolBody, storeFullToolBody } from "./tool-output-rendering";
+import { renderToolBody, storeFullToolBody } from "./tool-output-rendering";
 
 const TOOL_ICON_PATHS = {
   "book-open": `<path d="M12 7v14"/><path d="M3 18a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h5a4 4 0 0 1 4 4 4 4 0 0 1 4-4h5a1 1 0 0 1 1 1v13a1 1 0 0 1-1 1h-6a3 3 0 0 0-3 3 3 3 0 0 0-3-3z"/>`,
@@ -110,17 +110,8 @@ function parseToolArgs(args) {
 
 function latestToolCard(app, tool, id) {
   const cards = [...app.querySelectorAll(".tool-card")].reverse();
-  if (id) {
-    const identified = cards.find((item) => item.dataset.toolCallId === id);
-    if (identified) return identified;
-  }
-  if (id) {
-    const cached = app.latestToolCards?.[id];
-    return cached?.isConnected && app.contains(cached) ? cached : undefined;
-  }
-  const latest = cards.find((item) => item.dataset.tool === tool);
-  const cached = app.latestToolCards?.[tool];
-  return latest || (cached?.isConnected && app.contains(cached) ? cached : undefined);
+  if (id) return cards.find((item) => item.dataset.toolCallId === id);
+  return cards.find((item) => item.dataset.tool === tool);
 }
 
 export const toolMessageMethods = {
@@ -128,7 +119,7 @@ export const toolMessageMethods = {
     const card = document.createElement("div");
     card.className = "tool-card";
     card.dataset.tool = message.tool || "tool";
-    card.dataset.toolCallId = message.id || message.key || "";
+    card.dataset.toolCallId = message.toolCallId || message.id || message.key || "";
     card.dataset.status = message.status || "";
     card.innerHTML = this.toolCardTemplate(message);
     card.querySelector(".tc-name").textContent = message.tool || "tool";
@@ -173,70 +164,42 @@ export const toolMessageMethods = {
   },
 
   updateToolArgs(payload) {
+    if (!payload?.chunk) return;
+    if (typeof this.applyEvent === "function") {
+      this.applyEvent({
+        id: String(BigInt(this.transcriptState?.appliedSeq || "0") + 1n),
+        type: "tool.args.delta",
+        payload,
+      });
+      return;
+    }
     const card = latestToolCard(this, payload?.tool, payload?.id);
-    if (!card || !payload?.chunk) return;
+    if (!card) return;
     card.__toolArgsText = `${card.__toolArgsText || ""}${payload.chunk}`;
     const formatted = formatToolArgs(payload.tool, card.__toolArgsText);
     if (formatted) card.querySelector(".tc-args").textContent = formatted;
   },
 
   appendToolOutput(payload) {
-    const card = latestToolCard(this, payload?.tool, payload?.id);
-    if (card && card.dataset.status !== "running") return;
-    const body = card?.querySelector(".tc-body");
-    if (!body) return;
-    body.__pendingToolOutput = body.__pendingToolOutput || [];
-    body.__pendingToolOutput.push({ chunk: payload.chunk || "", mode: payload.mode || "append" });
-    this.scheduleToolOutputFlush(body);
-  },
-
-  scheduleToolOutputFlush(body) {
-    if (body.__toolOutputFrame) return;
-    body.__toolOutputFrame = window.requestAnimationFrame(() => {
-      body.__toolOutputFrame = undefined;
-      this.flushToolOutput(body);
+    if (!payload?.chunk || typeof this.applyEvent !== "function") return;
+    this.applyEvent({
+      id: String(BigInt(this.transcriptState?.appliedSeq || "0") + 1n),
+      type: "tool.output",
+      payload,
     });
   },
 
-  flushToolOutput(body) {
-    if (!body) return;
-    if (body.__toolOutputFrame) {
-      window.cancelAnimationFrame?.(body.__toolOutputFrame);
-      body.__toolOutputFrame = undefined;
-    }
-    const updates = body.__pendingToolOutput || [];
-    body.__pendingToolOutput = [];
-    if (!updates.length) return;
-    const stored = fullToolBody(body);
-    let output = body.__toolOutputText ?? (stored || body.textContent || "");
-    for (const update of updates) {
-      if (update.mode === "replace") {
-        output = update.chunk;
-        continue;
-      }
-      const prefix = body.__hasToolOutput || output ? "\n" : "";
-      output = `${output}${prefix}${update.chunk}`;
-    }
-    body.__toolOutputText = output;
-    body.innerHTML = renderToolBody(output);
-    storeFullToolBody(body, output);
-    body.__hasToolOutput = true;
-    this.notifyTranscriptNodeHeightDidChange(body);
-  },
-
   finishTool(message) {
+    if (typeof this.applyEvent === "function") {
+      this.applyEvent({
+        id: String(BigInt(this.transcriptState?.appliedSeq || "0") + 1n),
+        type: "tool.finished",
+        payload: message,
+      });
+      return;
+    }
     const card = latestToolCard(this, message?.tool, message?.id);
-    if (!card) {
-      this.appendMessage(message);
-      return;
-    }
-    const body = card.querySelector(".tc-body");
-    this.flushToolOutput(body);
-    if (!message.body && body?.__toolOutputText) {
-      card.dataset.status = message.status || "";
-      card.querySelector(".tc-meta").innerHTML = this.toolStatus(message);
-      return;
-    }
+    if (!card) return;
     const next = this.toolCard(message);
     if (!this.replaceTranscriptNode(card, next)) card.replaceWith(next);
   },

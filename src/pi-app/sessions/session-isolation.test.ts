@@ -228,21 +228,4 @@ describe("pi-app session isolation", () => {
     expect(app.querySelector(".msg.loading .spinner")).not.toBeNull();
   });
 
-  it("restores running controls when deltas arrive without replayed status", async () => {
-    const app = await connectedApp();
-    app.dataset.activeSessionId = "s1";
-    app.renderMessages([]);
-
-    app.applyEvent({
-      type: "session.delta",
-      sessionId: "s1",
-      payload: { kind: "pi", delta: "still streaming" },
-    });
-
-    app.flushStreamingRender();
-
-    expect(app.running).toBe(true);
-    expect(app.querySelector(".stop-btn").hidden).toBe(false);
-    expect(app.querySelector(".msg.streaming .body").textContent).toBe("still streaming");
-  });
 });

@@ -96,13 +96,15 @@ export function updateTranscriptVirtualScroller(owner, { preservePrepend = false
   }
   if (!owner.transcriptVirtualScroller) {
     owner.transcriptVirtualScroller = createTranscriptVirtualScroller(owner, { stickToBottom });
-  } else if (!owner.transcriptVirtualScrollerStarted && (owner.term?.clientHeight || 0) === 0) {
-    owner.destroyTranscriptVirtualScroller?.();
-    owner.transcriptVirtualScroller = createTranscriptVirtualScroller(owner, { stickToBottom });
   } else {
     if (!owner.transcriptVirtualScrollerStarted) {
-      owner.transcriptVirtualScroller.start();
-      owner.transcriptVirtualScrollerStarted = true;
+      if ((owner.term?.clientHeight || 0) > 0) {
+        owner.transcriptVirtualScroller.start();
+        owner.transcriptVirtualScrollerStarted = true;
+      } else {
+        owner.transcriptVirtualScroller.items = owner.transcriptItems;
+        return;
+      }
     }
     owner.syncRenderedTranscriptItemHeights?.();
     owner.transcriptVirtualScroller.setItems(owner.transcriptItems, {

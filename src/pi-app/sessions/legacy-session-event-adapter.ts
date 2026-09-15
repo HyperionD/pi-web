@@ -84,6 +84,8 @@ function adaptToolFinished(event: SessionEventEnvelope, context: LegacySessionEv
   const next = baseEvent(event, context, "tool.finished");
   next.entityId = entityId;
   next.payload = {
+    tool: payload.tool || "tool",
+    args: payload.args || "",
     body: payload.body || "",
     status: payload.status || "ok",
     ...(payload.resultMeta !== undefined ? { resultMeta: payload.resultMeta } : {}),
@@ -99,7 +101,8 @@ export function createLegacyTranscriptState(
   appliedSeq = "0",
 ): TranscriptState {
   const state = emptyTranscriptState(sessionId);
-  const items = messages.map((message, index): TranscriptItem => {
+  const normalizedMessages = Array.isArray(messages) ? messages : [];
+  const items = normalizedMessages.map((message, index): TranscriptItem => {
     const id = message.id || `legacy:${message.kind || "message"}:${index + 1}`;
     return {
       id,
@@ -143,6 +146,17 @@ export function adaptLegacySessionEvent(
       return [next];
     }
     case "session.message": {
+      if (payload.kind === "user") {
+        const next = baseEvent(event, context, "user.message.created");
+        next.payload = { text: payload.text || "", attachments: payload.attachments || [] };
+        return [next];
+      }
+      if (!["pi", "think"].includes(payload.kind)) {
+        const next = baseEvent(event, context, "transcript.item.created");
+        next.entityId = `legacy:item:${sequenceOf(event)}`;
+        next.payload = payload;
+        return [next];
+      }
       const kind = payload.kind === "think" ? "think" : "pi";
       const activeSegments = context.activeSegmentIds || (context.activeSegmentIds = new Map());
       const entityId = activeSegments.get(kind) || `assistant:legacy:${kind}:${sequenceOf(event)}`;
@@ -156,6 +170,18 @@ export function adaptLegacySessionEvent(
       return [adaptToolStarted(event, context)];
     case "tool.output":
       return [adaptToolOutput(event, context)];
+    case "tool.args.delta": {
+      const payload = payloadOf(event);
+      const explicitCallId = explicitToolCallId(payload);
+      const fallbackEntity = !explicitCallId && payload.tool
+        ? context.activeToolIds.get(`tool:${payload.tool}`)
+        : undefined;
+      const callId = explicitCallId || fallbackEntity?.split(":").slice(2).join(":") || `legacy:${sequenceOf(event)}`;
+      const next = baseEvent(event, context, "tool.args.delta");
+      next.entityId = fallbackEntity || context.activeToolIds.get(callId) || toolEntityId(context.runId, callId);
+      next.payload = { delta: payload.chunk || payload.delta || "" };
+      return [next];
+    }
     case "tool.finished":
       return [adaptToolFinished(event, context)];
     case "session.status": {

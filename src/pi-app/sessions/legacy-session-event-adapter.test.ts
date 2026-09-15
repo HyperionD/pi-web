@@ -13,7 +13,7 @@ describe("legacy session event adapter", () => {
     expect(adaptLegacySessionEvent(event("session.delta", 1, { kind: "pi", delta: "hel" }), context)).toEqual([
       {
         seq: "1", sessionId: "s1", runId: "run-1", sourceId: "legacy:1",
-        type: "assistant.segment.delta", entityId: "assistant:legacy:pi",
+        type: "assistant.segment.delta", entityId: "assistant:legacy:pi:1",
         payload: { kind: "pi", delta: "hel" },
       },
     ]);

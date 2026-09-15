@@ -104,10 +104,7 @@ export const attachmentMethods = {
   },
 
   estimatePromptJsonBytes(text, attachments) {
-    return Math.max(
-      this.estimateNormalPromptJsonBytes(text, attachments),
-      this.estimateAguiPromptJsonBytes(text, attachments),
-    );
+    return this.estimateNormalPromptJsonBytes(text, attachments);
   },
 
   estimateNormalPromptJsonBytes(text, attachments) {
@@ -115,21 +112,6 @@ export const attachmentMethods = {
     const serializedAttachments = this.serializePromptAttachments(attachments);
     const skeletonBytes = this.utf8ByteLength(JSON.stringify({ text: normalizedText, attachments: serializedAttachments }));
     return skeletonBytes + this.projectedDataUrlBytes(attachments);
-  },
-
-  estimateAguiPromptJsonBytes(text, attachments) {
-    const normalizedText = this.normalizePromptText(text);
-    const serializedAttachments = this.serializePromptAttachments(attachments);
-    const payload = {
-      threadId: "session-id",
-      runId: "run-id",
-      tools: [],
-      context: [],
-      forwardedProps: { text: normalizedText, attachments: serializedAttachments },
-      state: {},
-      messages: [{ id: "message-id", role: "user", content: normalizedText }],
-    };
-    return this.utf8ByteLength(JSON.stringify(payload)) + this.projectedDataUrlBytes(attachments);
   },
 
   serializePromptAttachments(attachments = []) {

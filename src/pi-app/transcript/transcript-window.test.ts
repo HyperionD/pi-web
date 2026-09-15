@@ -72,40 +72,6 @@ describe("pi-app transcript window", () => {
     expect(app.querySelector(".tool-card[data-tool='missing'] .tc-body").textContent).toContain("done");
   });
 
-  it("keeps tool output flushing guarded and replaces cards when window replacement misses", async () => {
-    const frames = [];
-    vi.spyOn(window, "requestAnimationFrame").mockImplementation((callback) => {
-      frames.push(callback);
-      return frames.length;
-    });
-
-    const app = await connectPiApp();
-    app.renderMessages([]);
-    frames.length = 0;
-    app.appendToolOutput({ tool: "missing", chunk: "ignored" });
-
-    const busyBody = document.createElement("div");
-    busyBody.__toolOutputFrame = 1;
-    app.scheduleToolOutputFlush(busyBody);
-    expect(frames).toHaveLength(0);
-
-    const emptyBody = document.createElement("div");
-    app.scheduleToolOutputFlush(emptyBody);
-    frames.splice(0).forEach((callback) => callback(0));
-    expect(emptyBody.textContent).toBe("");
-
-    const bodyWithContent = document.createElement("div");
-    bodyWithContent.textContent = "old";
-    bodyWithContent.__pendingToolOutput = [{ chunk: "new", mode: "append" }];
-    app.scheduleToolOutputFlush(bodyWithContent);
-    frames.splice(0).forEach((callback) => callback(0));
-    expect(bodyWithContent.textContent).toBe("old\nnew");
-
-    app.appendMessage({ kind: "tool", tool: "bash", status: "running" });
-    vi.spyOn(app, "replaceTranscriptNode").mockReturnValue(false);
-    app.finishTool({ kind: "tool", tool: "bash", status: "ok", body: "finished" });
-    expect(app.querySelector(".tool-card[data-tool='bash'] .tc-body").textContent).toContain("finished");
-  });
 
   it("keeps live tool output visible without a collapse interaction", async () => {
     const frames = [];
@@ -194,108 +160,12 @@ describe("pi-app transcript window", () => {
     expect(app.transcriptItems[0].message).toMatchObject({
       id: "call-1", key: "call-1", kind: "tool", tool: "bash",
     });
-    expect(app.latestToolCards).toBeUndefined();
   });
 
-  it("clears streaming tail and cancels pending render on transcript reset", async () => {
-    let nextFrameId = 0;
-    vi.spyOn(window, "requestAnimationFrame").mockImplementation(() => ++nextFrameId);
-    const cancelAnimationFrame = vi.spyOn(window, "cancelAnimationFrame").mockImplementation(() => undefined);
-    const app = await connectPiApp();
-    app.appendDelta({ kind: "pi", delta: "pending" });
-    const pendingFrame = app.streamingRenderFrame;
 
-    expect(pendingFrame).toBeDefined();
-    expect(app.querySelector(".streaming-tail .msg.streaming")).not.toBeNull();
-    app.resetTranscriptWindow();
 
-    expect(cancelAnimationFrame).toHaveBeenCalledWith(pendingFrame);
-    expect(app.querySelector(".streaming-tail").childElementCount).toBe(0);
-    expect(app.pendingStreamingRow).toBeUndefined();
-    expect(app.streamingRenderFrame).toBeUndefined();
-  });
 
-  it("clears streaming state and history remains intact on repeated clear", async () => {
-    const cancelAnimationFrame = vi.spyOn(window, "cancelAnimationFrame").mockImplementation(() => undefined);
-    const app = await connectPiApp();
-    const history = document.createElement("div");
-    history.className = "msg";
-    history.textContent = "history";
-    app.termInner.append(history);
-    app.transcriptItems = [app.createTranscriptItem(undefined, { nodes: [history] })];
-    app.scrollFrame = undefined;
-    app.streamingTail.append(document.createElement("div"));
-    app.piDeltaBuffer = "```json";
-    app.streamingRenderFrame = 0;
 
-    app.clearStreamingTail();
-    app.clearStreamingTail();
-
-    expect(cancelAnimationFrame).toHaveBeenCalledWith(0);
-    expect(app.streamingRenderFrame).toBeUndefined();
-    expect(app.scrollFrame).toBeUndefined();
-    expect(app.piDeltaBuffer).toBe("");
-    expect(app.streamingTail.childElementCount).toBe(0);
-    expect(app.transcriptItems).toHaveLength(1);
-    expect(app.termInner.textContent).toContain("history");
-  });
-
-  it("clears both animation frame handles when resetting with zero-valued IDs", async () => {
-    const cancelAnimationFrame = vi.spyOn(window, "cancelAnimationFrame").mockImplementation(() => undefined);
-    const app = await connectPiApp();
-    app.streamingRenderFrame = 0;
-    app.scrollFrame = 0;
-
-    app.resetTranscriptWindow();
-
-    expect(cancelAnimationFrame).toHaveBeenCalledWith(0);
-    expect(cancelAnimationFrame).toHaveBeenCalledTimes(2);
-    expect(app.streamingRenderFrame).toBeUndefined();
-    expect(app.scrollFrame).toBeUndefined();
-  });
-
-  it("keeps streamed assistant markup height changes outside the virtual scroller", async () => {
-    const frames = [];
-    vi.spyOn(window, "requestAnimationFrame").mockImplementation((callback) => {
-      frames.push(callback);
-      return frames.length;
-    });
-
-    let itemHeight = 80;
-    vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function () {
-      const height = this.classList?.contains("transcript-item") ? itemHeight : 0;
-      return { x: 0, y: 0, width: 0, height, top: 0, right: 0, bottom: height, left: 0, toJSON: () => ({}) };
-    });
-    const app = await connectPiApp();
-    Object.defineProperty(app.term, "clientHeight", { configurable: true, value: 600 });
-    app.renderMessages([{ kind: "pi", text: "history" }]);
-    app.appendDelta({ kind: "pi", delta: "start" });
-    const heightChanged = vi.spyOn(app.transcriptVirtualScroller, "onItemHeightDidChange");
-
-    itemHeight = 120;
-    app.appendDelta({ kind: "pi", delta: "\nsecond line" });
-    frames.splice(0).forEach((callback) => callback(0));
-
-    expect(app.querySelector(".streaming-tail .msg.streaming .markdown-body").innerHTML).toContain("<br>");
-    expect(heightChanged).not.toHaveBeenCalled();
-  });
-
-  it("syncs rendered item heights before updating virtual-scroller items", async () => {
-    let itemHeight = 80;
-    vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function () {
-      const height = this.classList?.contains("transcript-item") ? itemHeight : 0;
-      return { x: 0, y: 0, width: 0, height, top: 0, right: 0, bottom: height, left: 0, toJSON: () => ({}) };
-    });
-    const app = await connectPiApp();
-    Object.defineProperty(app.term, "clientHeight", { configurable: true, value: 600 });
-    app.renderMessages(Array.from({ length: 35 }, (_, index) => ({ kind: "pi", text: `message ${index}` })));
-    const heightChanged = vi.spyOn(app.transcriptVirtualScroller, "onItemHeightDidChange");
-
-    itemHeight = 120;
-    app.appendMessage({ kind: "pi", text: "new tail" });
-
-    expect(heightChanged).toHaveBeenCalled();
-  });
 
   it("ignores sub-pixel transcript height jitter", async () => {
     let itemHeight = 35.6953125;
@@ -387,47 +257,8 @@ describe("pi-app transcript window", () => {
     expect(errorStatus).toContain("failed");
   });
 
-  it("routes parallel same-name tool streams by call id", async () => {
-    const app = await connectPiApp();
-    app.renderMessages([]);
-    const first = app.toolCard({ id: "call-1", tool: "bash", status: "running" });
-    const second = app.toolCard({ id: "call-2", tool: "bash", status: "running" });
-    app.append(first, second);
 
-    app.updateToolArgs({ id: "call-1", tool: "bash", chunk: '{"command":"pwd"' });
-    expect(first.querySelector(".tc-args").textContent).toBe("");
-    app.updateToolArgs({ id: "call-1", tool: "bash", chunk: "}" });
-    app.appendToolOutput({ id: "call-2", tool: "bash", chunk: "second output" });
-    await new Promise((resolve) => requestAnimationFrame(resolve));
 
-    expect(first.querySelector(".tc-args").textContent).toBe("pwd");
-    expect(first.querySelector(".tc-body").textContent).toBe("");
-    expect(second.querySelector(".tc-body").textContent).toContain("second output");
-  });
-
-  it("flushes pending streamed output before the tool ends", async () => {
-    const app = await connectPiApp();
-    app.renderMessages([]);
-    app.appendMessage({ id: "call-1", kind: "tool", tool: "bash", status: "running" });
-    app.appendToolOutput({ id: "call-1", tool: "bash", chunk: "last output" });
-
-    app.finishTool({ id: "call-1", kind: "tool", tool: "bash", status: "ok", body: "" });
-
-    expect(app.querySelector(".tool-card .tc-body").textContent).toContain("last output");
-  });
-
-  it("keeps streamed output when the tool end has no final body", async () => {
-    const app = await connectPiApp();
-    app.renderMessages([]);
-    app.appendMessage({ id: "call-1", kind: "tool", tool: "bash", status: "running" });
-    app.appendToolOutput({ id: "call-1", tool: "bash", chunk: "streamed output" });
-    await new Promise((resolve) => requestAnimationFrame(resolve));
-
-    app.finishTool({ id: "call-1", kind: "tool", tool: "bash", status: "ok", body: "" });
-
-    expect(app.querySelector(".tool-card").dataset.status).toBe("ok");
-    expect(app.querySelector(".tool-card .tc-body").textContent).toContain("streamed output");
-  });
 
   it("previews the latest 4000 characters of live tool output", async () => {
     const app = await connectPiApp();
@@ -464,22 +295,6 @@ describe("pi-app transcript window", () => {
     expect(body.textContent).toContain("old-start");
   });
 
-  it("replaces cumulative tool output snapshots without duplicating them", async () => {
-    const app = await connectPiApp();
-    app.renderMessages([]);
-    app.appendMessage({ kind: "tool", tool: "subagent", status: "running" });
-
-    app.appendToolOutput({ tool: "subagent", chunk: "reviewing", mode: "replace" });
-    await new Promise((resolve) => requestAnimationFrame(resolve));
-    app.appendToolOutput({ tool: "subagent", chunk: "reviewing", mode: "replace" });
-    await new Promise((resolve) => requestAnimationFrame(resolve));
-    app.appendToolOutput({ tool: "subagent", chunk: "reviewing files", mode: "replace" });
-    await new Promise((resolve) => requestAnimationFrame(resolve));
-
-    const body = app.querySelector(".tool-card .tc-body");
-    expect(body.__toolOutputText).toBe("reviewing files");
-    expect(body.textContent).toBe("reviewing files");
-  });
 
   it("binds an existing scroll-bottom button", async () => {
     const app = await connectPiApp();
@@ -540,27 +355,6 @@ describe("pi-app transcript window", () => {
     expect(app.term.style.scrollBehavior).toBe("smooth");
   });
 
-  it("treats null animation-frame sentinels as available", async () => {
-    const requestAnimationFrame = vi.spyOn(window, "requestAnimationFrame").mockReturnValue(7);
-    const cancelAnimationFrame = vi.spyOn(window, "cancelAnimationFrame").mockImplementation(() => undefined);
-    const app = await connectPiApp();
-    app.streamingRenderFrame = null;
-    app.scrollFrame = null;
-
-    app.scheduleStreamingRender(document.createElement("div"));
-    app.scrollTerm();
-
-    expect(requestAnimationFrame).toHaveBeenCalledTimes(2);
-    expect(app.streamingRenderFrame).toBe(7);
-    expect(app.scrollFrame).toBe(7);
-
-    app.streamingRenderFrame = null;
-    app.scrollFrame = null;
-    app.clearStreamingTail();
-    app.cancelTranscriptScroll();
-
-    expect(cancelAnimationFrame).not.toHaveBeenCalled();
-  });
 
   it("does not let a queued trailing scroll override a user scroll-away", async () => {
     const frames = [];

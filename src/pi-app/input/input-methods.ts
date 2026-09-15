@@ -57,7 +57,7 @@ export const inputMethods = {
       this.updatePrompt();
       if (waitForServerEcho) {
         this.invalidateEventStream();
-        if (!useDurablePrompt) this.connectEvents(sessionId, { replay: true });
+        if (!useDurablePrompt && typeof EventSource === "function") this.connectEvents(sessionId, { replay: true });
         this.setMode("running");
         try {
           await postPrompt(sessionId, text, attachments, clientRequestId);
@@ -145,7 +145,7 @@ export const inputMethods = {
         args: `$ ${command}`,
         status: "err",
         resultMeta: error instanceof Error ? error.message : String(error),
-        body: "",
+        body: error instanceof Error ? error.message : String(error),
       });
       this.setConnection("err");
     } finally {
@@ -346,7 +346,7 @@ export const inputMethods = {
     const clientRequestId = globalThis.crypto?.randomUUID?.()
       || `request-${Date.now()}-${Math.random().toString(36).slice(2)}`;
     this.invalidateEventStream();
-    if (!useDurablePrompt) this.connectEvents(sessionId, { replay: true });
+    if (!useDurablePrompt && typeof EventSource === "function") this.connectEvents(sessionId, { replay: true });
     try {
       await postPrompt(sessionId, prompt, [], clientRequestId);
     } catch (error) {

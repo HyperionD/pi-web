@@ -56,7 +56,6 @@ class PiApp extends HTMLElement {
     this.compacting = false;
     this.attachmentContents = [];
     this.spinnerIndex = 0;
-    this.piDeltaBuffer = "";
     this.runtimeStatus = {};
     applyUiLocale(currentUiLocale(), this);
     this.restorePromptDraft();
@@ -319,6 +318,10 @@ class PiApp extends HTMLElement {
     const incomingEvent = event.id === undefined
       ? { ...event, id: String(BigInt(this.transcriptState.appliedSeq || "0") + 1n) }
       : event;
+    const incomingSeq = normalizeEventCursor(incomingEvent.id);
+    if (incomingSeq && this.transcriptState.appliedSeq === "0" && BigInt(incomingSeq) > 1n) {
+      this.transcriptState = { ...this.transcriptState, appliedSeq: (BigInt(incomingSeq) - 1n).toString() };
+    }
     for (const translated of adaptLegacySessionEvent(incomingEvent, context)) {
       try {
         this.transcriptState = reduceSessionEvent(this.transcriptState, translated);
@@ -330,10 +333,10 @@ class PiApp extends HTMLElement {
         throw error;
       }
       this.setSessionEventCursor(event.sessionId, event.id);
-      this.renderDurableTranscript?.({ syncMode: true });
       if (translated.type === "run.failed") {
         this.notifyResponseFailure?.(String(translated.payload?.error || "runtime failed"));
       }
+      this.renderDurableTranscript?.({ syncMode: true });
     }
   }
 

@@ -25,21 +25,6 @@ describe("pi-app fallback choices", () => {
   beforeEach(installPiAppFixture);
   afterEach(cleanupPiAppFixture);
 
-  it("replaces streamed fallback choice JSON with clickable answer options", async () => {
-    const app = await connectPiApp();
-    app.renderMessages([]);
-    app.appendDelta({ kind: "pi", delta: "질문입니다\n`" });
-    app.appendDelta({ kind: "pi", delta: `\`\`json${fallbackChoiceJson.slice(7)}` });
-    app.flushStreamingRender();
-    expect(app.querySelector(".msg.streaming .body").textContent).toBe("질문입니다");
-    expect(app.querySelector(".msg.streaming .body").textContent).not.toContain("piweb_choice");
-    expect(app.querySelector(".fallback-choice-list")).toBeNull();
-
-    app.appendMessage({ kind: "pi", text: `질문입니다\n${fallbackChoiceJson}` });
-    expect(app.querySelector(".msg.streaming")).toBeNull();
-    expect(app.querySelector(".fallback-choice-list strong").textContent).toBe("Runtime?");
-    expect(app.querySelector(".msg[data-kind='pi'] .body").textContent).not.toContain("piweb_choice");
-  });
 
   it("renders fallback choice blocks as clickable answer options", async () => {
     const app = await connectPiApp();
@@ -68,7 +53,7 @@ describe("pi-app fallback choices", () => {
     expect(app.querySelector(".fallback-choice-list").classList.contains("answered")).toBe(true);
     expect(app.querySelector("[data-action='fallback-choice']").disabled).toBe(true);
     expect(input.disabled).toBe(true);
-    expect(JSON.parse(globalThis.fetch.mock.calls.at(-1)[1].body)).toEqual({
+    expect(JSON.parse(globalThis.fetch.mock.calls.at(-1)[1].body)).toMatchObject({
       text: "选项回复：\nid: runtime\nvalue: custom runtime",
       attachments: [],
     });

@@ -7,10 +7,9 @@ Last reviewed: 2026-09-14
 
 ## 结论
 
-本项目的 durable event log、单调 `seq`、gap/reset/resync 和历史分页比上游更可诊断；
-主要风险在集成层：`transcriptState` 已归约完整状态，
-但 UI 仍以 DOM 节点保存流式文本和工具输出，durable 状态没有成为唯一渲染源。
-这会抵消虚拟滚动和断线恢复的可靠性收益。
+本项目的 durable event log、单调 `seq`、gap/reset/resync 和历史分页比上游更可诊断。
+P0 修复已完成：`TranscriptState → ViewModel → DOM` 是唯一渲染链路；legacy SSE 仅通过 adapter 进入 reducer；AG-UI 传输层已删除。
+虚拟滚动不再永久持有 DOM 节点，工具输出、失败状态和流恢复均由 reducer 状态驱动。
 
 ## 架构对照
 
@@ -18,76 +17,39 @@ Last reviewed: 2026-09-14
 | --- | --- | --- |
 | 运行时 | Next.js 进程内 `AgentSession` | Go 服务管理 `pi --mode rpc` |
 | 历史真源 | pi JSONL | pi JSONL + SQLite 投影 + Broker history |
-| 主事件流 | `/api/agent/[id]/events` SSE | durable SSE、Broker SSE、AG-UI |
-| 客户端状态 | React state/reducer | durable reducer + DOM-first 双轨 |
+| 主事件流 | `/api/agent/[id]/events` SSE | durable SSE；legacy SSE 仅作 adapter 输入 |
+| 客户端状态 | React state/reducer | `TranscriptState → ViewModel → DOM` |
 | 恢复 | 握手、快照、轮询兜底 | durable seq/gap/reset；旧通道按 Broker 游标恢复 |
 | 长会话 | 尾部 50 条逐页扩展 | 120 条服务端分页 + DOM 高度虚拟滚动 |
 
 ## P0：正确性风险
 
-### 1. durable reducer 与 DOM 双状态源
+### 1. durable reducer 与 DOM 双状态源（已修复）
 
-- reducer 已更新文本、工具 body 和 status：
-  `src/pi-app/sessions/transcript-reducer.ts:151-194`。
-- 实际 UI 更新仍查询已挂载 DOM，并把状态写入 `dataset.streamText`、`__toolOutputText`：
-  `src/pi-app/messages/message-methods.ts:83-145`、
-  `src/pi-app/messages/tool-message-methods.ts:111-122,185-224`。
-- 虚拟滚动卸载节点后，工具查找要求节点仍 `isConnected`；重新挂载又复用旧 `item.nodes`：
-  `src/pi-app/transcript/transcript-virtual-scroller.ts:16-19,74-88`。
+- `TranscriptState` 统一归约 assistant/tool/status：`src/pi-app/sessions/transcript-reducer.ts`。
+- `selectTranscriptView()` 生成 ViewModel，DOM 只由 `renderDurableTranscript()` 和虚拟滚动投影。
+- 已移除 `dataset.streamText`、`__toolOutputText`、`latestToolCards` 和永久 `item.nodes`。
+- legacy 事件通过 `legacy-session-event-adapter.ts` 转成 reducer 事件，不再直接改 DOM。
 
-触发：运行中的工具卡滚出窗口后继续收到 `tool.output` 或 `tool.finished`。
+工具滚出窗口后继续收到 output/finish 时，状态仍可从 reducer 重建，且已有节点按 item key 增量 patch。
 
-影响：reducer 中数据正确，但 DOM 输出不更新；snapshot item 会继续复用旧节点，
-live append item 还可能追加第二张终态卡。没有代码证据支持递归或栈溢出。
-上游对照：工具结果和流式消息由 React state 生成视图，
-`agegr/pi-web/hooks/useAgentSession.ts:1283-1329`、
-`agegr/pi-web/components/ChatWindow.tsx:1178-1192`。
+### 2. durable EventSource 旧连接竞态（已修复）
 
-### 2. durable EventSource 存在旧连接关闭新连接的竞态
+`session-stream-client.ts` 为每次连接保存 generation，并在 `open/message/error` 回调中校验当前连接；旧连接不能关闭或推进新连接。回归覆盖见 `src/pi-app/sessions/session-stream-client.test.ts`。
 
-`createSessionStreamClient()` 的 listener 没有校验回调所属连接；`reset()` 创建新 source 后，
-旧 source 的延迟 `error`/`stream.reset` 回调会调用共享 `closeSource()`：
-`src/pi-app/sessions/session-stream-client.ts:47-101`。
+### 3. AG-UI 工具终态顺序（已移除）
 
-触发：reset/start 后旧 EventSource 异步派发 error。
+AG-UI SDK、路由、Go adapter、API 和专用测试已删除。工具终态统一由 durable `tool.finished` reducer 事件产生，body、status、resultMeta 在同一状态投影中更新。
 
-影响：新连接被旧回调关闭并重复重连，扩大恢复窗口。
-上游对照：每个回调先验证 `this.current === connection`，
-`agegr/pi-web/lib/agent-event-connection.ts:139-169`。
+### 4. Broker 游标前置推进（已移除双通道风险）
 
-### 3. AG-UI 工具终态先于最终结果，失败状态被抹平
-
-服务端 `emitToolFinish()` 先发 `ToolCallEnd`，再把 `msg.Body` 发为 result：
-`internal/piweb/agui.go:364-383`。客户端收到 end 后立即把卡片置为 `ok`；随后 result 因卡片不再是
-`running` 而被 `appendToolOutput()` 拒绝：
-`src/lib/api.ts:352-366`、`src/pi-app/index.ts:307-325`、
-`src/pi-app/messages/tool-message-methods.ts:185-188`。
-
-触发：最终 body 只在 `tool.finished` 中出现，或工具失败。
-
-影响：最终输出丢失，失败工具可能显示成功。
-
-### 4. AG-UI Broker 游标先于对应业务事件提交
-
-每个 Broker event 都先发 `piweb.broker-cursor`，再发映射后的文本/工具事件：
-`internal/piweb/agui.go:150-190`。客户端收到 cursor 即推进恢复位置：
-`src/lib/api.ts:340-357`、`src/pi-app/index.ts:286-291`。
-
-触发：cursor 已到浏览器、同一 Broker event 的业务 payload 尚未到达时断线。
-
-影响：回退到 Broker SSE 时从过新的 cursor replay，该业务事件永久跳过。
-游标应与业务 payload 原子确认，不能作为前置事件发送。
+客户端不再消费 AG-UI cursor；durable SSE 只按事件 `seq` 归约，并在 gap 时执行 snapshot resync。legacy SSE 也先经过同一 reducer 序列化路径。
 
 ## P1：性能与可维护性风险
 
-### 1. 流式 Markdown 累积重渲染
+### 1. 流式 Markdown 累积重渲染（已缓解）
 
-每个 rAF 都把累计全文重新执行 `renderPiBody()` 并替换 `innerHTML`：
-`src/pi-app/messages/message-methods.ts:109-145`。长响应、表格和代码块会反复解析；
-复制按钮等子节点也持续重建。
-上游同样会更新流式尾项，但已提交消息由 keyed list 与 `memo(MessageView)` 隔离，
-`agegr/pi-web/components/ChatWindow.tsx:1191-1192`、
-`agegr/pi-web/components/MessageView.tsx:269-312`。
+assistant delta 先归约到 `TranscriptState`，再由 ViewModel/虚拟滚动 patch 对应 item；不再维护 DOM 流文本缓存或独立 rAF streaming DOM 状态。
 
 ### 2. resync 与 durable 历史前插全量重建
 
@@ -125,13 +87,9 @@ assistant delta 虽按 16 KiB/20 ms 合并，但每次 flush 仍调用一次 `Ap
 上游至少对 bash/powershell 使用受控按需读取/下载：
 `agegr/pi-web/app/api/agent/[id]/bash-output/route.ts:12-63`。
 
-### 5. 虚拟滚动只限制挂载节点，不限制已访问节点内存
+### 5. 虚拟滚动节点内存（已修复）
 
-`item.nodes` 在首次渲染后永久保留；unmount 只断开 `ResizeObserver`：
-`src/pi-app/transcript/transcript-virtual-scroller.ts:16-19,70-88`。
-
-影响：用户遍历完整历史后，内存中仍接近保留全部消息 DOM；
-当前实现主要降低 layout/paint，而非 DOM 对象内存。
+虚拟滚动 item 只保存消息/ViewModel 数据，卸载时释放 DOM 节点；重新挂载通过 `messageNode()` 从状态重建。
 
 ### 6. runtime 工具事件适配不完整
 
@@ -206,13 +164,13 @@ assistant delta 虽按 16 KiB/20 ms 合并，但每次 flush 仍调用一次 `Ap
 - 服务端历史分页、内容 range API 和 team child session 发现。
 - Go 单二进制、账户/工作区授权能力；这些不属于上游会话 UI 的直接替代项。
 
-## 建议实施顺序
+## 后续实施顺序
 
-1. 让 `transcriptState` 成为唯一真源；按 `itemId` 投影 UI，移除 DOM 私有状态和 DOM 判重。
-2. 修复 EventSource generation guard、AG-UI cursor 原子性及 tool result/end/status 顺序。
-3. 将大输出 snapshot 改为 preview + `contentRef`，UI 按 range 加载，不再内联完整 body。
-4. 避免每事件全量加载 projection；采用实体级 SQL 更新或内存 actor + 批量 checkpoint。
-5. 再补 fork/search/export、队列、扩展 UI、终端和富媒体。
+1. 将大输出 snapshot 改为 preview + `contentRef`，UI 按 range 加载，不再内联完整 body。
+2. 避免每事件全量加载 projection；采用实体级 SQL 更新或内存 actor + 批量 checkpoint。
+3. 再补 fork/search/export、队列、扩展 UI、终端和富媒体。
+
+P0 架构迁移、虚拟滚动重建、工具终态、legacy adapter 和 AG-UI 删除已完成；本次验证覆盖 Vitest、Go tests、lint、typecheck 与 build。
 
 ## 对旧版审查结论的修正
 

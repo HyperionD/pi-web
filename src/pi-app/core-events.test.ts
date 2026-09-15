@@ -45,20 +45,16 @@ describe("pi-app core events", () => {
     app.eventSource = { close: vi.fn() };
     const eventSource = app.eventSource;
     app.backgroundSessionWatches = new Map([["s2", { source: backgroundSource }]]);
-    app.streamingRenderFrame = 1;
     app.scrollFrame = 2;
     app.uninstallViewportSizing = vi.fn();
-    vi.spyOn(window, "cancelAnimationFrame").mockImplementation(() => undefined);
     app.disconnectedCallback();
     expect(eventSource.close).toHaveBeenCalled();
     expect(backgroundSource.close).toHaveBeenCalled();
     expect(app.uninstallViewportSizing).toHaveBeenCalled();
-    expect(app.streamingRenderFrame).toBeUndefined();
     expect(app.scrollFrame).toBeUndefined();
     app.eventSource = null;
     app.spinnerTimer = undefined;
     app.runtimeStatusTimer = undefined;
-    app.streamingRenderFrame = undefined;
     app.scrollFrame = undefined;
     expect(() => app.disconnectedCallback()).not.toThrow();
     vi.useRealTimers();
@@ -98,22 +94,6 @@ describe("pi-app core events", () => {
     expect(app.dataset.inspectorWidth).toBe("660");
   });
 
-  it("clears streaming lifecycle state through the real disconnect path", async () => {
-    vi.spyOn(window, "requestAnimationFrame").mockImplementation(() => 0);
-    const cancelAnimationFrame = vi.spyOn(window, "cancelAnimationFrame").mockImplementation(() => undefined);
-    const app = await connectPiApp();
-    app.appendDelta({ kind: "pi", delta: "pending" });
-
-    expect(app.querySelector(".streaming-tail .msg.streaming")).not.toBeNull();
-    expect(app.pendingStreamingRow).not.toBeUndefined();
-    app.disconnectedCallback();
-
-    expect(cancelAnimationFrame).toHaveBeenCalledWith(0);
-    expect(app.querySelector(".streaming-tail").childElementCount).toBe(0);
-    expect(app.pendingStreamingRow).toBeUndefined();
-    expect(app.streamingRenderFrame).toBeUndefined();
-    expect(app.scrollFrame).toBeUndefined();
-  });
 
   it("binds DOM and window events to current methods", async () => {
     const app = await connectPiApp();
@@ -370,113 +350,8 @@ describe("pi-app core events", () => {
     expect(app.applyEvent).not.toHaveBeenCalled();
   });
 
-  it("invalidates a closed event stream before AG-UI takes over", async () => {
-    const listeners = {};
-    class FakeEventSource {
-      constructor(url) { this.url = url; }
-      addEventListener(type, callback) { listeners[type] = callback; }
-      close = vi.fn();
-    }
-    vi.stubGlobal("EventSource", FakeEventSource);
-    const app = await connectPiApp();
-    app.dataset.activeSessionId = "s1";
-    app.applyEvent = vi.fn();
-    app.connectEvents("s1");
-    const staleSource = app.eventSource;
 
-    app.invalidateEventStream();
-    listeners["session.message"]({
-      data: JSON.stringify({
-        type: "session.message",
-        sessionId: "s1",
-        payload: { kind: "pi", text: "stale" },
-      }),
-    });
 
-    expect(staleSource.close).toHaveBeenCalled();
-    expect(app.applyEvent).not.toHaveBeenCalled();
-  });
-
-  it("connects event streams and applies every event branch", async () => {
-    const listeners = {};
-    class FakeEventSource {
-      constructor(url) { this.url = url; }
-      addEventListener(type, callback) { listeners[type] = callback; }
-      close = vi.fn();
-    }
-    vi.stubGlobal("EventSource", FakeEventSource);
-    const app = await connectPiApp();
-    app.eventSource = { close: vi.fn() };
-    app.setConnection = vi.fn();
-    app.applyEvent = vi.fn();
-    app.dataset.activeSessionId = "s1";
-    app.connectEvents("s1", { replay: false });
-    const source = app.eventSource;
-    source.onopen();
-    source.onerror(new Error("x"));
-    app.eventStreamId = Symbol("stale");
-    source.onopen();
-    source.onerror(new Error("x"));
-    listeners["session.message"]({ data: JSON.stringify({ type: "heartbeat", sessionId: "s1" }) });
-    listeners.error({ data: "{" });
-    expect(app.setConnection).toHaveBeenCalledWith("ok");
-    expect(app.setConnection).toHaveBeenCalledWith("reconnecting");
-
-    app.applyEvent = Object.getPrototypeOf(app).applyEvent.bind(app);
-    app.appendMessage = vi.fn();
-    app.appendDelta = vi.fn();
-    app.updateSessionTitle = vi.fn();
-    app.appendToolOutput = vi.fn();
-    app.finishTool = vi.fn();
-    app.setMode = vi.fn();
-    app.running = false;
-    app.applyEvent({ type: "heartbeat" });
-    app.applyEvent({ type: "session.status", payload: { status: "idle" } });
-    app.applyEvent({ type: "session.message", payload: { kind: "pi" } });
-    app.applyEvent({ type: "session.delta", payload: { delta: "x" } });
-    app.running = true;
-    app.applyEvent({ type: "session.delta", payload: { delta: "again" } });
-    app.applyEvent({ type: "session.renamed", payload: { title: "t" } });
-    app.running = false;
-    app.applyEvent({ type: "tool.started", payload: { tool: "x" } });
-    app.running = true;
-    app.applyEvent({ type: "tool.started", payload: { tool: "x2" } });
-    app.running = false;
-    app.applyEvent({ type: "tool.output", payload: { tool: "x" } });
-    app.running = true;
-    app.applyEvent({ type: "tool.output", payload: { tool: "x2" } });
-    app.applyEvent({ type: "tool.finished", payload: { tool: "x" } });
-    expect(app.appendMessage).toHaveBeenCalled();
-    expect(app.appendDelta).toHaveBeenCalled();
-    expect(app.finishTool).toHaveBeenCalled();
-  });
-
-  it("reloads the session snapshot when the connection opens or status changes", async () => {
-    const listeners = {};
-    class FakeEventSource {
-      constructor() {
-        this.listeners = listeners;
-        this.close = vi.fn();
-      }
-      addEventListener(type, callback) { this.listeners[type] = callback; }
-    }
-    vi.stubGlobal("EventSource", FakeEventSource);
-    const app = await connectPiApp();
-    app.dataset.activeSessionId = "s1";
-    app.loadSession = vi.fn();
-    app.connectEvents("s1");
-    app.eventSource.onopen();
-    expect(app.loadSession).toHaveBeenCalledWith("s1", expect.objectContaining({ resync: true }));
-    await Promise.resolve();
-    listeners["session.status"]({
-      data: JSON.stringify({ id: 3, type: "session.status", sessionId: "s1", payload: { status: "running" } }),
-    });
-    expect(app.loadSession).toHaveBeenCalledTimes(1);
-    listeners["session.status"]({
-      data: JSON.stringify({ id: 4, type: "session.status", sessionId: "s1", payload: { status: "idle" } }),
-    });
-    expect(app.loadSession).toHaveBeenCalledTimes(2);
-  });
 
   it("surfaces runtime auth warnings while loading prompt metadata", async () => {
     globalThis.PI_WEB_API_BASE = "http://backend.test";

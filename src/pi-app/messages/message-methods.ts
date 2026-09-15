@@ -3,12 +3,9 @@ import {
   parseFallbackChoiceAnswer,
   parseFallbackChoices,
   stripFallbackChoices,
-  streamVisibleChoiceText,
 } from "../input/fallback-choices";
 import { TERMINAL_SPINNER_HTML } from "../constants";
 import { createLegacyTranscriptState } from "../sessions/legacy-session-event-adapter";
-
-const STREAMING_RENDER_MAX_PENDING_UPDATES = 32;
 
 function responseErrorText(detail) {
   if (typeof detail === "string") return detail.trim();
@@ -16,24 +13,45 @@ function responseErrorText(detail) {
   return String(detail.message || detail.error || "").trim();
 }
 
+function nextLegacyEventId(app) {
+  return String(BigInt(app.transcriptState?.appliedSeq || "0") + 1n);
+}
+
+function dispatchLegacyMessage(app, message) {
+  if (!message?.kind || typeof app.applyEvent !== "function") return false;
+  const id = nextLegacyEventId(app);
+  if (message.kind === "tool") {
+    const eventType = message.status === "running" ? "tool.started" : "tool.finished";
+    const payload = message.status === "running"
+      ? { id: message.id, tool: message.tool, args: message.args || "" }
+      : { id: message.id, tool: message.tool, args: message.args || "", body: message.body || "", status: message.status || "ok", resultMeta: message.resultMeta, durationMs: message.durationMs };
+    app.applyEvent({ id, type: eventType, payload });
+    return true;
+  }
+  if (["user", "pi", "think", "banner", "custom"].includes(message.kind)) {
+    app.applyEvent({ id, type: "session.message", payload: message });
+    return true;
+  }
+  return false;
+}
+
 export const messageMethods = {
   renderMessages(messages) {
     if (!this.termInner) return;
-    this.piDeltaBuffer = "";
-    this.piRawTextBuffer = "";
     this.streamingRows = {};
     this.responseErrorMessageShown = false;
     this.termInner.replaceChildren();
     this.resetTranscriptWindow();
     this.deferTranscriptRender = false;
     this.answeredChoiceIds = this.answeredChoiceIdsFrom(messages);
-    if (!this.transcriptState) {
+    if (!this.transcriptState || (!messages.length && this.transcriptState.sessionId === "legacy")) {
       this.transcriptState = createLegacyTranscriptState(
         this.dataset.activeSessionId || "legacy",
         messages,
         "idle",
         "0",
       );
+      this.durableTranscriptIds = undefined;
     }
     this.transcriptItems = messages.map((message) => this.createTranscriptItem(message));
     this.renderTranscriptWindow({ stickToBottom: true });
@@ -52,33 +70,13 @@ export const messageMethods = {
 
   appendMessage(message) {
     if (!this.termInner || !message) return;
-    if (message.kind === "tool" && message.id) {
-      const existingTool = [...this.termInner.querySelectorAll(".tool-card")]
-        .find((card) => card.dataset.toolCallId === message.id);
-      const existingToolItem = this.transcriptItems?.find(
-        (item) => item.message?.kind === "tool" && item.message.id === message.id,
-      );
-      if (existingTool || existingToolItem) {
-        if (message.status === "running" || !existingTool) return;
-        this.finishTool(message);
-        return;
-      }
-    }
-    if (this.isDuplicateMessage(message)) {
-      if (message.kind === "pi") this.clearStreamingState("pi");
-      for (const streamingRow of this.streamingRowsForKind(message.kind)) this.removeStreamingNode(streamingRow);
-      if (message.kind !== "user") this.removeLoadingMessage();
+    if (this.isDuplicateMessage(message)) return;
+    this.removeLoadingMessage();
+    if (dispatchLegacyMessage(this, message)) {
+      if (message.kind === "user") this.disableAnsweredChoice(parseFallbackChoiceAnswer(message.text));
       return;
     }
-    this.removeLoadingMessage();
-    if (message.kind === "pi" || message.kind === "think") this.finishRunningTools();
-    if (message.kind === "pi") this.clearStreamingState("pi");
-    if (message.kind === "tool") this.commitStreamingMessages();
-    for (const streamingRow of this.streamingRowsForKind(message.kind)) this.removeStreamingNode(streamingRow);
     this.appendTranscriptMessage(message, { stickToBottom: true });
-    this.notifyPiMessageCommitted(message);
-    if (message.kind === "user") this.disableAnsweredChoice(parseFallbackChoiceAnswer(message.text));
-    if (message.kind !== "user") this.syncLoadingMessage();
     this.scrollTerm();
   },
 
@@ -87,70 +85,6 @@ export const messageMethods = {
     const messages = [...this.termInner.querySelectorAll(".msg:not(.loading):not(.streaming)")];
     const last = messages.at(-1);
     return last?.dataset.kind === message.kind && (last.dataset.rawText ?? last.querySelector(".body")?.textContent) === message.text;
-  },
-
-  appendDelta(payload) {
-    if (!this.termInner || !payload?.delta) return;
-    this.finishRunningTools({ notifyHeight: false });
-    const kind = payload.kind === "think" ? "think" : "pi";
-    this.removeLoadingMessage();
-    const streamingRows = this.streamingRowsForKind(kind);
-    for (const duplicateRow of streamingRows.slice(1)) this.removeStreamingNode(duplicateRow);
-    let delta = payload.delta;
-    if (kind === "pi") {
-      this.piRawTextBuffer = `${this.piRawTextBuffer || ""}${payload.delta}`;
-      const filtered = streamVisibleChoiceText(this.piDeltaBuffer + payload.delta);
-      this.piDeltaBuffer = filtered.pending;
-      delta = filtered.visible;
-      if (!delta) return;
-    }
-    let messageRow = streamingRows[0];
-    if (!messageRow) {
-      messageRow = this.simpleMessage(`${kind} streaming`, kind === "think" ? this.thinkingPrefix() : "agent >", "");
-      messageRow.classList.add("streaming");
-      messageRow.dataset.kind = kind;
-      if (kind === "think") this.attachThinkingStream(messageRow);
-      this.appendStreamingNode(messageRow);
-    }
-    this.streamingRows = { ...(this.streamingRows || {}), [kind]: messageRow };
-    const body = messageRow.querySelector("[data-stream-text]") || messageRow.querySelector(".body");
-    if (body && kind === "pi") {
-      messageRow.dataset.streamText = `${messageRow.dataset.streamText || ""}${delta}`;
-      body.classList.add("markdown-body");
-      this.scheduleStreamingRender(messageRow);
-    } else if (body) {
-      body.textContent += delta;
-    }
-    if (kind !== "pi") this.syncLoadingMessage();
-    this.scrollTerm();
-  },
-
-  flushStreamingRender() {
-    if (this.streamingRenderFrame != null) {
-      window.cancelAnimationFrame(this.streamingRenderFrame);
-      this.streamingRenderFrame = undefined;
-    }
-    const row = this.pendingStreamingRow;
-    const body = row?.querySelector("[data-stream-text]") || row?.querySelector(".body");
-    if (body && row?.dataset.streamText !== undefined) {
-      body.innerHTML = renderPiBody(row.dataset.streamText);
-    }
-    this.pendingStreamingRow = undefined;
-    this.streamingRenderPendingUpdates = 0;
-  },
-
-  scheduleStreamingRender(row) {
-    this.pendingStreamingRow = row;
-    this.streamingRenderPendingUpdates = (this.streamingRenderPendingUpdates || 0) + 1;
-    if (this.streamingRenderPendingUpdates >= STREAMING_RENDER_MAX_PENDING_UPDATES) {
-      this.flushStreamingRender();
-      return;
-    }
-    if (this.streamingRenderFrame != null) return;
-    this.streamingRenderFrame = window.requestAnimationFrame(() => {
-      this.streamingRenderFrame = undefined;
-      this.flushStreamingRender();
-    });
   },
 
   currentStreamingRow(kind) {
@@ -171,49 +105,8 @@ export const messageMethods = {
     this.scrollTerm();
   },
 
-  finalizePiStream(text) {
-    if (!this.termInner) return;
-    const message = { kind: "pi", text };
-    this.commitStreamingKind("think");
-    this.flushStreamingRender();
-    const isDuplicate = this.isDuplicateMessage(message);
-    this.removeLoadingMessage();
-    this.finishRunningTools();
-    for (const row of this.streamingRowsForKind("pi")) this.removeStreamingNode(row);
-    if (isDuplicate) {
-      this.clearStreamingState("pi");
-      this.syncLoadingMessage();
-      this.scrollTerm();
-      return;
-    }
-    this.appendTranscriptMessage(message, { stickToBottom: true });
-    this.clearStreamingState("pi");
-    this.notifyPiMessageCommitted(message);
-    this.syncLoadingMessage();
-    this.scrollTerm();
-  },
-
-  finalizeThinkingStream(text) {
-    if (!this.termInner || !text) return;
-    this.flushStreamingRender();
-    const message = { kind: "think", text };
-    const isDuplicate = this.isDuplicateMessage(message);
-    this.removeLoadingMessage();
-    for (const row of this.streamingRowsForKind("think")) this.removeStreamingNode(row);
-    if (!isDuplicate) this.appendTranscriptMessage(message, { stickToBottom: true });
-    this.clearStreamingState("think");
-    this.syncLoadingMessage();
-    this.scrollTerm();
-  },
-
   clearStreamingState(kind) {
-    this.flushStreamingRender();
-    if (kind === "pi") {
-      this.piDeltaBuffer = "";
-      this.piRawTextBuffer = "";
-    }
     if (this.streamingRows?.[kind]) this.streamingRows = { ...(this.streamingRows || {}), [kind]: undefined };
-    if (this.pendingStreamingRow?.matches?.(`.msg.streaming[data-kind='${kind}']`)) this.pendingStreamingRow = undefined;
   },
 
   notifyPiMessageCommitted(message) {
@@ -223,27 +116,6 @@ export const messageMethods = {
       this.notifyChoiceRequested?.();
       return;
     }
-  },
-
-  commitStreamingKind(kind) {
-    if (!this.streamingTail) return;
-    this.flushStreamingRender();
-    const rows = [...this.streamingTail.querySelectorAll(`.msg.streaming[data-kind='${kind}']`)];
-    const messages = rows
-      .map((row) => {
-        const streamBody = row.querySelector("[data-stream-text]") || row.querySelector(".body");
-        const text = kind === "pi" ? row.dataset.streamText : streamBody?.textContent;
-        return text ? { kind, text } : undefined;
-      })
-      .filter(Boolean);
-    rows.forEach((row) => this.removeStreamingNode(row));
-    for (const message of messages) this.appendTranscriptMessage(message, { stickToBottom: false });
-    if (messages.length) this.renderTranscriptWindow({ stickToBottom: true });
-  },
-
-  attachThinkingStream(messageRow) {
-    messageRow.querySelector(".body").innerHTML =
-      `<div class="thinking-block"><span class="label">thinking</span><span data-stream-text></span></div>`;
   },
 
   appendLoadingMessage() {
@@ -302,41 +174,13 @@ export const messageMethods = {
     return !!(historyActive || tailActive);
   },
 
-  commitStreamingMessages({ preserveAguiText = false } = {}) {
-    if (!this.streamingTail) return;
-    this.flushStreamingRender();
-    const hasPendingChoice = parseFallbackChoices(this.piRawTextBuffer).length > 0;
-    const rows = [...this.streamingTail.querySelectorAll(".msg.streaming")];
-    const messages = rows
-      .filter((row) => !row.classList.contains("loading") && (!preserveAguiText || row.dataset.kind !== "pi"))
-      .map((row) => {
-        const kind = row.dataset.kind;
-        const streamBody = row.querySelector("[data-stream-text]") || row.querySelector(".body");
-        const text = kind === "pi" ? row.dataset.streamText : streamBody?.textContent;
-        return kind && text ? { kind, text } : undefined;
-      })
-      .filter(Boolean);
-    if (preserveAguiText) {
-      for (const row of rows) {
-        if (row.dataset.kind !== "pi") this.removeStreamingNode(row);
-      }
-    } else {
-      this.finalizeStreamingMessages();
-    }
-    for (const message of messages) this.appendTranscriptMessage(message, { stickToBottom: false });
-    if (hasPendingChoice) this.notifyChoiceRequested?.();
-    if (messages.length) this.renderTranscriptWindow({ stickToBottom: true });
+  commitStreamingMessages() {
+    this.finalizeStreamingMessages();
   },
 
   finalizeStreamingMessages() {
-    this.flushStreamingRender();
-    this.piDeltaBuffer = "";
-    this.piRawTextBuffer = "";
-    const streamingRows = new Set(Object.values(this.streamingRows || {}));
-    this.streamingTail?.querySelectorAll(".msg.streaming").forEach((row) => streamingRows.add(row));
-    streamingRows.forEach((row) => this.removeStreamingNode(row));
+    this.streamingTail?.querySelectorAll(".msg.streaming").forEach((row) => this.removeStreamingNode(row));
     this.streamingRows = {};
-    this.pendingStreamingRow = undefined;
   },
 
   finishRunningTools({ status = "ok", resultMeta = "done", notifyHeight = true } = {}) {
@@ -359,7 +203,7 @@ export const messageMethods = {
       return errorRow;
     }
     if (message.kind === "tool") return this.toolCard(message);
-    return this.simpleMessage("pi", "agent >", JSON.stringify(message));
+    return this.simpleMessage(message.kind || "annotation", "agent >", message.text || JSON.stringify(message));
   },
 
   thinkingPrefix() {

@@ -5,6 +5,7 @@ export type TranscriptViewMessage = {
   kind: TranscriptItem["kind"];
   text: string;
   tool?: string;
+  toolCallId?: string;
   args?: string;
   body?: string;
   status?: string;
@@ -27,6 +28,7 @@ export function selectTranscriptViewMessage(item: TranscriptItem): TranscriptVie
     text: item.text || "",
   };
   if (item.tool) message.tool = item.tool;
+  if (item.toolCallId) message.toolCallId = item.toolCallId;
   if (item.args) message.args = item.args;
   if (item.bodyPreview) message.body = item.bodyPreview;
   if (item.status) message.status = item.status;

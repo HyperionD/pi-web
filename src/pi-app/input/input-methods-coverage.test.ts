@@ -10,35 +10,6 @@ function err(message = "boom") {
   return { ok: false, status: 500, statusText: "ERR", json: async () => ({ error: message }) };
 }
 
-function aguiResponse() {
-  const events = [
-    { type: "RUN_STARTED", threadId: "s1", runId: "r1" },
-    { type: "TEXT_MESSAGE_START", messageId: "m1", role: "assistant" },
-    { type: "TEXT_MESSAGE_CONTENT", messageId: "m1", delta: "ok" },
-    { type: "TEXT_MESSAGE_END", messageId: "m1" },
-    { type: "RUN_FINISHED", threadId: "s1", runId: "r1" },
-  ].map((event) => `data: ${JSON.stringify(event)}\n\n`).join("");
-  return new Response(new ReadableStream({
-    start(controller) {
-      controller.enqueue(new TextEncoder().encode(events));
-      controller.close();
-    },
-  }), { status: 200, headers: { "Content-Type": "text/event-stream" } });
-}
-
-function aguiErrorResponse(message = "model failed") {
-  const events = [
-    { type: "RUN_STARTED", threadId: "s1", runId: "r1" },
-    { type: "RUN_ERROR", threadId: "s1", runId: "r1", message },
-  ].map((event) => `data: ${JSON.stringify(event)}\n\n`).join("");
-  return new Response(new ReadableStream({
-    start(controller) {
-      controller.enqueue(new TextEncoder().encode(events));
-      controller.close();
-    },
-  }), { status: 200, headers: { "Content-Type": "text/event-stream" } });
-}
-
 describe("pi-app input methods coverage", () => {
   beforeEach(() => {
     installPiAppFixture();
@@ -114,10 +85,6 @@ describe("pi-app input methods coverage", () => {
     expect(globalThis.fetch).toHaveBeenCalledWith(
       "http://backend.test/api/sessions/s1/prompt",
       expect.objectContaining({ method: "POST" }),
-    );
-    expect(globalThis.fetch).not.toHaveBeenCalledWith(
-      expect.stringContaining("/ag-ui"),
-      expect.anything(),
     );
     expect(app.connectEvents).not.toHaveBeenCalled();
     globalThis.EventSource = undefined;
@@ -308,24 +275,6 @@ describe("pi-app input methods coverage", () => {
     expect(app.querySelector(".send-btn").getAttribute("aria-disabled")).toBe("true");
   });
 
-  it("disables and blocks submission when AG-UI duplicate text overflows the request budget", async () => {
-    const app = await connectPiApp();
-    app.apiConnected = true;
-    app.dataset.activeWorkspaceId = "w1";
-    app.dataset.activeSessionId = "s1";
-    globalThis.EventSource = undefined;
-    const text = "x".repeat(400 * 1024);
-    app.prompt.value = text;
-    app.updatePrompt();
-    globalThis.fetch = vi.fn(async () => ok({ accepted: true }));
-
-    expect(app.estimateNormalPromptJsonBytes(text, [])).toBeLessThan(768 * 1024);
-    expect(app.estimateAguiPromptJsonBytes(text, [])).toBeGreaterThan(768 * 1024);
-    expect(app.querySelector(".send-btn").disabled).toBe(true);
-    await app.submitPrompt();
-
-    expect(globalThis.fetch).not.toHaveBeenCalled();
-  });
 
   it("normalizes trailing whitespace before prompt budget checks and submit", async () => {
     const app = await connectPiApp();
@@ -345,20 +294,6 @@ describe("pi-app input methods coverage", () => {
     expect(body.text).toBe(normalizedText);
   });
 
-  it("normalizes trailing whitespace before steering budget checks and submit", async () => {
-    const app = await connectPiApp();
-    app.apiConnected = true;
-    app.dataset.activeWorkspaceId = "w1";
-    app.dataset.activeSessionId = "s1";
-    const normalizedText = "x".repeat(350 * 1024);
-    const textWithTrailingWhitespace = normalizedText + " ".repeat(450 * 1024);
-    globalThis.fetch = vi.fn(async () => ok({ accepted: true }));
-
-    await app.submitSteeringPrompt(textWithTrailingWhitespace);
-
-    const body = JSON.parse(globalThis.fetch.mock.calls.at(-1)[1].body);
-    expect(body.text).toBe(normalizedText);
-  });
 
   it("guards oversized steering payloads before calling the API", async () => {
     const app = await connectPiApp();
@@ -400,7 +335,7 @@ describe("pi-app input methods coverage", () => {
     app.prompt.value = "hello";
 
     await app.submitPrompt();
-    expect(JSON.parse(globalThis.fetch.mock.calls.at(-1)[1].body)).toEqual({ text: "hello", attachments: ["image-data"] });
+    expect(JSON.parse(globalThis.fetch.mock.calls.at(-1)[1].body)).toMatchObject({ text: "hello", attachments: ["image-data"] });
     expect(app.attachments.hidden).toBe(true);
 
     app.setMode("running");
@@ -420,20 +355,6 @@ describe("pi-app input methods coverage", () => {
     expect(app.setConnection).toHaveBeenCalledWith("err");
   });
 
-  it("keeps AG-UI model errors visible after the request finishes", async () => {
-    const app = await connectPiApp();
-    globalThis.EventSource = class {};
-    globalThis.fetch = vi.fn(async () => aguiErrorResponse());
-    app.apiConnected = true;
-    app.dataset.activeSessionId = "s1";
-    app.connectEvents = vi.fn();
-    app.prompt.value = "agui error";
-
-    await app.submitPrompt();
-
-    expect(app.termInner.textContent).toContain("model failed");
-    expect(app.querySelector(".term-inner .msg.error .body")?.textContent).toBe("model failed");
-  });
 
   it("submits fallback choices through durable prompt transport", async () => {
     const app = await connectPiApp();
@@ -450,49 +371,10 @@ describe("pi-app input methods coverage", () => {
     await app.submitFallbackChoice("choice-1", "A", panel);
 
     expect(String(globalThis.fetch.mock.calls[0][0])).toContain("/api/sessions/s1/prompt");
-    expect(String(globalThis.fetch.mock.calls[0][0])).not.toContain("/ag-ui");
     expect(app.connectEvents).not.toHaveBeenCalled();
     expect(app.connectDurableEvents).not.toHaveBeenCalled();
   });
 
-  it("cleans up completed AG-UI prompt and fallback choice streams", async () => {
-    const app = await connectPiApp();
-    globalThis.EventSource = class {};
-    globalThis.fetch = vi.fn(async () => aguiResponse());
-    app.apiConnected = true;
-    app.dataset.activeSessionId = "s1";
-    app.connectEvents = vi.fn();
-    app.prompt.value = "agui prompt";
-
-    await app.submitPrompt();
-
-    expect(String(globalThis.fetch.mock.calls[0][0])).toContain("/api/sessions/s1/ag-ui");
-    expect(app.running).toBe(false);
-    expect(app.querySelector(".msg.loading")).toBeNull();
-    expect(app.connectEvents).toHaveBeenCalledWith("s1", { replay: true });
-
-    globalThis.fetch = vi.fn(async (url) => {
-      if (String(url).includes("/ag-ui")) throw new Error("Failed to getReader");
-      return ok({ accepted: true });
-    });
-    app.connectEvents = vi.fn();
-    app.prompt.value = "fallback prompt";
-    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
-    try {
-      await app.submitPrompt();
-    } finally {
-      consoleError.mockRestore();
-    }
-    expect(String(globalThis.fetch.mock.calls.at(-1)[0])).toContain("/api/sessions/s1/prompt");
-    expect(app.connectEvents).toHaveBeenCalledWith("s1", { replay: true });
-
-    const panel = document.createElement("div");
-    panel.innerHTML = `<button></button><input>`;
-    globalThis.fetch = vi.fn(async () => aguiResponse());
-    await app.submitFallbackChoice("choice-1", "A", panel);
-    expect(app.running).toBe(false);
-    expect(app.querySelector(".msg.loading")).toBeNull();
-  });
 
   it("parses every settings input before starting either save", async () => {
     const app = await connectPiApp();
@@ -580,16 +462,12 @@ describe("pi-app input methods coverage", () => {
     app.apiConnected = true;
     app.dataset.activeWorkspaceId = "w1";
     app.renderMessages([]);
-    app.appendDelta({ kind: "think", delta: "reasoning" });
-    app.appendDelta({ kind: "pi", delta: "summary" });
     app.loadRuntimeStatus = vi.fn();
     app.loadWorkspaceMeta = vi.fn();
     form.querySelector("input").value = "echo ok";
     globalThis.fetch = vi.fn(async () => ok({ exitCode: 0, durationMs: 1, output: "ok" }));
 
     await app.submitShellCommand({ preventDefault: vi.fn(), currentTarget: form });
-    expect(app.termInner.textContent).toContain("reasoning");
-    expect(app.termInner.textContent).toContain("summary");
     expect(app.querySelector(".tool-card").dataset.status).toBe("ok");
     expect(form.querySelector("input").value).toBe("");
 

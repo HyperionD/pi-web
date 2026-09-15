@@ -121,6 +121,16 @@ export function reduceSessionEvent(state: TranscriptState, event: DurableSession
 function applyEvent(state: TranscriptState, event: DurableSessionEvent): TranscriptState {
   const payload = (event.payload || {}) as Record<string, any>;
   switch (event.type) {
+    case "transcript.item.created":
+      return upsertItem(state, {
+        id: event.entityId as string,
+        ordinal: state.itemOrder.length + 1,
+        kind: payload.kind || "annotation",
+        origin: "legacy",
+        text: payload.text || String(payload.value ?? ""),
+        bodyPreview: payload.body || "",
+        attachments: payload.attachments || [],
+      } as TranscriptItem);
     case "user.message.created":
       return upsertItem(state, {
         id: `user:${event.sourceId || event.seq}`,
@@ -188,6 +198,8 @@ function applyEvent(state: TranscriptState, event: DurableSessionEvent): Transcr
     }
     case "tool.finished": {
       const item = toolItemFor(state, event);
+      if (payload.tool && item.tool === "tool") item.tool = payload.tool;
+      if (payload.args && !item.args) item.args = payload.args;
       if (item.bodyPreview !== payload.body && payload.body !== undefined) item.bodyPreview = payload.body || "";
       item.status = payload.status || "ok";
       item.resultMeta = payload.resultMeta;
