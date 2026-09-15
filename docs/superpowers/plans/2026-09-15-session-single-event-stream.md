@@ -222,6 +222,10 @@ Commit: `feat: add session metadata and control events`
 - Modify: `internal/piweb/session_durable_runner.go`
 - Modify: `internal/piweb/compaction.go`
 - Modify: `internal/piweb/server.go`
+- Modify: `internal/piweb/server_workspace_handlers.go`
+- Modify: `internal/piweb/workspace_access.go`
+- Modify: `internal/piweb/server_session_status_handlers.go`
+- Modify: `internal/piweb/account_sessions.go`
 - Create: `internal/piweb/session_command_handlers_test.go`
 - Modify: `internal/piweb/server_durable_prompt_test.go`
 - Modify: `internal/piweb/compaction_test.go`
@@ -344,7 +348,6 @@ Commit: `refactor: derive legacy session reads from durable events`
 - Modify: `src/pi-app/sessions/session-stream-client.ts`
 - Modify: `src/pi-app/index.ts`
 - Modify: `src/pi-app/sessions/transcript-reducer.ts`
-- Delete: `src/pi-app/sessions/legacy-session-event-adapter.ts`
 - Modify: `src/pi-app/workspace/workspace-bootstrap-coverage.test.ts`
 - Modify: `src/pi-app/sessions/session-stream-client.test.ts`
 - Modify: `src/pi-app/sessions/transcript-reducer.test.ts`
