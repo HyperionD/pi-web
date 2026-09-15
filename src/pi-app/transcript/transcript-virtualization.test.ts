@@ -67,6 +67,24 @@ describe("pi-app transcript virtualization", () => {
     expect(renderedMessages.at(-1).textContent).toContain("new tail message");
   });
 
+  it("recreates a tool card from the latest message after its node is discarded", async () => {
+    const app = await connectPiApp();
+    app.renderMessages([{ id: "call-1", kind: "tool", tool: "bash", status: "running", body: "partial" }]);
+
+    expect(app.transcriptItems[0].nodes).toBeUndefined();
+    app.transcriptItems[0].message = {
+      id: "call-1", kind: "tool", tool: "bash", status: "err", body: "final output",
+    };
+    app.destroyTranscriptVirtualScroller();
+    app.termInner.replaceChildren();
+    app.renderTranscriptWindow({ stickToBottom: true });
+
+    const card = app.querySelector(".tool-card");
+    expect(card?.dataset.status).toBe("err");
+    expect(card?.querySelector(".tc-body")?.textContent).toContain("final output");
+    expect(app.querySelectorAll(".tool-card")).toHaveLength(1);
+  });
+
   it("renders only the latest 4000 characters for long tool output", async () => {
     const app = await connectPiApp();
     const largeBody = `old-start\n${"x".repeat(20000)}\ntail-marker`;

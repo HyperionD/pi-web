@@ -181,7 +181,7 @@ describe("pi-app transcript window", () => {
     expect(scrollTop).toBe(1200);
   });
 
-  it("registers server-rendered tool cards by call id", async () => {
+  it("adopts server-rendered tool cards as state messages", async () => {
     const app = await connectPiApp();
     const card = document.createElement("div");
     card.className = "tool-card";
@@ -191,7 +191,10 @@ describe("pi-app transcript window", () => {
 
     app.adoptRenderedTranscript();
 
-    expect(app.latestToolCards["call-1"]).toBe(card);
+    expect(app.transcriptItems[0].message).toMatchObject({
+      id: "call-1", key: "call-1", kind: "tool", tool: "bash",
+    });
+    expect(app.latestToolCards).toBeUndefined();
   });
 
   it("clears streaming tail and cancels pending render on transcript reset", async () => {
@@ -346,16 +349,23 @@ describe("pi-app transcript window", () => {
 
     app.transcriptItems = null;
     app.measureRenderedTranscriptItems();
-    app.transcriptItems = [undefined, { nodes: [document.createElement("div")], height: 0 }];
+    app.transcriptItems = [undefined, { id: "empty", message: { kind: "pi", text: "not materialized" }, height: 0 }];
     app.transcriptVisibleStart = 0;
     app.transcriptVisibleEnd = 2;
     app.measureRenderedTranscriptItems();
 
     const loading = document.createElement("div");
     const replacement = document.createElement("div");
-    app.transcriptItems = [{ message: { kind: "pi", text: "not materialized" } }, { nodes: [loading] }];
+    const wrapper = document.createElement("div");
+    wrapper.className = "transcript-item";
+    wrapper.dataset.transcriptItem = "loading";
+    wrapper.append(loading);
+    app.termInner.append(wrapper);
+    app.transcriptItems = [{ id: "loading", message: { kind: "pi", text: "not materialized" }, height: 0 }];
     expect(() => app.removeTranscriptNode(loading)).not.toThrow();
-    app.transcriptItems = [{ message: { kind: "pi", text: "not materialized" } }, { nodes: [loading] }];
+    app.termInner.append(wrapper);
+    wrapper.append(loading);
+    app.transcriptItems = [{ id: "loading", message: { kind: "pi", text: "not materialized" }, height: 0 }];
     expect(app.replaceTranscriptNode(loading, replacement)).toBe(true);
     expect(app.transcriptItemHeight(9)).toBe(80);
   });

@@ -140,21 +140,11 @@ export const transcriptWindowMethods = {
     const existingNodes = [...(this.termInner?.children || [])].filter(
       (node) => !node.classList.contains("transcript-spacer"),
     );
-    if (!existingNodes.length) return;
-    this.registerRenderedToolCards(existingNodes);
-    this.transcriptItems = existingNodes.map((node) => this.createTranscriptItem(undefined, { nodes: [node] }));
-
+    const messages = existingNodes.map((node) => this.transcriptMessageFromNode(node)).filter(Boolean);
+    if (!messages.length) return;
+    this.termInner.replaceChildren();
+    this.transcriptItems = messages.map((message) => this.createTranscriptItem(message));
     this.renderTranscriptWindow({ stickToBottom: true });
-  },
-
-  registerRenderedToolCards(nodes) {
-    for (const node of nodes) {
-      if (!node.matches?.(".tool-card")) continue;
-      const tool = node.dataset.tool;
-      const id = node.dataset.toolCallId;
-      this.latestToolCards = { ...(this.latestToolCards || {}), [tool]: node };
-      if (id) this.latestToolCards[id] = node;
-    }
   },
 
   clearStreamingTail() {
@@ -198,20 +188,43 @@ export const transcriptWindowMethods = {
   },
 
   createTranscriptItem(message, options: any = {}) {
+    const key = options.key || message?.key || message?.id || `local:${this.transcriptNextItemId++}`;
     return {
-      id: this.transcriptNextItemId++,
+      id: key,
+      key,
       message,
-      nodes: options.nodes,
-      height: measuredHeight(options.nodes || []) || DEFAULT_TRANSCRIPT_ITEM_HEIGHT,
+      height: options.height || DEFAULT_TRANSCRIPT_ITEM_HEIGHT,
     };
   },
 
+  transcriptMessageFromNode(node) {
+    if (!node) return undefined;
+    const isTool = node.matches?.(".tool-card");
+    const body = node.querySelector?.(isTool ? ".tc-body" : ".body");
+    const kind = isTool ? "tool" : node.dataset.kind || "pi";
+    const key = node.dataset.toolCallId || node.dataset.rawText || `legacy:${this.transcriptNextItemId++}`;
+    const message = {
+      id: isTool ? node.dataset.toolCallId || key : undefined,
+      key,
+      kind,
+      text: node.dataset.rawText || (isTool ? "" : body?.textContent || ""),
+    };
+    if (isTool) {
+      message.tool = node.dataset.tool || "tool";
+      message.args = node.querySelector?.(".tc-args")?.textContent || "";
+      message.body = body?.textContent || "";
+      message.status = node.dataset.status || "";
+    }
+    return message;
+  },
+
   appendTranscriptNode(node, { stickToBottom = true } = {}) {
-    const nodes = this.transcriptElementNodes(node);
-    if (!nodes.length) return;
+    const element = this.transcriptElementNodes(node)[0];
+    const message = this.transcriptMessageFromNode(element);
+    if (!element || !message) return;
     this.transcriptItems = [
       ...(this.transcriptItems || []),
-      this.createTranscriptItem(undefined, { nodes }),
+      this.createTranscriptItem(message, { height: measuredHeight([element]) || DEFAULT_TRANSCRIPT_ITEM_HEIGHT }),
     ];
     if (!this.deferTranscriptRender) this.renderTranscriptWindow({ stickToBottom });
   },
@@ -234,19 +247,21 @@ export const transcriptWindowMethods = {
 
   removeTranscriptNode(node) {
     if (!node || !this.transcriptItems?.length) return;
-    this.transcriptItems = this.transcriptItems.filter((item) => !item?.nodes?.includes(node));
+    const wrapper = node.closest?.(".transcript-item");
+    const key = wrapper?.dataset?.transcriptItem;
+    if (key) this.transcriptItems = this.transcriptItems.filter((item) => String(item.id) !== key);
     node.remove?.();
     if (!this.deferTranscriptRender) this.renderTranscriptWindow({ stickToBottom: false });
   },
 
   replaceTranscriptNode(oldNode, newNode) {
-    const nodes = this.transcriptElementNodes(newNode);
-    const item = this.transcriptItems?.find((candidate) => candidate?.nodes?.includes(oldNode));
-    if (!item || !nodes.length) return false;
-    item.nodes = nodes;
-    item.message = undefined;
-    item.height = measuredHeight(nodes) || DEFAULT_TRANSCRIPT_ITEM_HEIGHT;
-    oldNode.replaceWith?.(...nodes);
+    const wrapper = oldNode?.closest?.(".transcript-item");
+    const key = wrapper?.dataset?.transcriptItem;
+    const item = this.transcriptItems?.find((candidate) => String(candidate?.id) === key);
+    const message = this.transcriptMessageFromNode(this.transcriptElementNodes(newNode)[0]);
+    if (!item || !message) return false;
+    item.message = message;
+    item.height = measuredHeight([wrapper]) || item.height || DEFAULT_TRANSCRIPT_ITEM_HEIGHT;
     this.renderTranscriptWindow({ stickToBottom: true });
     return true;
   },
@@ -302,7 +317,7 @@ export const transcriptWindowMethods = {
     const itemId = itemElement?.dataset?.transcriptItem;
     const item = itemId
       ? this.transcriptItems?.find((candidate) => String(candidate?.id) === itemId)
-      : this.transcriptItems?.find((candidate) => candidate?.nodes?.some((root) => root === node || root.contains?.(node)));
+      : undefined;
     this.notifyTranscriptItemHeightDidChange(item, itemElement);
   },
 
@@ -354,9 +369,8 @@ export const transcriptWindowMethods = {
 
   transcriptItemNodes(index) {
     const item = this.transcriptItems[index];
-    if (!item) return [];
-    if (!item.nodes && item.message) item.nodes = this.transcriptElementNodes(this.messageNode(item.message));
-    return item.nodes || [];
+    if (!item?.message) return [];
+    return this.transcriptElementNodes(this.messageNode(item.message));
   },
 
   transcriptItemHeight(index) {

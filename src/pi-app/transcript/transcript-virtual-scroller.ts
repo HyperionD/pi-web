@@ -14,13 +14,12 @@ function transcriptRangeHeight(items, start, end) {
 }
 
 function transcriptItemNodes(owner, item) {
-  if (!item) return [];
-  if (!item.nodes && item.message) item.nodes = owner.transcriptElementNodes(owner.messageNode(item.message));
-  return item.nodes || [];
+  if (!item?.message) return [];
+  return owner.transcriptElementNodes(owner.messageNode(item.message));
 }
 
 function transcriptItemId(item) {
-  return item.id;
+  return item.key || item.id;
 }
 
 function initialTranscriptState(items) {

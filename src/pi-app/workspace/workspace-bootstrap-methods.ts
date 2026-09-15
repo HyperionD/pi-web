@@ -503,13 +503,9 @@ export const workspaceBootstrapMethods = {
       if (!item || JSON.stringify(item.message) === JSON.stringify(message)) continue;
       item.message = message;
       const wrapper = this.termInner?.querySelector(`[data-transcript-item='${item.id}']`);
-      if (!wrapper) {
-        item.nodes = undefined;
-        continue;
-      }
+      if (!wrapper) continue;
       if (!this.patchDurableTranscriptNode(wrapper, message)) {
         const nodes = this.transcriptElementNodes(this.messageNode(message));
-        item.nodes = nodes;
         wrapper.replaceChildren(...nodes);
       }
       this.notifyTranscriptItemHeightDidChange?.(item, wrapper);
@@ -532,7 +528,6 @@ export const workspaceBootstrapMethods = {
         body.innerHTML = nextBody.innerHTML;
         if (message.body) this.storeDurableToolBody?.(body, message.body);
       }
-      this.latestToolCards = { ...(this.latestToolCards || {}), [message.id]: current };
       return true;
     }
     const body = current.querySelector(".body");
