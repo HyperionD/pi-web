@@ -1,12 +1,19 @@
 package piweb
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
+	"os"
+	"path/filepath"
+	"strconv"
+	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -35,9 +42,20 @@ func newDurableIntegrationServer(t *testing.T) (*httptest.Server, SessionEventSt
 	t.Helper()
 	const sessionID = "8e7c-44ff"
 	store := NewMockStore()
-	store.sessionFiles[sessionID] = "/tmp/8e7c-44ff.jsonl"
-	store.sessionCWD[sessionID] = "/tmp"
-	events := appendTestStore(t)
+	sessionPath := filepath.Join(t.TempDir(), "session.jsonl")
+	if err := os.WriteFile(sessionPath, []byte(`{"type":"session","id":"8e7c-44ff"}
+`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	store.sessionFiles[sessionID] = sessionPath
+	store.sessionCWD[sessionID] = t.TempDir()
+	hub := NewSessionWakeHub()
+	events, err := OpenSQLiteSessionEventStore(filepath.Join(t.TempDir(), "events.db"), hub)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = events.Close(t.Context()) })
+	seedEventStream(t, events, sessionID)
 	runtime := newFakePiRuntime()
 	runtime.sendHook = func() {
 		runtime.mu.Lock()
@@ -54,7 +72,7 @@ func newDurableIntegrationServer(t *testing.T) (*httptest.Server, SessionEventSt
 		return runtime, nil
 	})
 	server := NewServerWithEventsAndRuntimeManager(
-		Config{EnablePiExecution: true}, store, NewBroker(), manager, events, NewSessionWakeHub(),
+		Config{EnablePiExecution: true}, store, NewBroker(), manager, events, hub,
 	)
 	httpServer := httptest.NewServer(server.Handler())
 	t.Cleanup(func() {
@@ -66,7 +84,7 @@ func newDurableIntegrationServer(t *testing.T) (*httptest.Server, SessionEventSt
 
 func postPromptAndDecodeReceipt(t *testing.T, server *httptest.Server, sessionID, requestID, text string) RunReceipt {
 	t.Helper()
-	response := postJSON(t, server, "/api/sessions/"+sessionID+"/prompt", map[string]any{
+	response := postJSON(t, server, "/api/sessions/"+url.PathEscape(sessionID)+"/prompt", map[string]any{
 		"clientRequestId": requestID,
 		"text":            text,
 	})
@@ -102,7 +120,7 @@ func postJSON(t *testing.T, server *httptest.Server, path string, body any) *htt
 
 func getState(t *testing.T, server *httptest.Server, sessionID string) SessionSnapshot {
 	t.Helper()
-	response, err := http.Get(server.URL + "/api/sessions/" + sessionID + "/state")
+	response, err := http.Get(server.URL + "/api/sessions/" + url.PathEscape(sessionID) + "/state")
 	if err != nil {
 		t.Fatalf("GET state: %v", err)
 	}
@@ -119,7 +137,7 @@ func getState(t *testing.T, server *httptest.Server, sessionID string) SessionSn
 
 func getSession(t *testing.T, server *httptest.Server, sessionID string) SessionResponse {
 	t.Helper()
-	response, err := http.Get(server.URL + "/api/sessions/" + sessionID)
+	response, err := http.Get(server.URL + "/api/sessions/" + url.PathEscape(sessionID))
 	if err != nil {
 		t.Fatalf("GET session: %v", err)
 	}
@@ -147,14 +165,62 @@ func mustReadEvents(t *testing.T, events SessionEventStore, sessionID string) []
 			t.Fatal("event stream requires reset while reading test fixture")
 		}
 		rows = append(rows, batch.Events...)
-		if len(batch.Events) == 0 {
+		if len(batch.Events) == 0 || len(batch.Events) < 128 {
 			return rows
 		}
 		after = batch.Events[len(batch.Events)-1].Seq
-		if len(batch.Events) < 128 {
-			return rows
-		}
 	}
+}
+
+func openSessionEventStream(t *testing.T, server *httptest.Server, sessionID string) (<-chan sessionEventEnvelope, func()) {
+	t.Helper()
+	request, err := http.NewRequest(http.MethodGet, server.URL+"/api/sessions/"+url.PathEscape(sessionID)+"/events-v2?after=0", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	response, err := http.DefaultClient.Do(request)
+	if err != nil {
+		t.Fatalf("connect events-v2: %v", err)
+	}
+	if response.StatusCode != http.StatusOK {
+		response.Body.Close()
+		t.Fatalf("connect events-v2: status=%d", response.StatusCode)
+	}
+	stream := make(chan sessionEventEnvelope, 32)
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		defer close(stream)
+		scanner := bufio.NewScanner(response.Body)
+		scanner.Buffer(make([]byte, 1024), 1024*1024)
+		var eventName, data string
+		for scanner.Scan() {
+			line := scanner.Text()
+			switch {
+			case line == "":
+				if eventName == sseEventName && data != "" {
+					var event sessionEventEnvelope
+					if json.Unmarshal([]byte(data), &event) == nil {
+						stream <- event
+					}
+				}
+				eventName, data = "", ""
+			case strings.HasPrefix(line, "event:"):
+				eventName = strings.TrimSpace(strings.TrimPrefix(line, "event:"))
+			case strings.HasPrefix(line, "data:"):
+				if data != "" {
+					data += "\n"
+				}
+				data += strings.TrimSpace(strings.TrimPrefix(line, "data:"))
+			}
+		}
+	}()
+	var closeOnce sync.Once
+	closeStream := func() {
+		closeOnce.Do(func() { _ = response.Body.Close() })
+		<-done
+	}
+	return stream, closeStream
 }
 
 func eventually(t *testing.T, timeout time.Duration, condition func() bool) {
@@ -176,45 +242,85 @@ func requireTypes(t *testing.T, events []StoredSessionEvent, types ...string) {
 		for _, event := range events {
 			actual = append(actual, event.Type)
 		}
-		t.Fatalf("event types = %v, want ordered subsequence %v", actual, types)
+		t.Fatalf("event types = %v, want complete ordered sequence %v", actual, types)
+	}
+	for index, event := range events {
+		wantSeq := int64(index + 1)
+		if event.Seq != wantSeq {
+			t.Fatalf("event seq at index %d = %d, want unique continuous seq %d", index, event.Seq, wantSeq)
+		}
 	}
 }
 
 func hasEventTypes(events []StoredSessionEvent, types ...string) bool {
-	if len(types) == 0 {
-		return true
+	if len(events) != len(types) {
+		return false
 	}
-	index := 0
-	for _, event := range events {
+	for index, event := range events {
 		if event.Type != types[index] {
-			continue
-		}
-		index++
-		if index == len(types) {
-			return true
+			return false
 		}
 	}
-	return false
+	return true
 }
 
 func TestSessionDomainPromptProducesOneDurableSequence(t *testing.T) {
 	server, events, sessionID := newDurableIntegrationServer(t)
+	stream, closeStream := openSessionEventStream(t, server, sessionID)
+	defer closeStream()
 	receipt := postPromptAndDecodeReceipt(t, server, sessionID, "req-1", "hello")
 
+	var streamed []sessionEventEnvelope
 	eventually(t, 2*time.Second, func() bool {
-		snapshot, err := events.Snapshot(context.Background(), sessionID, SessionPageRequest{Limit: 50})
-		return err == nil && snapshot.Status == SessionStatusIdle
+		for {
+			select {
+			case event, ok := <-stream:
+				if !ok {
+					return false
+				}
+				streamed = append(streamed, event)
+				if event.Type == EventRunFinished {
+					return true
+				}
+			default:
+				return false
+			}
+		}
 	})
 
 	rows := mustReadEvents(t, events, sessionID)
-	requireTypes(t, rows,
+	expectedTypes := []string{
 		EventUserMessageCreated,
 		EventRunStarted,
 		EventAssistantSegmentStarted,
+		EventAssistantSegmentDelta,
 		EventAssistantSegmentCommit,
 		EventRunFinished,
-	)
+	}
+	requireTypes(t, rows, expectedTypes...)
+	if len(streamed) != len(rows) {
+		t.Fatalf("SSE event count = %d, durable event count = %d", len(streamed), len(rows))
+	}
+	for index, event := range streamed {
+		if event.Seq != strconv.FormatInt(rows[index].Seq, 10) || event.Type != rows[index].Type {
+			t.Fatalf("SSE event[%d] = (%s, %s), durable = (%d, %s)", index, event.Seq, event.Type, rows[index].Seq, rows[index].Type)
+		}
+	}
+
+	snapshot := getState(t, server, sessionID)
+	if snapshot.Status != SessionStatusIdle || snapshot.Seq != strconv.FormatInt(rows[len(rows)-1].Seq, 10) {
+		t.Fatalf("projection status/seq = (%q, %q), want (idle, %d)", snapshot.Status, snapshot.Seq, rows[len(rows)-1].Seq)
+	}
+	if len(snapshot.Items) != 2 {
+		t.Fatalf("projection items = %d, want user and assistant", len(snapshot.Items))
+	}
+	if user := snapshot.Items[0]; user.Kind != "user" || user.Text != "hello" || user.Status != "" {
+		t.Fatalf("projected user item = %#v", user)
+	}
+	if assistant := snapshot.Items[1]; assistant.Kind != "pi" || assistant.Text != "hello" || assistant.Status != ItemStatusCommitted {
+		t.Fatalf("projected assistant item = %#v", assistant)
+	}
 	if receipt.AcceptedSeq != rows[1].Seq {
-		t.Fatalf("accepted seq = %d, run.started seq = %d", receipt.AcceptedSeq, rows[1].Seq)
+		t.Fatalf("accepted seq = %d, run.started seq = %d (API receipt must expose acceptedSeq)", receipt.AcceptedSeq, rows[1].Seq)
 	}
 }

@@ -105,3 +105,43 @@ error: script "check:session-stream" exited with code 1
 ## 提交 hash
 
 `e6553ae5dde79e5ee97e6b7ef7d78972aff18768`
+
+---
+
+# Task 1 Fix Round 1 报告
+
+## 修复内容
+
+1. `src/pi-app/sessions/session-domain-events.test.ts` 改为通过 `dispatchCommandReceipt` 调用真实 `reduceSessionEvent` seam，使用 command receipt payload 验证 receipt dispatch 不改变 state；随后仍通过真实 `user.message.created` reducer 路径断言 transcript 产生变化，并修正 `viewGeneration` fixture 的 TypeScript 类型。
+2. `internal/piweb/session_domain_integration_test.go` 在 prompt 前建立真实 `/events-v2` SSE 连接并消费 JSON event frames，断言 SSE 与 durable rows 的完整顺序、seq 对齐和连续性；随后通过 `/state` 断言 projection 的 status、seq、user/assistant items 及 committed 状态。`acceptedSeq` 断言保留并显式标注为 Task 3 API receipt 缺口。
+3. `requireTypes`/`hasEventTypes` 改为 exact-length、exact-order 类型校验，另校验 seq 必须从 1 开始唯一连续，额外旧事件或 seq gap/duplicate 都会失败。SSE 与事件 store 共用同一个 wake hub，避免 fixture 因通知隔离而漏收 live events；session JSONL fixture 使用 `t.TempDir()` 隔离。
+4. `scripts/check-session-single-stream.test.mjs` 新增 Node automated tests，覆盖违规代码、合法 durable code、`--compat` 仅 adapter 放行、adapter 内 Broker 写入仍拒绝，以及 `static/` 排除。脚本导出可测试扫描函数；`--compat` 不再整体跳过 adapter，而只放行 adapter 内 legacy 规则，Broker 写入仍扫描；旧 events route 改用不会误判 `events-v2` 的边界匹配。
+5. `package.json` 增加 `test:session-stream-check`，便于自动运行静态检查测试。
+
+未修改生产实现，未触碰 `static/`。
+
+## 验证结果
+
+### 通过
+
+- `bun run typecheck`：退出码 0。
+- `bun run lint`：退出码 0。
+- `bun run test`：50 files / 533 tests passed。
+- `bun run test -- src/pi-app/sessions/session-domain-events.test.ts`：1 file / 1 test passed。
+- `bun run test:session-stream-check`：4 tests passed。
+- `go test ./internal/piweb -run 'TestRepositoryContract|TestSessionEventsV2' -count=1`：通过。
+- `git diff --check`：通过。
+
+### 按要求保留的红测 / 基线缺口
+
+- `go test ./internal/piweb -run TestSessionDomainPromptProducesOneDurableSequence -count=1`：失败于 `accepted seq = 0, run.started seq = 2 (API receipt must expose acceptedSeq)`；失败前已消费真实 SSE，并完成 durable event exact sequence、SSE 对齐、projection items/status 断言。该失败是当前 prompt HTTP response 未返回 `acceptedSeq`，应由后续 Task 3 修复，未放宽断言。
+- `go test -race ./internal/piweb -run 'TestSessionDomainPromptProducesOneDurableSequence|TestRepositoryContract|TestSessionEventsV2' -count=1`：同一 `acceptedSeq` 红测，未见额外 race failure。
+- `go test ./internal/piweb -count=1`：仅报告上述 Task 1 acceptedSeq 红测，其他 package tests 未报告失败。
+- `bun run test:coverage`：50 files / 533 tests passed，但命令按现有全局 100% coverage threshold 非零退出；当前全仓 coverage 为 statements 83.67%、branches 86.11%、functions 86.38%、lines 86%。这不是本轮改动引入的失败，未修改 threshold 或补无关覆盖。
+- `bun run test:coverage -- src/pi-app/sessions/session-domain-events.test.ts`：目标测试通过，但同样因全局 threshold 非零；本轮使用普通 targeted test 与全套 `bun run test` 验证功能。
+- `bun run check:session-stream -- --compat`：按设计非零；现有 `internal/piweb` 仍含 legacy Broker/append/subscription/route 写入，现有 `src/pi-app` 仍有 legacy adapter 使用。这些是后续迁移基线缺口，未通过放宽静态检查掩盖。
+- `bun run check:session-stream`：同样按设计非零，且不会因 `--compat` 隐藏非 adapter 违规。
+
+## Commit
+
+已提交 fix commit；commit message 使用 Conventional Commits，并包含 `Co-authored-by: JuunAI <juunai.ai@gmail.com>`。
