@@ -11,6 +11,7 @@ import { clearStoredActiveSession, readStoredActiveSession, storeActiveSession }
 import { normalizeEventCursor } from "../sessions/session-recovery";
 import { createSessionStreamClient } from "../sessions/session-stream-client";
 import { createTranscriptRenderScheduler } from "../transcript/transcript-render-scheduler";
+import { selectTranscriptView } from "../transcript/transcript-view-model";
 import { emptyTranscriptState, type TranscriptState } from "../sessions/transcript-state";
 import { installSessionSnapshot, mergeHistoryPage, reduceSessionEvent } from "../sessions/transcript-reducer";
 import { isForbiddenWorkspaceError, requestErrorMessage } from "./workspace-methods";
@@ -416,24 +417,6 @@ export const workspaceBootstrapMethods = {
     this.connectDurableEvents(session.id, this.transcriptState.appliedSeq);
   },
 
-  durableMessage(item): any {
-    if (item.kind === "user") return { kind: "user", text: item.text, attachments: item.attachments };
-    if (item.kind === "pi" || item.kind === "think") return { kind: item.kind, text: item.text };
-    if (item.kind === "tool") {
-      return {
-        kind: "tool",
-        id: item.toolCallId || item.id,
-        tool: item.tool,
-        args: item.args,
-        status: item.status,
-        body: item.bodyPreview,
-        resultMeta: item.resultMeta,
-        durationMs: item.durationMs,
-      };
-    }
-    return { kind: item.kind || "pi", text: item.text };
-  },
-
   stopDurableStream() {
     this.durableStream?.stop?.();
     this.durableStream = undefined;
@@ -486,8 +469,9 @@ export const workspaceBootstrapMethods = {
   renderDurableTranscript({ syncMode = true } = {}) {
     const state = this.transcriptState;
     if (!state) return;
-    const ids = state.itemOrder;
-    const messages = ids.map((id) => this.durableMessage(state.itemsById.get(id)));
+    const view = selectTranscriptView(state);
+    const ids = view.items.map((item) => item.key);
+    const messages = view.items;
     const currentIds = this.durableTranscriptIds;
     const sameIds = Array.isArray(currentIds)
       && currentIds.length === ids.length
@@ -679,7 +663,7 @@ export const workspaceBootstrapMethods = {
         this.transcriptState = mergeHistoryPage(this.transcriptState, loaded);
         this.sessionHistoryCursor = loaded.cursor || "";
         this.sessionHistoryHasMore = !!loaded.hasMore;
-        this.renderMessages(this.transcriptState.itemOrder.map((id) => this.durableMessage(this.transcriptState.itemsById.get(id))));
+        this.renderMessages(selectTranscriptView(this.transcriptState).items);
         return;
       }
       const loaded = await getSession(sessionId, { limit: SESSION_MESSAGE_PAGE_SIZE, before: cursor });
