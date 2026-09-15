@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"strings"
 )
 
 func (s *Server) handleSessionContextUsage(w http.ResponseWriter, r *http.Request) {
@@ -57,6 +58,19 @@ func (s *Server) handleSessionSetModel(w http.ResponseWriter, r *http.Request) {
 	settings := ModelStartupSettings{Provider: req.Provider, Model: req.Model, ThinkingLevel: req.ThinkingLevel}
 	if err := s.runtimeManager.ConfigureModel(r.Context(), sessionID, settings); err != nil {
 		writeError(w, http.StatusBadGateway, err)
+		return
+	}
+	if s.commands != nil {
+		requestID := strings.TrimSpace(r.Header.Get("X-Client-Request-ID"))
+		if requestID == "" {
+			requestID = createSessionID()
+		}
+		event, err := s.commands.AppendControlEvent(r.Context(), sessionID, requestID, EventSessionModelChanged, settings)
+		if err != nil {
+			writeSessionEventError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusAccepted, map[string]any{"accepted": true, "acceptedSeq": event.Seq})
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})

@@ -290,6 +290,7 @@ func TestSessionDomainPromptProducesOneDurableSequence(t *testing.T) {
 
 	rows := mustReadEvents(t, events, sessionID)
 	expectedTypes := []string{
+		EventSessionRenamed,
 		EventUserMessageCreated,
 		EventRunStarted,
 		EventAssistantSegmentStarted,
@@ -320,7 +321,7 @@ func TestSessionDomainPromptProducesOneDurableSequence(t *testing.T) {
 	if assistant := snapshot.Items[1]; assistant.Kind != "pi" || assistant.Text != "hello" || assistant.Status != ItemStatusCommitted {
 		t.Fatalf("projected assistant item = %#v", assistant)
 	}
-	if receipt.AcceptedSeq != rows[1].Seq {
-		t.Fatalf("accepted seq = %d, run.started seq = %d (API receipt must expose acceptedSeq)", receipt.AcceptedSeq, rows[1].Seq)
+	if receipt.AcceptedSeq != rows[2].Seq {
+		t.Fatalf("accepted seq = %d, run.started seq = %d (API receipt must expose acceptedSeq)", receipt.AcceptedSeq, rows[2].Seq)
 	}
 }

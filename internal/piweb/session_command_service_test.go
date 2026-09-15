@@ -34,6 +34,18 @@ func newCommandServiceForTest(store SessionEventStore, starter RuntimePromptStar
 	return service
 }
 
+func TestSessionCommandServiceAppendsControlEvent(t *testing.T) {
+	store := appendTestStore(t)
+	service := NewSessionCommandService(store, nil)
+	event, err := service.AppendControlEvent(t.Context(), "s1", "rename-1", EventSessionRenamed, map[string]string{"title": "New title"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if event.Type != EventSessionRenamed || event.Seq != 1 {
+		t.Fatalf("event = %+v", event)
+	}
+}
+
 func TestStartPromptDetachesRuntimeFromRequestCancellation(t *testing.T) {
 	store := appendTestStore(t)
 	requestContext, cancel := context.WithCancel(context.Background())

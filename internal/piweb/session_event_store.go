@@ -9,6 +9,10 @@ import (
 
 var ErrEventStoreNotReady = errors.New("session event store operation is not ready")
 
+type SessionControlEventStore interface {
+	AppendControl(context.Context, string, string, string, []byte) (StoredSessionEvent, error)
+}
+
 type SessionEventStore interface {
 	StartRun(context.Context, StartRunCommand) (RunReceipt, error)
 	Append(context.Context, string, SessionEventDraft) (StoredSessionEvent, error)

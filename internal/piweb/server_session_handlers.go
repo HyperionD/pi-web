@@ -57,12 +57,29 @@ func (s *Server) sessionStatus(sessionID string) string {
 	return "idle"
 }
 func (s *Server) renameSession(w http.ResponseWriter, r *http.Request) {
-	var req RenameSessionRequest
+	var req struct {
+		RenameSessionRequest
+		ClientRequestID string `json:"clientRequestId"`
+	}
 	if err := readJSON(r, &req); err != nil {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
-	session, err := s.store.RenameSession(r.PathValue("sessionID"), req.Title)
+	sessionID := r.PathValue("sessionID")
+	if s.commands != nil {
+		requestID := strings.TrimSpace(req.ClientRequestID)
+		if requestID == "" {
+			requestID = createSessionID()
+		}
+		event, err := s.commands.AppendControlEvent(r.Context(), sessionID, requestID, EventSessionRenamed, map[string]string{"title": req.Title})
+		if err != nil {
+			writeSessionEventError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusAccepted, map[string]any{"accepted": true, "acceptedSeq": event.Seq})
+		return
+	}
+	session, err := s.store.RenameSession(sessionID, req.Title)
 	if err != nil {
 		writeStoreError(w, err)
 		return
@@ -75,6 +92,21 @@ func (s *Server) deleteSession(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		_ = s.runtimeManager.RollbackSessionCloseToken(sessionID, token)
 		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
+	if s.commands != nil {
+		requestID := strings.TrimSpace(r.Header.Get("X-Client-Request-ID"))
+		if requestID == "" {
+			requestID = createSessionID()
+		}
+		event, eventErr := s.commands.AppendControlEvent(r.Context(), sessionID, requestID, EventSessionDeleted, nil)
+		if eventErr != nil {
+			_ = s.runtimeManager.RollbackSessionCloseToken(sessionID, token)
+			writeSessionEventError(w, eventErr)
+			return
+		}
+		_ = s.runtimeManager.FinalizeSessionClose(sessionID, token)
+		writeJSON(w, http.StatusAccepted, map[string]any{"accepted": true, "deleted": true, "acceptedSeq": event.Seq})
 		return
 	}
 	if err := s.store.DeleteSession(sessionID); err != nil {
@@ -103,7 +135,18 @@ func (s *Server) prompt(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	displayText := promptDisplayText(req.Text, req.Attachments)
-	if session, changed, err := s.store.AutoNameSession(sessionID, displayText); err != nil {
+	clientRequestID := strings.TrimSpace(req.ClientRequestID)
+	if clientRequestID == "" {
+		clientRequestID = createSessionID()
+	}
+	if s.commands != nil {
+		if title := trimTitle(displayText); title != "" {
+			if _, err := s.commands.AppendControlEvent(r.Context(), sessionID, clientRequestID+":autoname", EventSessionRenamed, map[string]string{"title": title}); err != nil {
+				writeSessionEventError(w, err)
+				return
+			}
+		}
+	} else if session, changed, err := s.store.AutoNameSession(sessionID, displayText); err != nil {
 		writeStoreError(w, err)
 		return
 	} else if changed {
@@ -114,10 +157,6 @@ func (s *Server) prompt(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, err)
 			return
-		}
-		clientRequestID := strings.TrimSpace(req.ClientRequestID)
-		if clientRequestID == "" {
-			clientRequestID = createSessionID()
 		}
 		receipt, err := s.commands.StartPromptWith(r.Context(), StartPromptCommand{
 			SessionID: sessionID, ClientRequestID: clientRequestID, DisplayText: displayText,
@@ -176,13 +215,31 @@ func (s *Server) compactSession(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err)
 		return
 	}
-	result, err := s.runner.Compact(s.context(), s.broker, s.store, sessionID, startupSettings)
+	requestID := strings.TrimSpace(r.Header.Get("X-Client-Request-ID"))
+	if requestID == "" {
+		requestID = createSessionID()
+	}
+	var result CompactionResult
+	if s.events != nil {
+		controlEvents, ok := s.events.(SessionControlEventStore)
+		if !ok {
+			writeError(w, http.StatusServiceUnavailable, ErrEventStoreNotReady)
+			return
+		}
+		result, err = s.runner.CompactDurable(s.context(), controlEvents, s.store, sessionID, requestID, startupSettings)
+	} else {
+		result, err = s.runner.Compact(s.context(), s.broker, s.store, sessionID, startupSettings)
+	}
 	if err != nil {
 		if errors.Is(err, errSessionBusy) {
 			writeError(w, http.StatusConflict, err)
 			return
 		}
 		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
+	if s.events != nil {
+		writeJSON(w, http.StatusAccepted, map[string]any{"accepted": true, "compacted": true, "result": result})
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"compacted": true, "result": result})

@@ -37,6 +37,28 @@ func appendToolStartedDraft(runID string, ordinal int64, callID string) SessionE
 	}
 }
 
+func TestSQLiteSessionEventStoreAppendsControlEventsWithMonotonicSourceOrdinal(t *testing.T) {
+	store := appendTestStore(t)
+	first, err := store.AppendControl(t.Context(), "s1", "command:rename:1", EventSessionRenamed, []byte(`{"title":"first"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := store.AppendControl(t.Context(), "s1", "command:model:1", EventSessionModelChanged, []byte(`{"model":"gpt"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.SourceOrdinal == nil || second.SourceOrdinal == nil || *first.SourceOrdinal != 1 || *second.SourceOrdinal != 2 || second.Seq != first.Seq+1 {
+		t.Fatalf("first=%+v second=%+v", first, second)
+	}
+	duplicate, err := store.AppendControl(t.Context(), "s1", "command:model:1", EventSessionModelChanged, []byte(`{"model":"gpt"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if duplicate.Seq != second.Seq {
+		t.Fatalf("duplicate seq = %d, want %d", duplicate.Seq, second.Seq)
+	}
+}
+
 func TestAppendRetriesTransientSQLiteBusy(t *testing.T) {
 	store := appendTestStore(t)
 	receipt := appendTestRun(t, store, "req-busy")

@@ -152,10 +152,25 @@ func (s *Server) closeWorkspace(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"closed": true})
 }
 func (s *Server) createSession(w http.ResponseWriter, r *http.Request) {
-	session, err := s.workspaceAccess.CreateSession(requestActor(r), r.PathValue("workspaceID"))
+	workspaceID := r.PathValue("workspaceID")
+	session, err := s.workspaceAccess.CreateSession(requestActor(r), workspaceID)
 	if err != nil {
 		writeStoreError(w, err)
 		return
+	}
+	if s.commands != nil {
+		requestID := strings.TrimSpace(r.Header.Get("X-Client-Request-ID"))
+		if requestID == "" {
+			requestID = createSessionID()
+		}
+		if _, err := s.commands.AppendControlEvent(r.Context(), session.ID, requestID, EventSessionCreated, map[string]string{
+			"workspaceId": workspaceID,
+			"title":       session.Title,
+		}); err != nil {
+			_ = s.store.DeleteSession(session.ID)
+			writeSessionEventError(w, err)
+			return
+		}
 	}
 	writeJSON(w, http.StatusCreated, map[string]any{"session": session})
 }
