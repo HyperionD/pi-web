@@ -678,7 +678,11 @@ export const workspaceBootstrapMethods = {
         this.transcriptState = mergeHistoryPage(this.transcriptState, loaded);
         this.sessionHistoryCursor = loaded.cursor || "";
         this.sessionHistoryHasMore = !!loaded.hasMore;
-        this.renderMessages(selectTranscriptView(this.transcriptState).items);
+        const view = selectTranscriptView(this.transcriptState);
+        const existingIds = new Set((this.transcriptItems || []).map((item) => item.key));
+        const olderMessages = view.items.filter((item) => !existingIds.has(item.key));
+        this.prependLoadedMessages(olderMessages);
+        this.durableTranscriptIds = view.items.map((item) => item.key);
         return;
       }
       const loaded = await getSession(sessionId, { limit: SESSION_MESSAGE_PAGE_SIZE, before: cursor });

@@ -449,6 +449,55 @@ describe("durable session transport", () => {
       expect.anything(),
     );
     expect(app.transcriptState.itemOrder[0]).toBe("user:old");
+    expect(app.transcriptItems[0].message.text).toBe("older");
+  });
+
+  it("prepends older durable pages without resetting a scrolled-away transcript", async () => {
+    const app = await connectPiApp();
+    app.durableEvents = true;
+    app.connectEvents = vi.fn();
+    Object.defineProperty(app.term, "clientHeight", { configurable: true, value: 600 });
+    globalThis.fetch = vi.fn(async (url) => {
+      if (String(url).includes("before=cursor-1")) {
+        return { ok: true, status: 200, statusText: "OK", json: async () => ({
+          sessionId: "s1",
+          items: [{ itemId: "user:old", ordinal: 0, kind: "user", origin: "runtime", text: "older" }],
+          status: "running",
+          seq: "3",
+          cursor: "",
+          hasMore: false,
+          limit: 120,
+          projectionSchemaVersion: 1,
+          projectionGeneration: "1",
+        }) };
+      }
+      return { ok: true, status: 200, statusText: "OK", json: async () => ({
+        ...durableState(),
+        items: Array.from({ length: 40 }, (_, index) => ({
+          itemId: `pi:${index}`,
+          ordinal: index + 1,
+          kind: "pi",
+          origin: "runtime",
+          text: `message ${index}`,
+        })),
+        cursor: "cursor-1",
+        hasMore: true,
+      }) };
+    });
+    await app.loadSession("s1");
+    app.term.scrollTop = 0;
+    app.renderTranscriptWindow({ stickToBottom: false });
+    app.userScrolledAway = true;
+    app.transcriptFollowBottom = false;
+    const renderMessages = vi.spyOn(app, "renderMessages");
+
+    await app.loadOlderSessionMessages();
+
+    expect(renderMessages).not.toHaveBeenCalled();
+    expect(app.userScrolledAway).toBe(true);
+    expect(app.transcriptFollowBottom).toBe(false);
+    expect(app.transcriptState.itemOrder[0]).toBe("user:old");
+    expect(app.transcriptItems[0].message.text).toBe("older");
     expect(app.querySelector(".msg .body").textContent).toContain("older");
   });
 
