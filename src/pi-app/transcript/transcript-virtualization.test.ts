@@ -1,6 +1,8 @@
 // @ts-nocheck
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanupPiAppFixture, connectPiApp, installPiAppFixture } from "../test-helper";
+import { emptyTranscriptState } from "../sessions/transcript-state";
+import { installSessionSnapshot } from "../sessions/transcript-reducer";
 
 function installVirtualizedTranscriptFixture() {
   installPiAppFixture();
@@ -65,6 +67,41 @@ describe("pi-app transcript virtualization", () => {
     expect(app.transcriptItems).not.toBe(previousTranscriptItems);
     expect(app.transcriptItems).toHaveLength(251);
     expect(renderedMessages.at(-1).textContent).toContain("new tail message");
+  });
+
+  it("renders a durable item appended to a virtualized transcript", async () => {
+    const app = await connectPiApp();
+    app.durableEvents = true;
+    app.dataset.activeSessionId = "s1";
+    const snapshot = installSessionSnapshot(emptyTranscriptState("s1"), {
+      sessionId: "s1",
+      items: Array.from({ length: 250 }, (_, index) => ({
+        itemId: `pi:${index}`,
+        ordinal: index + 1,
+        kind: "pi",
+        origin: "runtime",
+        text: `message ${index}`,
+      })),
+      status: "idle",
+      seq: "3",
+      projectionGeneration: "1",
+    });
+    app.transcriptState = snapshot;
+    app.renderDurableTranscript();
+    const previousTranscriptItems = app.transcriptItems;
+
+    app.applyDurableEvent({
+      seq: "4",
+      sessionId: "s1",
+      type: "user.message.created",
+      sourceId: "command:test:user",
+      payload: { text: "new user message" },
+    });
+
+    await new Promise((resolve) => requestAnimationFrame(resolve));
+    expect(app.transcriptItems).not.toBe(previousTranscriptItems);
+    expect([...app.querySelectorAll(".term-inner .msg")].at(-1)?.textContent)
+      .toContain("new user message");
   });
 
   it("recreates a tool card from the latest message after its node is discarded", async () => {

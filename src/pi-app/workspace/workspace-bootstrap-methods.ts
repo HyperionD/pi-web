@@ -488,7 +488,7 @@ export const workspaceBootstrapMethods = {
     } else if (canAppend) {
       this.patchDurableTranscriptMessages(messages);
       const appendedItems = messages.slice(currentIds.length).map((message) => this.createTranscriptItem(message));
-      this.transcriptItems.push(...appendedItems);
+      this.transcriptItems = [...this.transcriptItems, ...appendedItems];
       if (!this.transcriptVirtualScrollerStarted) {
         this.termInner?.append(...appendedItems.map((item) => this.renderVirtualTranscriptItem(item)));
       }
