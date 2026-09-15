@@ -144,6 +144,23 @@ describe("context usage status", () => {
     expect(app.querySelector("[data-prompt-meta]").textContent).not.toContain("Ctx");
   });
 
+  it("derives context usage from durable transcript state", async () => {
+    const app = await connectPiApp();
+    app.apiConnected = true;
+    app.durableEvents = true;
+    app.dataset.activeSessionId = "s1";
+    app.transcriptState = { contextUsage: { tokens: 60000, contextWindow: 200000, percent: 30 } };
+    globalThis.fetch = vi.fn(async () => ({ ok: true, json: async () => ({}) }));
+
+    await app.loadContextUsage();
+
+    expect(globalThis.fetch).not.toHaveBeenCalledWith(
+      expect.stringContaining("/context-usage"),
+      expect.anything(),
+    );
+    expect(app.querySelector("[data-prompt-meta]").textContent).toContain("Ctx 60K / 200K (30%)");
+  });
+
   it("loads active-session context usage with runtime status polling", async () => {
     const app = await connectPiApp();
     app.apiConnected = true;

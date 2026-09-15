@@ -58,6 +58,12 @@ export const runtimeStatusMethods = {
       if (isCurrent()) this.applyRuntimeStatus({ contextUsage: null });
       return;
     }
+    if (this.durableEvents) {
+      if (isCurrent() && this.dataset.activeSessionId === sessionId) {
+        this.applyRuntimeStatus({ contextUsage: this.transcriptState?.contextUsage || null });
+      }
+      return;
+    }
     try {
       const { contextUsage } = await getSessionContextUsage(sessionId);
       if (isCurrent() && this.dataset.activeSessionId === sessionId) {
