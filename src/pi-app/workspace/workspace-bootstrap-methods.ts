@@ -472,6 +472,7 @@ export const workspaceBootstrapMethods = {
     const state = this.transcriptState;
     if (!state) return;
     const view = selectTranscriptView(state);
+    if (view.items.some((item) => item.kind === "user")) this.removeLoadingMessage?.();
     const ids = view.items.map((item) => item.key);
     const messages = view.items;
     const currentIds = this.durableTranscriptIds;

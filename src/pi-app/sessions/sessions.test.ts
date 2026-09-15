@@ -184,13 +184,14 @@ describe("pi-app sessions", () => {
     await app.submitPrompt();
     expect(app.querySelector(".msg[data-kind='user']")).toBeNull();
     expect(app.querySelector(".msg.loading .spinner")).not.toBeNull();
+    app.applyEvent({ type: "session.status", payload: { status: "running" } });
     expect(app.querySelector("[data-session='s1']").classList.contains("active")).toBe(true);
     expect(app.querySelector("[data-session='s1'] .meta").textContent).toBe("等待中");
 
     app.applyEvent({ type: "session.message", payload: { kind: "user", text: "hello" } });
     expect(app.querySelectorAll(".msg[data-kind='user']")).toHaveLength(1);
-    expect(app.querySelector(".msg.loading")).toBeNull();
     app.applyEvent({ type: "session.status", payload: { status: "idle" } });
+    expect(app.querySelector(".msg.loading")).toBeNull();
     expect(app.querySelector("[data-session='s1']").classList.contains("active")).toBe(false);
   });
 
