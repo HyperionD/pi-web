@@ -647,6 +647,8 @@ describe("workspace bootstrap coverage", () => {
     app.dataset.route = "workspace";
     app.sessionHistoryCursor = "cursor";
     app.sessionHistoryHasMore = true;
+    app.transcriptState = {};
+
     let rejectHistory;
     globalThis.fetch = vi.fn(async () => new Promise((_, reject) => { rejectHistory = reject; }));
 
@@ -694,6 +696,25 @@ describe("workspace bootstrap coverage", () => {
     expect(app.querySelector('[data-view="picker"]')).toBeNull();
   });
 
+  it("fails closed when the durable session snapshot is unavailable", async () => {
+    const app = await connectPiApp();
+    app.apiConnected = true;
+    app.durableEvents = false;
+    app.setConnection = vi.fn();
+    app.applyLoadedSession = vi.fn();
+    app.connectEvents = vi.fn();
+    globalThis.fetch = vi.fn(async (url) => {
+      if (String(url).includes("/state")) throw new Error("event store unavailable");
+      return okJson({ session: { id: "s1", title: "legacy" }, messages: [], status: "idle" });
+    });
+
+    await app.loadSession("s1");
+
+    expect(app.applyLoadedSession).not.toHaveBeenCalled();
+    expect(app.connectEvents).not.toHaveBeenCalled();
+    expect(app.setConnection).toHaveBeenCalledWith("err");
+  });
+
   it("covers bootstrap fallback branches", async () => {
     localStorage.setItem("pi.activeSession", JSON.stringify({ workspaceId: "w-missing", sessionId: "missing" }));
     const app = await connectPiApp();
@@ -731,8 +752,12 @@ describe("workspace bootstrap coverage", () => {
     app.append(row);
     expect(app.findSessionRow("s-row")).toBe(row);
     app.renderMessages = vi.fn();
-    app.connectEvents = vi.fn();
-    app.applyLoadedSession({ id: "s-row", title: "row" }, null, "");
+    app.connectDurableEvents = vi.fn();
+    app.applyLoadedDurableSession({
+      session: { id: "s-row", title: "row", workspaceId: "w-row" },
+      metadata: { title: "row", workspaceId: "w-row" }, items: [], status: "idle", seq: "0",
+      cursor: "", hasMore: false, limit: 120, projectionSchemaVersion: 1, projectionGeneration: "1",
+    });
     expect(app.dataset.activeWorkspaceId).toBe("w-row");
 
     const group = document.createElement("div");

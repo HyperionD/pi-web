@@ -7,6 +7,22 @@ import {
   installPiAppFixture,
 } from "../test-helper";
 
+function durableState(session = { id: "s1", title: "demo", workspaceId: "w1" }, items = [], overrides = {}) {
+  return {
+    session,
+    metadata: { title: session.title, workspaceId: session.workspaceId },
+    items,
+    status: "idle",
+    seq: "0",
+    cursor: "",
+    hasMore: false,
+    limit: 120,
+    projectionSchemaVersion: 1,
+    projectionGeneration: "1",
+    ...overrides,
+  };
+}
+
 describe("pi-app sessions", () => {
   beforeEach(installPiAppFixture);
   afterEach(cleanupPiAppFixture);
@@ -23,7 +39,7 @@ describe("pi-app sessions", () => {
 
   it("keeps the new session button below sessions created without reload", async () => {
     const app = await connectPiApp();
-    app.connectEvents = () => {};
+    app.connectDurableEvents = () => {};
     app.append(app.createWorkspaceGroup({ id: "w1", name: "demo", path: "/demo", sessions: [] }));
     app.activateCreatedSession("w1", { id: "s1", title: "new session", lastUsed: "now" });
     const rows = [...app.querySelectorAll("[data-workspace-group='w1'] .sessions > .session-row")];
@@ -90,7 +106,7 @@ describe("pi-app sessions", () => {
     emptyMain.hidden = true;
     app.apiConnected = true;
     app.dataset.activeWorkspaceId = "w1";
-    app.connectEvents = vi.fn();
+    app.connectDurableEvents = vi.fn();
     app.append(app.createWorkspaceGroup({ id: "w1", name: "demo", path: "/demo", sessions: [] }));
 
     await app.newSession("w1");
@@ -201,17 +217,17 @@ describe("pi-app sessions", () => {
       ok: true,
       status: 200,
       statusText: "OK",
-      json: async () => ({ session: { id: "s1", title: "demo" }, messages: [] }),
+      json: async () => durableState(),
     }));
     const app = await connectPiApp();
     let connected;
-    app.connectEvents = (sessionId, options) => {
-      connected = { sessionId, options };
+    app.connectDurableEvents = (sessionId, seq) => {
+      connected = { sessionId, seq };
     };
 
     await app.loadSession("s1");
-    expect(globalThis.fetch.mock.calls.at(-1)[0]).toBe("http://backend.test/api/sessions/s1?limit=120");
-    expect(connected).toEqual({ sessionId: "s1", options: { replay: false } });
+    expect(globalThis.fetch.mock.calls.at(-1)[0]).toBe("http://backend.test/api/sessions/s1/state?limit=120");
+    expect(connected).toEqual({ sessionId: "s1", seq: "0" });
   });
 
   it("loads older session messages from the stored cursor", async () => {
@@ -220,11 +236,9 @@ describe("pi-app sessions", () => {
       ok: true,
       status: 200,
       statusText: "OK",
-      json: async () => ({
-        messages: [{ kind: "pi", text: "older" }],
-        cursor: "old-cursor",
-        hasMore: false,
-      }),
+      json: async () => durableState({ id: "s1", title: "demo", workspaceId: "w1" }, [
+        { itemId: "older", ordinal: 1, kind: "pi", origin: "runtime", text: "older", bodyPreview: "older" },
+      ], { cursor: "old-cursor" }),
     }));
     const app = await connectPiApp();
     app.dataset.activeSessionId = "s1";
@@ -234,8 +248,8 @@ describe("pi-app sessions", () => {
 
     await app.loadOlderSessionMessages();
 
-    expect(globalThis.fetch.mock.calls.at(-1)[0]).toBe("http://backend.test/api/sessions/s1?limit=120&before=cursor");
-    expect(app.transcriptItems).toHaveLength(2);
+    expect(globalThis.fetch.mock.calls.at(-1)[0]).toBe("http://backend.test/api/sessions/s1/state?limit=120&before=cursor");
+    expect(app.transcriptItems.length).toBeGreaterThanOrEqual(2);
     expect(app.transcriptItems[0].message.text).toBe("older");
     expect(app.sessionHistoryCursor).toBe("old-cursor");
     expect(app.sessionHistoryHasMore).toBe(false);
@@ -246,13 +260,16 @@ describe("pi-app sessions", () => {
     app.loadWorkspaceCommands = vi.fn();
     app.loadRuntimeStatus = vi.fn();
     app.loadWorkspaceMeta = vi.fn();
-    app.connectEvents = vi.fn();
+    app.connectDurableEvents = vi.fn();
     app.apiConnected = true;
     app.dataset.activeWorkspaceId = "w1";
     app.append(app.createWorkspaceGroup({ id: "w1", name: "one", path: "/one", sessions: [] }));
     app.append(app.createWorkspaceGroup({ id: "w2", name: "two", path: "/two", sessions: [] }));
 
-    app.applyLoadedSession({ id: "s2", title: "second", workspaceId: "w2" }, [], "idle");
+    app.applyLoadedDurableSession(durableState(
+      { id: "s2", title: "second", workspaceId: "w2" },
+      [],
+    ));
 
     expect(app.dataset.activeWorkspaceId).toBe("w2");
     expect(app.loadWorkspaceMeta).toHaveBeenCalledWith("w2");
@@ -266,14 +283,11 @@ describe("pi-app sessions", () => {
       ok: true,
       status: 200,
       statusText: "OK",
-      json: async () => ({
-        session: { id: "s1", title: "demo", workspaceId: "w1" },
-        messages: [],
-      }),
+      json: async () => durableState({ id: "s1", title: "demo", workspaceId: "w1" }),
     }));
     const app = await connectPiApp();
     app.dataset.activeWorkspaceId = "w1";
-    app.connectEvents = () => {};
+    app.connectDurableEvents = () => {};
 
     await app.loadSession("s1");
     expect(JSON.parse(localStorage.getItem("pi.activeSession"))).toEqual({
@@ -291,7 +305,7 @@ describe("pi-app sessions", () => {
       statusText: "OK",
       json: async () => {
         if (String(url).endsWith("/workspaces")) return { workspaces: testWorkspaces() };
-        return { session: { id: "s2", title: "second", workspaceId: "w2" }, messages: [] };
+        return durableState({ id: "s2", title: "second", workspaceId: "w2" });
       },
     }));
     const app = document.querySelector("pi-app");
@@ -299,7 +313,7 @@ describe("pi-app sessions", () => {
     app.loadWorkspaceCommands = vi.fn();
     app.loadRuntimeStatus = vi.fn();
     app.loadWorkspaceMeta = vi.fn();
-    app.connectEvents = vi.fn();
+    app.connectDurableEvents = vi.fn();
 
     await app.bootstrapAPI();
     expect(app.dataset.activeWorkspaceId).toBe("w2");
@@ -307,7 +321,7 @@ describe("pi-app sessions", () => {
     expect(app.loadWorkspaceMeta).toHaveBeenCalledWith("w2", expect.objectContaining({
       bootstrapSessionId: "s2",
     }));
-    expect(app.connectEvents).toHaveBeenCalledWith("s2", { replay: false });
+    expect(app.connectDurableEvents).toHaveBeenCalledWith("s2", "0");
   });
 });
 

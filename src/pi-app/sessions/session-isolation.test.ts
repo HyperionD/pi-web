@@ -5,6 +5,22 @@ import "../index";
 const nativeEventSource = globalThis.EventSource;
 const nativeFetch = globalThis.fetch;
 
+function durableState(id, text = "", overrides = {}) {
+  return {
+    session: { id, title: id, workspaceId: "w1" },
+    metadata: { title: id, workspaceId: "w1" },
+    items: text ? [{ itemId: `message:${id}`, ordinal: 1, kind: "pi", origin: "runtime", text, bodyPreview: text }] : [],
+    status: "idle",
+    seq: "0",
+    cursor: "",
+    hasMore: false,
+    limit: 120,
+    projectionSchemaVersion: 1,
+    projectionGeneration: "1",
+    ...overrides,
+  };
+}
+
 function appFixture() {
   document.body.innerHTML = `
     <pi-app data-tree="on" data-sidebar="open" data-active-workspace-id="w1">
@@ -99,7 +115,7 @@ describe("pi-app session isolation", () => {
   it("keeps the latest session load when older requests finish later", async () => {
     let resolveFirst;
     globalThis.fetch = vi.fn((url) => {
-      if (String(url).includes("/api/sessions/s1?")) {
+      if (String(url).includes("/api/sessions/s1/state")) {
         return new Promise((resolve) => {
           resolveFirst = resolve;
         });
@@ -108,14 +124,11 @@ describe("pi-app session isolation", () => {
         ok: true,
         status: 200,
         statusText: "OK",
-        json: async () => ({
-          session: { id: "s2", title: "second", workspaceId: "w1" },
-          messages: [{ kind: "pi", text: "second session" }],
-        }),
+        json: async () => durableState("s2", "second session"),
       });
     });
     const app = await connectedApp();
-    app.connectEvents = vi.fn();
+    app.connectDurableEvents = vi.fn();
 
     const firstLoad = app.loadSession("s1");
     await app.loadSession("s2");
@@ -123,17 +136,14 @@ describe("pi-app session isolation", () => {
       ok: true,
       status: 200,
       statusText: "OK",
-      json: async () => ({
-        session: { id: "s1", title: "first", workspaceId: "w1" },
-        messages: [{ kind: "pi", text: "first session" }],
-      }),
+      json: async () => durableState("s1", "first session"),
     });
     await firstLoad;
 
     expect(app.dataset.activeSessionId).toBe("s2");
     expect(app.querySelector(".msg .body").textContent).toBe("second session");
-    expect(app.connectEvents).toHaveBeenCalledTimes(1);
-    expect(app.connectEvents).toHaveBeenCalledWith("s2", { replay: false });
+    expect(app.connectDurableEvents).toHaveBeenCalledTimes(1);
+    expect(app.connectDurableEvents).toHaveBeenCalledWith("s2", "0");
   });
 
   it("drops a session load that predates a new prompt generation", async () => {
@@ -151,10 +161,7 @@ describe("pi-app session isolation", () => {
       ok: true,
       status: 200,
       statusText: "OK",
-      json: async () => ({
-        session: { id: "s1", title: "old", workspaceId: "w1" },
-        messages: [{ kind: "pi", text: "stale response" }],
-      }),
+      json: async () => durableState("s1", "stale response"),
     });
     await oldLoad;
 
@@ -178,7 +185,7 @@ describe("pi-app session isolation", () => {
       ok: true,
       status: 200,
       statusText: "OK",
-      json: async () => ({ messages: [{ kind: "pi", text: "stale" }], cursor: "old", hasMore: false }),
+      json: async () => durableState("s1", "stale", { cursor: "old" }),
     });
     await olderLoad;
 
@@ -190,13 +197,10 @@ describe("pi-app session isolation", () => {
       ok: true,
       status: 200,
       statusText: "OK",
-      json: async () => ({
-        session: { id: "s2", title: "second", workspaceId: "w1" },
-        messages: [],
-      }),
+      json: async () => durableState("s2"),
     }));
     const app = await connectedApp();
-    app.connectEvents = vi.fn();
+    app.connectDurableEvents = vi.fn();
     app.dataset.activeSessionId = "s1";
     app.setMode("running");
 
@@ -212,14 +216,10 @@ describe("pi-app session isolation", () => {
       ok: true,
       status: 200,
       statusText: "OK",
-      json: async () => ({
-        session: { id: "s2", title: "second", workspaceId: "w1" },
-        messages: [],
-        status: "running",
-      }),
+      json: async () => durableState("s2", "", { status: "running" }),
     }));
     const app = await connectedApp();
-    app.connectEvents = vi.fn();
+    app.connectDurableEvents = vi.fn();
 
     await app.loadSession("s2");
 

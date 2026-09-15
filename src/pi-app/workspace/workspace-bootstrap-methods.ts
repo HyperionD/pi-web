@@ -1,6 +1,5 @@
 import {
   getGitStatus,
-  getSession,
   getSessionState,
   health,
   getWorkspaceCommands,
@@ -8,8 +7,6 @@ import {
   getWorkspaces,
 } from "../../lib/api";
 import { clearStoredActiveSession, readStoredActiveSession, storeActiveSession } from "../sessions/session-storage";
-import { normalizeEventCursor } from "../sessions/session-recovery";
-import { createLegacyTranscriptState } from "../sessions/legacy-session-event-adapter";
 import { createSessionStreamClient } from "../sessions/session-stream-client";
 import { createTranscriptRenderScheduler } from "../transcript/transcript-render-scheduler";
 import { selectTranscriptView } from "../transcript/transcript-view-model";
@@ -369,17 +366,9 @@ export const workspaceBootstrapMethods = {
     );
     this.showSessionSwitchLoading(sessionId);
     try {
-      if (this.durableEvents) {
-        const durable = await this.loadDurableSessionState(sessionId);
-        if (!isCurrentResource()) return;
-        if (durable) {
-          this.applyLoadedDurableSession(durable);
-          return;
-        }
-      }
-      const loaded = await getSession(sessionId, { limit: SESSION_MESSAGE_PAGE_SIZE });
+      const durable = await this.loadDurableSessionState(sessionId);
       if (!isCurrentResource()) return;
-      this.applyLoadedSession(loaded.session, loaded.messages || [], loaded.status, loaded);
+      this.applyLoadedDurableSession(durable);
     } catch (error) {
       if (!isCurrentResource()) return;
       if (options.resync && this.durableEvents && this.transcriptState?.sessionId === sessionId) {
@@ -632,55 +621,6 @@ export const workspaceBootstrapMethods = {
     else this.termInner.append(row);
   },
 
-  applyLoadedSession(session, messages, status = "idle", page: any = {}) {
-    this.dataset.activeSessionId = session.id;
-    this.resetActiveSessionState?.();
-    const workspaceId = session.workspaceId
-      || this.findSessionRow(session.id)?.dataset.workspace;
-    if (workspaceId) this.activateWorkspaceForSession(workspaceId, { loadContext: true });
-    this.markSelectedSessionRow?.(session.id);
-    storeActiveSession(workspaceId || this.dataset.activeWorkspaceId, session.id);
-    this.activateBootstrapSession(session);
-    this.sessionHistoryCursor = page.cursor || "";
-    this.sessionHistoryHasMore = !!page.hasMore;
-    this.sessionHistoryLoading = false;
-    const hasSnapshotCursor = Object.prototype.hasOwnProperty.call(page, "latestEventId");
-    const activeRun = status === "running"
-      && page.activeRun === true
-      && Object.prototype.hasOwnProperty.call(page, "activeEventCursor");
-    const snapshotCursor = activeRun ? page.activeEventCursor : page.latestEventId;
-    if (hasSnapshotCursor) {
-      this.sessionEventCursors ??= new Map();
-      this.sessionEventCursors.delete(session.id);
-      this.setSessionEventCursor(session.id, snapshotCursor);
-    }
-    this.transcriptState = createLegacyTranscriptState(
-      session.id,
-      messages,
-      status || "idle",
-      normalizeEventCursor(snapshotCursor) || "0",
-    );
-    this.legacyEventContext = {
-      sessionId: session.id,
-      runId: this.transcriptState.runId,
-      activeToolIds: new Map([...this.transcriptState.itemsById.values()]
-        .filter((item) => item.kind === "tool" && item.toolCallId)
-        .map((item) => [item.toolCallId, item.id])),
-      activeSegmentIds: new Map(),
-    };
-    this.renderDurableTranscript();
-    if (hasSnapshotCursor) {
-      this.connectEvents(session.id, {
-        replay: activeRun ? "active" : true,
-        after: normalizeEventCursor(snapshotCursor) || "0",
-        ...(activeRun ? { snapshotAfter: normalizeEventCursor(page.latestEventId) || "0" } : {}),
-        reloadOnOpen: false,
-      });
-    } else {
-      this.connectEvents(session.id, { replay: false });
-    }
-  },
-
   async loadOlderSessionMessages() {
     const sessionId = this.dataset.activeSessionId;
     if (!sessionId || !this.sessionHistoryHasMore || this.sessionHistoryLoading) return;
@@ -696,7 +636,7 @@ export const workspaceBootstrapMethods = {
       && this.sessionHistoryLoadToken === loadToken
     );
     try {
-      if (this.durableEvents && this.transcriptState) {
+      if (this.transcriptState) {
         const loaded = await getSessionState(sessionId, { limit: SESSION_MESSAGE_PAGE_SIZE, before: cursor });
         if (!isCurrentLoad()) return;
         this.transcriptState = mergeHistoryPage(this.transcriptState, loaded);
@@ -709,11 +649,7 @@ export const workspaceBootstrapMethods = {
         this.durableTranscriptIds = view.items.map((item) => item.key);
         return;
       }
-      const loaded = await getSession(sessionId, { limit: SESSION_MESSAGE_PAGE_SIZE, before: cursor });
-      if (!isCurrentLoad()) return;
-      this.prependLoadedMessages(loaded.messages || []);
-      this.sessionHistoryCursor = loaded.cursor || "";
-      this.sessionHistoryHasMore = !!loaded.hasMore;
+
     } catch (error) {
       if (isCurrentLoad() && !this.recoverForbiddenWorkspace(error)) this.setConnection("err");
     } finally {

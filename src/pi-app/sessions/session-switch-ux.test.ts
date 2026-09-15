@@ -16,13 +16,13 @@ describe("pi-app session switch UX", () => {
       resolveFetch = resolve;
     }));
     const app = await connectPiApp();
-    app.connectEvents = vi.fn();
-    app.invalidateEventStream = vi.fn();
+    app.connectDurableEvents = vi.fn();
+    app.stopDurableStream = vi.fn();
     app.append(app.createSessionRow("w1", { id: "s1", title: "large session", lastUsed: "now" }));
 
     const loading = app.loadSession("s1");
 
-    expect(app.invalidateEventStream).toHaveBeenCalledTimes(1);
+    expect(app.stopDurableStream).toHaveBeenCalledTimes(1);
     expect(app.querySelector(".session-switch-loading")).not.toBeNull();
     expect(app.querySelector(".session-switch-label").textContent).toBe("正在加载 large session…");
 
@@ -32,7 +32,10 @@ describe("pi-app session switch UX", () => {
       statusText: "OK",
       json: async () => ({
         session: { id: "s1", title: "large session", workspaceId: "w1" },
-        messages: [{ kind: "pi", text: "loaded" }],
+        metadata: { title: "large session", workspaceId: "w1" },
+        items: [{ itemId: "loaded", ordinal: 1, kind: "pi", origin: "runtime", text: "loaded", bodyPreview: "loaded" }],
+        status: "idle", seq: "0", cursor: "", hasMore: false, limit: 120,
+        projectionSchemaVersion: 1, projectionGeneration: "1",
       }),
     });
     await loading;

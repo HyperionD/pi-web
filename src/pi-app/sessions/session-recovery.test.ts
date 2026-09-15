@@ -79,39 +79,6 @@ describe("session recovery", () => {
     expect(app.running).toBe(true);
   });
 
-  it("connects after the snapshot cursor with replay enabled", async () => {
-    const app = await connectPiApp();
-    app.dataset.activeSessionId = "s1";
-    app.connectEvents = vi.fn();
-    app.applyLoadedSession({ id: "s1" }, [], "idle", { latestEventId: "42" });
-
-    expect(app.connectEvents).toHaveBeenCalledWith("s1", {
-      replay: true,
-      after: "42",
-      reloadOnOpen: false,
-    });
-  });
-
-  it("uses the active-run cursor when restoring a running snapshot", async () => {
-    const app = await connectPiApp();
-    app.dataset.activeSessionId = "s1";
-    app.connectEvents = vi.fn();
-    app.applyLoadedSession(
-      { id: "s1" },
-      [],
-      "running",
-      { latestEventId: "42", activeEventCursor: "7", activeRun: true },
-    );
-
-    expect(app.sessionEventCursors.get("s1")).toBe("7");
-    expect(app.connectEvents).toHaveBeenCalledWith("s1", {
-      replay: "active",
-      after: "7",
-      snapshotAfter: "42",
-      reloadOnOpen: false,
-    });
-  });
-
   it("resyncs an id-less broker gap despite browser lastEventId inheritance", async () => {
     class FakeEventSource {
       static instance;

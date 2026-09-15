@@ -271,12 +271,8 @@ export const sessionMethods = {
       title.title = `${session.title} · ${session.id}`;
     }
     this.renderMessages([]);
-    if (this.durableEvents) {
-      this.transcriptState = emptyTranscriptState(session.id, this.sessionViewGeneration);
-      this.connectDurableEvents?.(session.id, "0");
-    } else {
-      this.connectEvents(session.id);
-    }
+    this.transcriptState = emptyTranscriptState(session.id, this.sessionViewGeneration);
+    this.connectDurableEvents?.(session.id, "0");
   },
 
   resetActiveSessionState() {

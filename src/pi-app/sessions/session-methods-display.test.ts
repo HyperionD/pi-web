@@ -99,12 +99,12 @@ describe("pi-app session method display states", () => {
     const old = app.createSessionRow("w1", { id: "old", title: "old", lastUsed: "now", active: true });
     const sessions = app.querySelector("[data-workspace-group='w1'] .sessions");
     sessions.prepend(old);
-    app.connectEvents = vi.fn();
+    app.connectDurableEvents = vi.fn();
     app.activateCreatedSession("w1", { id: "s1", title: "created", lastUsed: "now" });
     app.activateCreatedSession("w1", { id: "s1", title: "created", lastUsed: "now" });
     expect(old.classList.contains("selected")).toBe(false);
     expect(activeTitle.title).toBe("created · s1");
-    expect(app.connectEvents).toHaveBeenCalledWith("s1");
+    expect(app.connectDurableEvents).toHaveBeenCalledWith("s1", "0");
 
     activeTitle.remove();
     app.activateCreatedSession("missing", { id: "s2", title: "missing", lastUsed: "now" });
@@ -160,7 +160,7 @@ describe("pi-app session method display states", () => {
   it("finds a workspace id for a session", async () => {
     const app = await connectPiApp();
     appendSessionShell(app);
-    app.connectEvents = vi.fn();
+    app.connectDurableEvents = vi.fn();
     app.activateCreatedSession("w1", { id: "s1", title: "one", lastUsed: "now" });
     expect(app.findWorkspaceIdForSession("s1")).toBe("w1");
     expect(app.findWorkspaceIdForSession("missing")).toBeUndefined();
