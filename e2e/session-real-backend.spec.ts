@@ -21,7 +21,7 @@ test("persists control events and replays them from the durable SSE cursor", asy
   const cookie = /(?:^|,\s*)pi_web_session=([^;]+)/.exec(setCookie)?.[1];
   if (!cookie) throw new Error("login did not return a session cookie");
   await page.context().addCookies([{ name: "pi_web_session", value: cookie, url: baseURL }]);
-  await page.goto("/");
+  await page.goto("/api/health");
 
   const session = await page.evaluate(async () => {
     const health = await fetch("/api/health", { credentials: "include" });
