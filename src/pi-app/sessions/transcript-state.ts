@@ -35,6 +35,7 @@ export type TranscriptState = {
   status: TranscriptStatus;
   runId?: string;
   sessionTitle?: string;
+  sessionDeleted?: boolean;
   sessionModel?: { provider?: string; model?: string; thinkingLevel?: string };
   contextUsage?: unknown;
   itemOrder: string[];
@@ -59,6 +60,7 @@ export type SessionStateSnapshot = {
   sessionId: string;
   metadata?: {
     title?: string;
+    deleted?: boolean;
     provider?: string;
     model?: string;
     thinkingLevel?: string;

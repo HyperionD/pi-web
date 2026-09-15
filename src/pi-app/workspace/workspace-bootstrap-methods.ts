@@ -581,6 +581,15 @@ export const workspaceBootstrapMethods = {
     this.transcriptState = next;
     this.setSessionEventCursor(event.sessionId, event.seq);
     this.confirmConnection?.();
+    if (event.type === "session.renamed") {
+      this.updateSessionTitle?.({ id: event.sessionId, title: event.payload?.title });
+    }
+    if (event.type === "session.deleted") {
+      const workspaceId = this.findWorkspaceIdForSession?.(event.sessionId);
+      this.querySelector(`[data-session='${event.sessionId}']`)?.remove();
+      this.refreshWorkspaceSessionControls?.(workspaceId);
+      if (this.dataset.activeSessionId === event.sessionId) this.clearActiveSession?.(event.sessionId);
+    }
     if (event.type === "run.failed") {
       this.notifyResponseFailure?.(String(event.payload?.error || "runtime failed"));
     }

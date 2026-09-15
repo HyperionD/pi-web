@@ -297,6 +297,8 @@ describe("transcript reducer", () => {
     expect(state.status).toBe("idle");
     state = reduceSessionEvent(state, event({ seq: "4", type: "session.model.changed", payload: { provider: "openai", model: "gpt" } }));
     expect(state.sessionModel).toEqual({ provider: "openai", model: "gpt" });
+    state = reduceSessionEvent(state, event({ seq: "5", type: "session.deleted" }));
+    expect(state.sessionDeleted).toBe(true);
   });
 
   it("ignores unknown event types while advancing the sequence", () => {

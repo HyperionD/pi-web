@@ -48,7 +48,7 @@ export const inputMethods = {
           this.appendMessage({ kind: "user", text, attachments });
         }
         this.appendLoadingMessage();
-        if (text) this.autonameActiveSession(text);
+        if (text && !waitForServerEcho) this.autonameActiveSession(text);
       }
       if (this.prompt) this.prompt.value = "";
       this.attachmentContents = [];

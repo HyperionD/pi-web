@@ -70,6 +70,7 @@ export function installSessionSnapshot(state: TranscriptState, snapshot: Session
     status: (snapshot.status as TranscriptState["status"]) || "idle",
     runId: snapshot.runId,
     sessionTitle: snapshot.metadata?.title,
+    sessionDeleted: snapshot.metadata?.deleted,
     sessionModel: snapshot.metadata && {
       provider: snapshot.metadata.provider,
       model: snapshot.metadata.model,
@@ -172,9 +173,10 @@ function applyEvent(state: TranscriptState, event: DurableSessionEvent): Transcr
       return { ...state, status: "idle" };
     case "compaction.failed":
       return { ...state, status: "error" };
+    case "session.deleted":
+      return { ...state, sessionDeleted: true };
     case "run.cancel.requested":
     case "steer.accepted":
-    case "session.deleted":
       return state;
     case "assistant.segment.started": {
       const item = ensureSegmentItem(state, event, payload.kind);
