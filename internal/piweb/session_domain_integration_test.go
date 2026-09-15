@@ -264,6 +264,17 @@ func hasEventTypes(events []StoredSessionEvent, types ...string) bool {
 	return true
 }
 
+func TestSessionDomainCancelAppendsDurableRequest(t *testing.T) {
+	server, events, sessionID := newDurableIntegrationServer(t)
+	response := postJSON(t, server, "/api/sessions/"+url.PathEscape(sessionID)+"/cancel", map[string]any{})
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusAccepted {
+		t.Fatalf("cancel status = %d, want %d", response.StatusCode, http.StatusAccepted)
+	}
+	rows := mustReadEvents(t, events, sessionID)
+	requireTypes(t, rows, EventRunCancelRequested)
+}
+
 func TestSessionDomainPromptProducesOneDurableSequence(t *testing.T) {
 	server, events, sessionID := newDurableIntegrationServer(t)
 	stream, closeStream := openSessionEventStream(t, server, sessionID)

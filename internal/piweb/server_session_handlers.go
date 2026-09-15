@@ -306,16 +306,44 @@ func (s *Server) steerSession(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	if s.events == nil {
-		user := Message{Kind: "user", Text: displayText, Attachments: imageAttachments}
-		_ = appendMessageAndPublish(s.store, s.broker, sessionID, user)
+	if s.commands != nil {
+		requestID := strings.TrimSpace(r.Header.Get("X-Client-Request-ID"))
+		if requestID == "" {
+			requestID = createSessionID()
+		}
+		event, err := s.commands.AppendControlEvent(r.Context(), sessionID, requestID, EventSteerAccepted, map[string]any{
+			"text": displayText,
+		})
+		if err != nil {
+			writeSessionEventError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusAccepted, map[string]any{"accepted": true, "acceptedSeq": event.Seq, "realPi": s.config.EnablePiExecution})
+		return
 	}
+	user := Message{Kind: "user", Text: displayText, Attachments: imageAttachments}
+	_ = appendMessageAndPublish(s.store, s.broker, sessionID, user)
 	writeJSON(w, http.StatusAccepted, map[string]any{"accepted": true, "realPi": s.config.EnablePiExecution})
 }
 func (s *Server) cancelSession(w http.ResponseWriter, r *http.Request) {
-	cancelled := s.runner.Cancel(r.PathValue("sessionID"))
-	if cancelled && s.events == nil {
-		s.broker.Publish(r.PathValue("sessionID"), "session.status", map[string]string{"status": "cancelled"})
+	sessionID := r.PathValue("sessionID")
+	if s.commands != nil {
+		requestID := strings.TrimSpace(r.Header.Get("X-Client-Request-ID"))
+		if requestID == "" {
+			requestID = createSessionID()
+		}
+		event, err := s.commands.AppendControlEvent(r.Context(), sessionID, requestID, EventRunCancelRequested, nil)
+		if err != nil {
+			writeSessionEventError(w, err)
+			return
+		}
+		cancelled := s.runner.Cancel(sessionID)
+		writeJSON(w, http.StatusAccepted, map[string]any{"accepted": true, "acceptedSeq": event.Seq, "cancelled": cancelled})
+		return
+	}
+	cancelled := s.runner.Cancel(sessionID)
+	if cancelled {
+		s.broker.Publish(sessionID, "session.status", map[string]string{"status": "cancelled"})
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"cancelled": cancelled})
 }
