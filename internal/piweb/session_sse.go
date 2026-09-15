@@ -56,6 +56,7 @@ func (s *Server) sessionState(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"session":                 session,
+		"metadata":                snapshot.Metadata,
 		"items":                   snapshot.Items,
 		"status":                  snapshot.Status,
 		"runId":                   snapshot.RunID,

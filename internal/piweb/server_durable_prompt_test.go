@@ -39,6 +39,50 @@ func TestRenameUsesDurableControlEventWhenConfigured(t *testing.T) {
 	}
 }
 
+func TestDurableSessionReadsUseEventProjection(t *testing.T) {
+	store := runtimeTestStore()
+	events := appendTestStore(t)
+	if _, err := events.AppendControl(t.Context(), "8e7c-44ff", "rename-read", EventSessionRenamed, []byte(`{"title":"Projected"}`)); err != nil {
+		t.Fatal(err)
+	}
+	server := NewServerWithEventStore(Config{EnablePiExecution: true}, store, NewBroker(), events, NewSessionWakeHub())
+	httpServer := httptest.NewServer(server.Handler())
+	defer httpServer.Close()
+
+	stateResponse, err := http.Get(httpServer.URL + "/api/sessions/8e7c-44ff/state")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer stateResponse.Body.Close()
+	var state struct {
+		Metadata struct {
+			Title string `json:"title"`
+		} `json:"metadata"`
+		Seq string `json:"seq"`
+	}
+	if err := json.NewDecoder(stateResponse.Body).Decode(&state); err != nil {
+		t.Fatal(err)
+	}
+	if state.Metadata.Title != "Projected" || state.Seq != "1" {
+		t.Fatalf("state = %#v", state)
+	}
+
+	legacyResponse, err := http.Get(httpServer.URL + "/api/sessions/8e7c-44ff")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer legacyResponse.Body.Close()
+	var legacy struct {
+		LatestEventID string `json:"latestEventId"`
+	}
+	if err := json.NewDecoder(legacyResponse.Body).Decode(&legacy); err != nil {
+		t.Fatal(err)
+	}
+	if legacy.LatestEventID != "1" {
+		t.Fatalf("legacy cursor = %q", legacy.LatestEventID)
+	}
+}
+
 func TestCreateSessionUsesDurableControlEventWhenConfigured(t *testing.T) {
 	store := NewMockStore()
 	events := appendTestStore(t)

@@ -15,13 +15,17 @@ func (s *Server) session(w http.ResponseWriter, r *http.Request) {
 		writeStoreError(w, err)
 		return
 	}
+	status := s.sessionStatus(sessionID)
+	if cursors.Status != "" {
+		status = cursors.Status
+	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"session":           session,
 		"messages":          page.Messages,
 		"cursor":            page.Cursor,
 		"hasMore":           page.HasMore,
 		"limit":             page.Limit,
-		"status":            s.sessionStatus(sessionID),
+		"status":            status,
 		"latestEventId":     strconv.FormatUint(cursors.LatestEventID, 10),
 		"activeEventCursor": strconv.FormatUint(cursors.ActiveRunAfter, 10),
 		"activeRun":         cursors.ActiveRunRunning,
@@ -29,6 +33,28 @@ func (s *Server) session(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) sessionSnapshot(sessionID string, limit int, before string) (Session, SessionMessagePage, SessionEventCursors, error) {
+	if s.events != nil {
+		session, _, err := s.store.Session(sessionID)
+		if err != nil {
+			return Session{}, SessionMessagePage{}, SessionEventCursors{}, err
+		}
+		snapshot, err := s.events.Snapshot(s.context(), sessionID, SessionPageRequest{Limit: limit, Before: before})
+		if err != nil {
+			return Session{}, SessionMessagePage{}, SessionEventCursors{}, err
+		}
+		if snapshot.Metadata.Title != "" {
+			session.Title = snapshot.Metadata.Title
+		}
+		if snapshot.Metadata.WorkspaceID != "" {
+			session.Workspace = snapshot.Metadata.WorkspaceID
+		}
+		return session, projectedMessagePage(snapshot), SessionEventCursors{
+			LatestEventID:    uint64(snapshot.Seq),
+			ActiveRunAfter:   uint64(snapshot.Seq),
+			ActiveRunRunning: snapshot.Status == SessionStatusRunning || snapshot.Status == SessionStatusThinking,
+			Status:           snapshot.Status,
+		}, nil
+	}
 	s.store.sessionMutationMu.Lock()
 	defer s.store.sessionMutationMu.Unlock()
 	var session Session
@@ -45,6 +71,18 @@ func (s *Server) sessionSnapshot(sessionID string, limit int, before string) (Se
 		return Session{}, SessionMessagePage{}, SessionEventCursors{}, err
 	}
 	return session, page, cursors, nil
+}
+
+func projectedMessagePage(snapshot SessionStateSnapshot) SessionMessagePage {
+	messages := make([]Message, 0, len(snapshot.Items))
+	for _, item := range snapshot.Items {
+		messages = append(messages, Message{
+			ID: item.ItemID, Kind: item.Kind, Text: item.Text, Tool: item.Tool, Args: item.Args,
+			Status: item.Status, DurationMs: item.DurationMs, ResultMeta: item.ResultMeta,
+			Body: item.Body, Attachments: item.Attachments,
+		})
+	}
+	return SessionMessagePage{Messages: messages, Cursor: snapshot.Cursor, HasMore: snapshot.HasMore, Limit: snapshot.Limit}
 }
 
 func (s *Server) sessionStatus(sessionID string) string {
@@ -285,6 +323,10 @@ func (s *Server) sessionEvents(w http.ResponseWriter, r *http.Request) {
 	sessionID := r.PathValue("sessionID")
 	if _, _, err := s.store.Session(sessionID); err != nil {
 		writeStoreError(w, err)
+		return
+	}
+	if s.events != nil {
+		s.serveLegacySessionEventsFromDurable(w, r, sessionID)
 		return
 	}
 	s.broker.ServeSession(w, r, sessionID)

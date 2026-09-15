@@ -21,6 +21,7 @@ type SessionEventCursors struct {
 	LatestEventID    uint64
 	ActiveRunAfter   uint64
 	ActiveRunRunning bool
+	Status           string
 }
 
 type Broker struct {
