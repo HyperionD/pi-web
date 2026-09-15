@@ -141,7 +141,6 @@ func TestRoutes(t *testing.T) {
 		{"POST /api/sessions/{sessionID}/compact", "compactSession", "requireSessionAccess"},
 		{"POST /api/sessions/{sessionID}/steer", "steerSession", "requireSessionAccess"},
 		{"POST /api/sessions/{sessionID}/cancel", "cancelSession", "requireSessionAccess"},
-		{"GET /api/sessions/{sessionID}/events", "sessionEvents", "requireSessionAccess"},
 		{"GET /api/sessions/{sessionID}/events-v2", "sessionEventsV2", "requireSessionAccess"},
 	}
 

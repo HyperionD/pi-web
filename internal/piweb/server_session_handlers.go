@@ -104,56 +104,45 @@ func (s *Server) renameSession(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	sessionID := r.PathValue("sessionID")
-	if s.commands != nil {
-		requestID := strings.TrimSpace(req.ClientRequestID)
-		if requestID == "" {
-			requestID = createSessionID()
-		}
-		event, err := s.commands.AppendControlEvent(r.Context(), sessionID, requestID, EventSessionRenamed, map[string]string{"title": req.Title})
-		if err != nil {
-			writeSessionEventError(w, err)
-			return
-		}
-		writeJSON(w, http.StatusAccepted, map[string]any{"accepted": true, "acceptedSeq": event.Seq})
+	if s.commands == nil {
+		writeError(w, http.StatusServiceUnavailable, ErrEventStoreNotReady)
 		return
 	}
-	session, err := s.store.RenameSession(sessionID, req.Title)
+	requestID := strings.TrimSpace(req.ClientRequestID)
+	if requestID == "" {
+		requestID = createSessionID()
+	}
+	event, err := s.commands.AppendControlEvent(r.Context(), sessionID, requestID, EventSessionRenamed, map[string]string{"title": req.Title})
 	if err != nil {
-		writeStoreError(w, err)
+		writeSessionEventError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"session": session})
+	writeJSON(w, http.StatusAccepted, map[string]any{"accepted": true, "acceptedSeq": event.Seq})
 }
 func (s *Server) deleteSession(w http.ResponseWriter, r *http.Request) {
 	sessionID := r.PathValue("sessionID")
+	if s.commands == nil {
+		writeError(w, http.StatusServiceUnavailable, ErrEventStoreNotReady)
+		return
+	}
 	token, err := s.runtimeManager.CloseSessionToken(s.context(), sessionID)
 	if err != nil {
 		_ = s.runtimeManager.RollbackSessionCloseToken(sessionID, token)
 		writeError(w, http.StatusInternalServerError, err)
 		return
 	}
-	if s.commands != nil {
-		requestID := strings.TrimSpace(r.Header.Get("X-Client-Request-ID"))
-		if requestID == "" {
-			requestID = createSessionID()
-		}
-		event, eventErr := s.commands.AppendControlEvent(r.Context(), sessionID, requestID, EventSessionDeleted, nil)
-		if eventErr != nil {
-			_ = s.runtimeManager.RollbackSessionCloseToken(sessionID, token)
-			writeSessionEventError(w, eventErr)
-			return
-		}
-		_ = s.runtimeManager.FinalizeSessionClose(sessionID, token)
-		writeJSON(w, http.StatusAccepted, map[string]any{"accepted": true, "deleted": true, "acceptedSeq": event.Seq})
-		return
+	requestID := strings.TrimSpace(r.Header.Get("X-Client-Request-ID"))
+	if requestID == "" {
+		requestID = createSessionID()
 	}
-	if err := s.store.DeleteSession(sessionID); err != nil {
+	event, eventErr := s.commands.AppendControlEvent(r.Context(), sessionID, requestID, EventSessionDeleted, nil)
+	if eventErr != nil {
 		_ = s.runtimeManager.RollbackSessionCloseToken(sessionID, token)
-		writeStoreError(w, err)
+		writeSessionEventError(w, eventErr)
 		return
 	}
 	_ = s.runtimeManager.FinalizeSessionClose(sessionID, token)
-	writeJSON(w, http.StatusOK, map[string]any{"deleted": true})
+	writeJSON(w, http.StatusAccepted, map[string]any{"accepted": true, "deleted": true, "acceptedSeq": event.Seq})
 }
 func (s *Server) prompt(w http.ResponseWriter, r *http.Request) {
 	sessionID := r.PathValue("sessionID")
@@ -177,66 +166,36 @@ func (s *Server) prompt(w http.ResponseWriter, r *http.Request) {
 	if clientRequestID == "" {
 		clientRequestID = createSessionID()
 	}
-	if s.commands != nil {
-		if title := trimTitle(displayText); title != "" {
-			if _, err := s.commands.AppendControlEvent(r.Context(), sessionID, clientRequestID+":autoname", EventSessionRenamed, map[string]string{"title": title}); err != nil {
-				writeSessionEventError(w, err)
-				return
-			}
-		}
-	} else if session, changed, err := s.store.AutoNameSession(sessionID, displayText); err != nil {
-		writeStoreError(w, err)
-		return
-	} else if changed {
-		s.broker.Publish(sessionID, "session.renamed", session)
-	}
-	if s.commands != nil {
-		startupSettings, err := s.modelSettingsForSession(sessionID)
-		if err != nil {
-			writeError(w, http.StatusInternalServerError, err)
-			return
-		}
-		receipt, err := s.commands.StartPromptWith(r.Context(), StartPromptCommand{
-			SessionID: sessionID, ClientRequestID: clientRequestID, DisplayText: displayText,
-			Text: promptText, Attachments: req.Attachments,
-		}, runnerPromptStarter{runner: s.runner, store: s.store, settings: []ModelStartupSettings{startupSettings}})
-		if err != nil {
-			writeError(w, http.StatusConflict, err)
-			return
-		}
-		writeJSON(w, http.StatusAccepted, map[string]any{
-			"accepted":    true,
-			"runId":       receipt.RunID,
-			"acceptedSeq": receipt.AcceptedSeq,
-			"existing":    receipt.Existing,
-			"realPi":      s.config.EnablePiExecution,
-		})
+	if s.commands == nil {
+		writeError(w, http.StatusServiceUnavailable, ErrEventStoreNotReady)
 		return
 	}
-	if s.config.EnablePiExecution {
-		startupSettings, err := s.modelSettingsForSession(sessionID)
-		if err != nil {
-			writeError(w, http.StatusInternalServerError, err)
+	if title := trimTitle(displayText); title != "" {
+		if _, err := s.commands.AppendControlEvent(r.Context(), sessionID, clientRequestID+":autoname", EventSessionRenamed, map[string]string{"title": title}); err != nil {
+			writeSessionEventError(w, err)
 			return
 		}
-		err = s.runner.StartPiPrompt(
-			s.context(),
-			s.broker,
-			s.store,
-			sessionID,
-			promptText,
-			imageAttachments,
-			displayText,
-			startupSettings,
-		)
-		if err != nil {
-			writeError(w, http.StatusConflict, err)
-			return
-		}
-	} else {
-		go s.broker.PublishMockPrompt(s.context(), s.store, sessionID, displayText)
 	}
-	writeJSON(w, http.StatusAccepted, map[string]any{"accepted": true, "realPi": s.config.EnablePiExecution})
+	startupSettings, err := s.modelSettingsForSession(sessionID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
+	receipt, err := s.commands.StartPromptWith(r.Context(), StartPromptCommand{
+		SessionID: sessionID, ClientRequestID: clientRequestID, DisplayText: displayText,
+		Text: promptText, Attachments: req.Attachments,
+	}, runnerPromptStarter{runner: s.runner, store: s.store, settings: []ModelStartupSettings{startupSettings}})
+	if err != nil {
+		writeError(w, http.StatusConflict, err)
+		return
+	}
+	writeJSON(w, http.StatusAccepted, map[string]any{
+		"accepted":    true,
+		"runId":       receipt.RunID,
+		"acceptedSeq": receipt.AcceptedSeq,
+		"existing":    receipt.Existing,
+		"realPi":      s.config.EnablePiExecution,
+	})
 }
 func (s *Server) compactSession(w http.ResponseWriter, r *http.Request) {
 	sessionID := r.PathValue("sessionID")
@@ -257,17 +216,16 @@ func (s *Server) compactSession(w http.ResponseWriter, r *http.Request) {
 	if requestID == "" {
 		requestID = createSessionID()
 	}
-	var result CompactionResult
-	if s.events != nil {
-		controlEvents, ok := s.events.(SessionControlEventStore)
-		if !ok {
-			writeError(w, http.StatusServiceUnavailable, ErrEventStoreNotReady)
-			return
-		}
-		result, err = s.runner.CompactDurable(s.context(), controlEvents, s.store, sessionID, requestID, startupSettings)
-	} else {
-		result, err = s.runner.Compact(s.context(), s.broker, s.store, sessionID, startupSettings)
+	if s.commands == nil {
+		writeError(w, http.StatusServiceUnavailable, ErrEventStoreNotReady)
+		return
 	}
+	controlEvents, ok := s.events.(SessionControlEventStore)
+	if !ok {
+		writeError(w, http.StatusServiceUnavailable, ErrEventStoreNotReady)
+		return
+	}
+	result, err := s.runner.CompactDurable(s.context(), controlEvents, s.store, sessionID, requestID, startupSettings)
 	if err != nil {
 		if errors.Is(err, errSessionBusy) {
 			writeError(w, http.StatusConflict, err)
@@ -276,11 +234,7 @@ func (s *Server) compactSession(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err)
 		return
 	}
-	if s.events != nil {
-		writeJSON(w, http.StatusAccepted, map[string]any{"accepted": true, "compacted": true, "result": result})
-		return
-	}
-	writeJSON(w, http.StatusOK, map[string]any{"compacted": true, "result": result})
+	writeJSON(w, http.StatusAccepted, map[string]any{"accepted": true, "compacted": true, "result": result})
 }
 func (s *Server) steerSession(w http.ResponseWriter, r *http.Request) {
 	sessionID := r.PathValue("sessionID")
@@ -300,64 +254,46 @@ func (s *Server) steerSession(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	displayText := promptDisplayText(req.Text, req.Attachments)
+	if s.commands == nil {
+		writeError(w, http.StatusServiceUnavailable, ErrEventStoreNotReady)
+		return
+	}
 	if s.config.EnablePiExecution {
 		if err := s.runner.SteerContext(r.Context(), sessionID, promptText, imageAttachments); err != nil {
 			writeError(w, http.StatusConflict, err)
 			return
 		}
 	}
-	if s.commands != nil {
-		requestID := strings.TrimSpace(r.Header.Get("X-Client-Request-ID"))
-		if requestID == "" {
-			requestID = createSessionID()
-		}
-		event, err := s.commands.AppendControlEvent(r.Context(), sessionID, requestID, EventSteerAccepted, map[string]any{
-			"text": displayText,
-		})
-		if err != nil {
-			writeSessionEventError(w, err)
-			return
-		}
-		writeJSON(w, http.StatusAccepted, map[string]any{"accepted": true, "acceptedSeq": event.Seq, "realPi": s.config.EnablePiExecution})
+	requestID := strings.TrimSpace(r.Header.Get("X-Client-Request-ID"))
+	if requestID == "" {
+		requestID = createSessionID()
+	}
+	event, err := s.commands.AppendControlEvent(r.Context(), sessionID, requestID, EventSteerAccepted, map[string]any{
+		"text": displayText,
+	})
+	if err != nil {
+		writeSessionEventError(w, err)
 		return
 	}
-	user := Message{Kind: "user", Text: displayText, Attachments: imageAttachments}
-	_ = appendMessageAndPublish(s.store, s.broker, sessionID, user)
-	writeJSON(w, http.StatusAccepted, map[string]any{"accepted": true, "realPi": s.config.EnablePiExecution})
+	writeJSON(w, http.StatusAccepted, map[string]any{"accepted": true, "acceptedSeq": event.Seq, "realPi": s.config.EnablePiExecution})
 }
 func (s *Server) cancelSession(w http.ResponseWriter, r *http.Request) {
 	sessionID := r.PathValue("sessionID")
-	if s.commands != nil {
-		requestID := strings.TrimSpace(r.Header.Get("X-Client-Request-ID"))
-		if requestID == "" {
-			requestID = createSessionID()
-		}
-		event, err := s.commands.AppendControlEvent(r.Context(), sessionID, requestID, EventRunCancelRequested, nil)
-		if err != nil {
-			writeSessionEventError(w, err)
-			return
-		}
-		cancelled := s.runner.Cancel(sessionID)
-		writeJSON(w, http.StatusAccepted, map[string]any{"accepted": true, "acceptedSeq": event.Seq, "cancelled": cancelled})
+	if s.commands == nil {
+		writeError(w, http.StatusServiceUnavailable, ErrEventStoreNotReady)
+		return
+	}
+	requestID := strings.TrimSpace(r.Header.Get("X-Client-Request-ID"))
+	if requestID == "" {
+		requestID = createSessionID()
+	}
+	event, err := s.commands.AppendControlEvent(r.Context(), sessionID, requestID, EventRunCancelRequested, nil)
+	if err != nil {
+		writeSessionEventError(w, err)
 		return
 	}
 	cancelled := s.runner.Cancel(sessionID)
-	if cancelled {
-		s.broker.Publish(sessionID, "session.status", map[string]string{"status": "cancelled"})
-	}
-	writeJSON(w, http.StatusOK, map[string]any{"cancelled": cancelled})
-}
-func (s *Server) sessionEvents(w http.ResponseWriter, r *http.Request) {
-	sessionID := r.PathValue("sessionID")
-	if _, _, err := s.store.Session(sessionID); err != nil {
-		writeStoreError(w, err)
-		return
-	}
-	if s.events != nil {
-		s.serveLegacySessionEventsFromDurable(w, r, sessionID)
-		return
-	}
-	s.broker.ServeSession(w, r, sessionID)
+	writeJSON(w, http.StatusAccepted, map[string]any{"accepted": true, "acceptedSeq": event.Seq, "cancelled": cancelled})
 }
 func mergePromptAttachments(text string, attachments []PromptAttachment) string {
 	if len(attachments) == 0 {

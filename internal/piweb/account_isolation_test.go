@@ -50,7 +50,7 @@ func TestAccountSessionIsolationAndPersistence(t *testing.T) {
 	bob := addAccount(t, s, admin, "bob", workspace.ID)
 	aSession := createAccountSession(t, s, alice, workspace.ID)
 	bSession := createAccountSession(t, s, bob, workspace.ID)
-	for _, suffix := range []string{"", "/events", "/context-usage"} {
+	for _, suffix := range []string{"", "/events-v2", "/context-usage"} {
 		w := accountRequest(s, "GET", "/api/sessions/"+aSession.ID+suffix, "", bob)
 		if w.Code != 404 {
 			t.Fatalf("read other session %s: %d", suffix, w.Code)
