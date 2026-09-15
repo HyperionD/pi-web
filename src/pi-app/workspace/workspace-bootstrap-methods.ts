@@ -462,7 +462,7 @@ export const workspaceBootstrapMethods = {
   syncDurableTranscriptMode() {
     const state = this.transcriptState;
     if (!state) return;
-    const mode = state.status === "running" || state.status === "thinking"
+    const mode = state.status === "running" || state.status === "thinking" || state.status === "compacting"
       ? state.status
       : state.status === "cancelled" ? "cancelled" : "idle";
     this.setMode(mode);
@@ -472,6 +472,13 @@ export const workspaceBootstrapMethods = {
     const state = this.transcriptState;
     if (!state) return;
     const view = selectTranscriptView(state);
+    const sessionMeta: Record<string, unknown> = {};
+    if (state.sessionModel?.model) {
+      sessionMeta.model = state.sessionModel.model;
+      sessionMeta.thinkingLevel = state.sessionModel.thinkingLevel;
+    }
+    if (state.contextUsage !== undefined) sessionMeta.contextUsage = state.contextUsage;
+    if (Object.keys(sessionMeta).length) this.updatePromptMeta?.(sessionMeta);
     if (view.items.some((item) => item.kind === "user")) this.removeLoadingMessage?.();
     const ids = view.items.map((item) => item.key);
     const messages = view.items;
