@@ -520,8 +520,15 @@ export const workspaceBootstrapMethods = {
 
   patchDurableTranscriptNode(wrapper, message) {
     const current = wrapper.firstElementChild;
-    if (!current || message.kind === "tool" && !current.matches(".tool-card")) return false;
-    const rendered = this.transcriptElementNodes(this.messageNode(message))[0];
+    if (!current) return false;
+    const renderedNodes = this.transcriptElementNodes(this.messageNode(message));
+    if (!renderedNodes.length) return false;
+    if (renderedNodes.length !== 1 || wrapper.children.length !== 1) {
+      wrapper.replaceChildren(...renderedNodes);
+      return true;
+    }
+    const rendered = renderedNodes[0];
+    if (message.kind === "tool" && !current.matches(".tool-card")) return false;
     if (!rendered || rendered.nodeType !== Node.ELEMENT_NODE) return false;
     if (message.kind === "tool") {
       current.dataset.status = rendered.dataset.status || "";

@@ -104,6 +104,40 @@ describe("pi-app transcript virtualization", () => {
       .toContain("new user message");
   });
 
+  it("renders a choice panel when a streamed assistant item is committed", async () => {
+    const app = await connectPiApp();
+    app.durableEvents = true;
+    app.dataset.activeSessionId = "s1";
+    app.transcriptState = emptyTranscriptState("s1");
+    app.renderDurableTranscript();
+
+    const choiceText = [
+      "```json",
+      '{"type":"piweb_choice","id":"c1","question":"Pick?","options":[{"label":"A","value":"a"}]}',
+      "```",
+    ].join("\n");
+    app.applyDurableEvent({
+      seq: "1",
+      sessionId: "s1",
+      type: "assistant.segment.delta",
+      entityId: "assistant:run-1:1",
+      payload: { kind: "pi", delta: "```json\n{\"type\":\"piweb_choice\"" },
+    });
+    await new Promise((resolve) => requestAnimationFrame(resolve));
+    expect(app.querySelector(".fallback-choice-list")).toBeNull();
+
+    app.applyDurableEvent({
+      seq: "2",
+      sessionId: "s1",
+      type: "assistant.segment.committed",
+      entityId: "assistant:run-1:1",
+      payload: { kind: "pi", text: choiceText },
+    });
+
+    expect(app.querySelector(".fallback-choice-list")).not.toBeNull();
+    expect(app.querySelector(".fallback-choice-list strong").textContent).toBe("Pick?");
+  });
+
   it("recreates a tool card from the latest message after its node is discarded", async () => {
     const app = await connectPiApp();
     app.renderMessages([{ id: "call-1", kind: "tool", tool: "bash", status: "running", body: "partial" }]);
