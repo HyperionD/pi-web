@@ -8,6 +8,11 @@ import {
   shouldResyncAfterGap,
   type SessionEventEnvelope,
 } from "./sessions/session-recovery";
+import {
+  adaptLegacySessionEvent,
+  createLegacyTranscriptState,
+} from "./sessions/legacy-session-event-adapter";
+import { reduceSessionEvent, TranscriptResetError } from "./sessions/transcript-reducer";
 import { SPINNER_FRAME_COUNT } from "./constants";
 import { filePreviewMethods } from "./editor/file-preview-methods";
 import { attachmentMethods } from "./input/attachment-methods";
@@ -202,8 +207,6 @@ class PiApp extends HTMLElement {
     this.sessionViewGeneration = Symbol("session-view");
     if (!preserveResync) this.sessionResync = undefined;
     this.eventStreamId = undefined;
-    this.aguiRunActive = false;
-    this.aguiRunToken = undefined;
     this.eventSource?.close();
     this.eventSource = null;
   }
@@ -271,79 +274,6 @@ class PiApp extends HTMLElement {
       && (!generation || this.sessionViewGeneration === generation);
   }
 
-  aguiSubscriber(sessionId) {
-    const runToken = Symbol(sessionId);
-    this.aguiRunToken = runToken;
-    const isCurrentToken = () => this.dataset.activeSessionId === sessionId && this.aguiRunToken === runToken;
-    const isCurrentRun = () => isCurrentToken() && this.aguiRunActive;
-    let textBuffer = "";
-    return {
-      onRunStarted: () => {
-        if (!isCurrentToken()) return;
-        this.aguiRunToken = runToken;
-        this.aguiRunActive = true;
-        textBuffer = "";
-        this.confirmConnection();
-        this.setMode("running");
-      },
-      onBrokerEventCursor: (cursor) => {
-        if (!isCurrentToken()) return;
-        this.setSessionEventCursor(sessionId, cursor);
-      },
-      onTextDelta: (delta) => {
-        if (!isCurrentRun() || !delta) return;
-        textBuffer += delta;
-        this.setMode("running");
-        this.appendDelta({ kind: "pi", delta });
-      },
-      onTextEnd: (text) => {
-        if (!isCurrentRun() || (!text && !textBuffer)) return;
-        const finalText = textBuffer || text;
-        textBuffer = "";
-        this.finalizePiStream(finalText);
-      },
-      onThinkingDelta: (delta) => {
-        if (!isCurrentRun() || !delta) return;
-        this.setMode("running");
-        this.appendDelta({ kind: "think", delta });
-      },
-      onToolStart: ({ id, name }) => {
-        if (!isCurrentRun()) return;
-        this.setMode("running");
-        this.appendMessage({ id, kind: "tool", tool: name, status: "running", collapsedByDefault: true });
-      },
-      onToolArgs: ({ id, name, chunk }) => {
-        if (!isCurrentRun() || !chunk) return;
-        this.setMode("running");
-        this.updateToolArgs({ id, tool: name, chunk });
-      },
-      onToolResult: ({ id, name, content, mode = "replace" }) => {
-        if (!isCurrentRun() || !content) return;
-        this.appendToolOutput({ id, tool: name, chunk: content, mode });
-      },
-      onToolEnd: ({ id, name, args, body }) => {
-        if (!isCurrentRun()) return;
-        this.finishTool({ id, kind: "tool", tool: name, args, status: "ok", resultMeta: "done", body });
-      },
-      onRunError: (message) => {
-        if (!isCurrentRun()) return;
-        this.aguiRunActive = false;
-        textBuffer = "";
-        this.commitStreamingMessages?.();
-        this.appendErrorMessage?.(message);
-        this.notifyResponseFailure?.(message);
-        this.setMode("idle");
-      },
-      onRunFinished: () => {
-        if (!isCurrentRun()) return;
-        this.aguiRunActive = false;
-        textBuffer = "";
-        this.commitStreamingMessages?.();
-        this.setMode(this.isSessionCancellationPending(sessionId) ? "cancelled" : "idle");
-      },
-    };
-  }
-
   applyEvent(event) {
     if (!this.isCurrentSessionEvent(event)) return;
     if (shouldResyncAfterGap(event)) {
@@ -352,53 +282,59 @@ class PiApp extends HTMLElement {
       return;
     }
     if (event.type === "heartbeat") return;
-    if (event.type === "error") {
-      this.commitStreamingMessages?.({ preserveAguiText: this.aguiRunActive });
-      this.appendErrorMessage?.(event.payload?.error);
-      this.notifyResponseFailure?.(event.payload?.error);
-      return;
-    }
-    if (event.type === "session.status") {
-      const mode = event.payload?.status || "auto-accept";
-      if (mode === "compacting") {
-        this.setMode(mode);
-        return;
-      }
-      if (mode === "idle" || mode === "cancelled") {
-        this.compacting = false;
-        this.commitStreamingMessages?.({ preserveAguiText: this.aguiRunActive });
-      }
-      this.setMode(mode);
-      if ((mode === "idle" || mode === "cancelled")
-        && this.apiConnected && this.dataset.activeSessionId && !this.aguiRunActive) {
-        void this.requestSessionResync(this.dataset.activeSessionId);
-      }
-      return;
-    }
-    if (event.type === "session.message") {
-      this.appendMessage(event.payload);
-      return;
-    }
-    if (event.type === "session.delta") {
-      if (!this.running) this.setMode("running");
-      this.appendDelta(event.payload);
-      return;
-    }
     if (event.type === "session.renamed") {
       this.updateSessionTitle(event.payload);
       return;
     }
-    if (event.type === "tool.started") {
-      if (!this.running) this.setMode("running");
-      this.appendMessage(event.payload);
+    const status = event.type === "session.status" ? event.payload?.status : undefined;
+    if (status === "compacting") {
+      this.setMode(status);
       return;
     }
-    if (event.type === "tool.output") {
-      if (!this.running) this.setMode("running");
-      this.appendToolOutput(event.payload);
-      return;
+    if (!this.transcriptState || (event.sessionId && this.transcriptState.sessionId !== event.sessionId)) {
+      this.transcriptState = createLegacyTranscriptState(
+        event.sessionId || this.dataset.activeSessionId,
+        [],
+        "idle",
+        this.sessionEventCursors?.get(event.sessionId) || "0",
+      );
+      this.legacyEventContext = {
+        sessionId: this.transcriptState.sessionId,
+        runId: this.transcriptState.runId,
+        activeToolIds: new Map([...this.transcriptState.itemsById.values()]
+          .filter((item) => item.kind === "tool" && item.toolCallId)
+          .map((item) => [item.toolCallId, item.id])),
+        activeSegmentIds: new Map(),
+      };
     }
-    if (event.type === "tool.finished") this.finishTool(event.payload);
+    const context = this.legacyEventContext || {
+      sessionId: this.transcriptState.sessionId,
+      runId: this.transcriptState.runId,
+      activeToolIds: new Map([...this.transcriptState.itemsById.values()]
+        .filter((item) => item.kind === "tool" && item.toolCallId)
+        .map((item) => [item.toolCallId, item.id])),
+      activeSegmentIds: new Map(),
+    };
+    this.legacyEventContext = context;
+    const incomingEvent = event.id === undefined
+      ? { ...event, id: String(BigInt(this.transcriptState.appliedSeq || "0") + 1n) }
+      : event;
+    for (const translated of adaptLegacySessionEvent(incomingEvent, context)) {
+      try {
+        this.transcriptState = reduceSessionEvent(this.transcriptState, translated);
+      } catch (error) {
+        if (error instanceof TranscriptResetError) {
+          void this.requestSessionResync(this.transcriptState.sessionId);
+          return;
+        }
+        throw error;
+      }
+      this.setSessionEventCursor(event.sessionId, event.id);
+      this.renderDurableTranscript?.({ syncMode: true });
+      if (translated.type === "run.failed") {
+        this.notifyResponseFailure?.(String(translated.payload?.error || "runtime failed"));
+      }
+    }
   }
 
   confirmConnection() {

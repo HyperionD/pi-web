@@ -3,6 +3,7 @@ import {
   renderVirtualTranscriptItem,
   updateTranscriptVirtualScroller,
 } from "./transcript-virtual-scroller";
+import type { TranscriptViewMessage } from "./transcript-view-model";
 
 const OLDER_MESSAGE_LOAD_THRESHOLD = 160;
 const TRANSCRIPT_HEIGHT_CHANGE_EPSILON = 0.5;
@@ -203,7 +204,7 @@ export const transcriptWindowMethods = {
     const body = node.querySelector?.(isTool ? ".tc-body" : ".body");
     const kind = isTool ? "tool" : node.dataset.kind || "pi";
     const key = node.dataset.toolCallId || node.dataset.rawText || `legacy:${this.transcriptNextItemId++}`;
-    const message = {
+    const message: TranscriptViewMessage & { id?: string } = {
       id: isTool ? node.dataset.toolCallId || key : undefined,
       key,
       kind,
@@ -218,15 +219,20 @@ export const transcriptWindowMethods = {
     return message;
   },
 
+  appendTranscriptMessage(message, { stickToBottom = true } = {}) {
+    if (!message) return;
+    this.transcriptItems = [
+      ...(this.transcriptItems || []),
+      this.createTranscriptItem(message),
+    ];
+    if (!this.deferTranscriptRender) this.renderTranscriptWindow({ stickToBottom });
+  },
+
   appendTranscriptNode(node, { stickToBottom = true } = {}) {
     const element = this.transcriptElementNodes(node)[0];
     const message = this.transcriptMessageFromNode(element);
     if (!element || !message) return;
-    this.transcriptItems = [
-      ...(this.transcriptItems || []),
-      this.createTranscriptItem(message, { height: measuredHeight([element]) || DEFAULT_TRANSCRIPT_ITEM_HEIGHT }),
-    ];
-    if (!this.deferTranscriptRender) this.renderTranscriptWindow({ stickToBottom });
+    this.appendTranscriptMessage(message, { stickToBottom });
   },
 
   appendStreamingNode(node) {

@@ -6,6 +6,7 @@ import {
   streamVisibleChoiceText,
 } from "../input/fallback-choices";
 import { TERMINAL_SPINNER_HTML } from "../constants";
+import { createLegacyTranscriptState } from "../sessions/legacy-session-event-adapter";
 
 const STREAMING_RENDER_MAX_PENDING_UPDATES = 32;
 
@@ -26,6 +27,14 @@ export const messageMethods = {
     this.resetTranscriptWindow();
     this.deferTranscriptRender = false;
     this.answeredChoiceIds = this.answeredChoiceIdsFrom(messages);
+    if (!this.transcriptState) {
+      this.transcriptState = createLegacyTranscriptState(
+        this.dataset.activeSessionId || "legacy",
+        messages,
+        "idle",
+        "0",
+      );
+    }
     this.transcriptItems = messages.map((message) => this.createTranscriptItem(message));
     this.renderTranscriptWindow({ stickToBottom: true });
     this.scrollTerm();
@@ -66,7 +75,7 @@ export const messageMethods = {
     if (message.kind === "pi") this.clearStreamingState("pi");
     if (message.kind === "tool") this.commitStreamingMessages();
     for (const streamingRow of this.streamingRowsForKind(message.kind)) this.removeStreamingNode(streamingRow);
-    this.appendTranscriptNode(this.messageNode(message), { stickToBottom: true });
+    this.appendTranscriptMessage(message, { stickToBottom: true });
     this.notifyPiMessageCommitted(message);
     if (message.kind === "user") this.disableAnsweredChoice(parseFallbackChoiceAnswer(message.text));
     if (message.kind !== "user") this.syncLoadingMessage();
@@ -158,8 +167,7 @@ export const messageMethods = {
     const text = responseErrorText(detail);
     if (!text || this.responseErrorMessageShown) return;
     this.responseErrorMessageShown = true;
-    const messageRow = this.messageNode({ kind: "error", text });
-    this.appendTranscriptNode(messageRow, { stickToBottom: true });
+    this.appendTranscriptMessage({ kind: "error", text }, { stickToBottom: true });
     this.scrollTerm();
   },
 
@@ -178,7 +186,7 @@ export const messageMethods = {
       this.scrollTerm();
       return;
     }
-    this.appendTranscriptNode(this.messageNode(message), { stickToBottom: true });
+    this.appendTranscriptMessage(message, { stickToBottom: true });
     this.clearStreamingState("pi");
     this.notifyPiMessageCommitted(message);
     this.syncLoadingMessage();
@@ -192,7 +200,7 @@ export const messageMethods = {
     const isDuplicate = this.isDuplicateMessage(message);
     this.removeLoadingMessage();
     for (const row of this.streamingRowsForKind("think")) this.removeStreamingNode(row);
-    if (!isDuplicate) this.appendTranscriptNode(this.messageNode(message), { stickToBottom: true });
+    if (!isDuplicate) this.appendTranscriptMessage(message, { stickToBottom: true });
     this.clearStreamingState("think");
     this.syncLoadingMessage();
     this.scrollTerm();
@@ -229,7 +237,7 @@ export const messageMethods = {
       })
       .filter(Boolean);
     rows.forEach((row) => this.removeStreamingNode(row));
-    for (const message of messages) this.appendTranscriptNode(this.messageNode(message), { stickToBottom: false });
+    for (const message of messages) this.appendTranscriptMessage(message, { stickToBottom: false });
     if (messages.length) this.renderTranscriptWindow({ stickToBottom: true });
   },
 
@@ -315,7 +323,7 @@ export const messageMethods = {
     } else {
       this.finalizeStreamingMessages();
     }
-    for (const message of messages) this.appendTranscriptNode(this.messageNode(message), { stickToBottom: false });
+    for (const message of messages) this.appendTranscriptMessage(message, { stickToBottom: false });
     if (hasPendingChoice) this.notifyChoiceRequested?.();
     if (messages.length) this.renderTranscriptWindow({ stickToBottom: true });
   },

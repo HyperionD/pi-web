@@ -1,4 +1,4 @@
-import { cancelSession, createSession, postPrompt, runAguiSessionPrompt, runShellCommand, steerSession } from "../../lib/api";
+import { cancelSession, createSession, postPrompt, runShellCommand, steerSession } from "../../lib/api";
 import { fallbackChoicePrompt } from "./fallback-choices";
 import { maxUploadBytesToMiB } from "../workspace/app-config-methods";
 
@@ -41,7 +41,6 @@ export const inputMethods = {
         ? (globalThis.crypto?.randomUUID?.() || `request-${Date.now()}-${Math.random().toString(36).slice(2)}`)
         : "";
       const useDurablePrompt = waitForServerEcho && this.durableEvents === true;
-      const useAguiPrompt = waitForServerEcho && !useDurablePrompt && typeof EventSource !== "undefined";
       const hasVisiblePrompt = !!text || attachments.length > 0;
       this.writeLastSessionPrompt(sessionId, text);
       if (hasVisiblePrompt) {
@@ -58,44 +57,15 @@ export const inputMethods = {
       this.updatePrompt();
       if (waitForServerEcho) {
         this.invalidateEventStream();
+        if (!useDurablePrompt) this.connectEvents(sessionId, { replay: true });
         this.setMode("running");
-        if (useDurablePrompt) {
-          try {
-            await postPrompt(sessionId, text, attachments, clientRequestId);
-          } catch (error) {
-            this.notifyResponseFailure?.(error);
-            this.setMode("idle");
-            this.removeLoadingMessage();
-            this.setConnection("err");
-          }
-        } else {
-          const aguiSubscriber = this.aguiSubscriber(sessionId);
-          const aguiRunToken = this.aguiRunToken;
-          try {
-            const completedInAguiStream = await runAguiSessionPrompt(
-              sessionId,
-              text,
-              attachments,
-              aguiSubscriber,
-            );
-            if (completedInAguiStream && this.dataset.activeSessionId === sessionId
-              && this.aguiRunToken === aguiRunToken) {
-              this.setMode("idle");
-              this.finalizeStreamingMessages();
-              this.removeLoadingMessage();
-            }
-          } catch {
-            if (this.dataset.activeSessionId !== sessionId || this.aguiRunToken !== aguiRunToken) return;
-            this.setMode("idle");
-            this.removeLoadingMessage();
-            this.setConnection("err");
-          } finally {
-            if (this.dataset.activeSessionId === sessionId
-              && this.aguiRunToken === aguiRunToken
-              && typeof EventSource !== "undefined") {
-              this.connectEvents(sessionId, { replay: true });
-            }
-          }
+        try {
+          await postPrompt(sessionId, text, attachments, clientRequestId);
+        } catch (error) {
+          this.notifyResponseFailure?.(error);
+          this.setMode("idle");
+          this.removeLoadingMessage();
+          this.setConnection("err");
         }
       }
     } finally {
@@ -373,41 +343,17 @@ export const inputMethods = {
     this.appendLoadingMessage();
     this.setMode("running");
     const sessionId = this.dataset.activeSessionId;
-    if (useDurablePrompt) {
-      const clientRequestId = globalThis.crypto?.randomUUID?.()
-        || `request-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-      try {
-        await postPrompt(sessionId, prompt, [], clientRequestId);
-      } catch (error) {
-        this.notifyResponseFailure?.(error);
-        this.setMode("idle");
-        this.removeLoadingMessage();
-        this.setConnection("err");
-      }
-      return;
-    }
+    const clientRequestId = globalThis.crypto?.randomUUID?.()
+      || `request-${Date.now()}-${Math.random().toString(36).slice(2)}`;
     this.invalidateEventStream();
-    const aguiSubscriber = this.aguiSubscriber(sessionId);
-    const aguiRunToken = this.aguiRunToken;
+    if (!useDurablePrompt) this.connectEvents(sessionId, { replay: true });
     try {
-      const completedInAguiStream = await runAguiSessionPrompt(sessionId, prompt, [], aguiSubscriber);
-      if (completedInAguiStream && this.dataset.activeSessionId === sessionId
-        && this.aguiRunToken === aguiRunToken) {
-        this.setMode("idle");
-        this.finalizeStreamingMessages();
-        this.removeLoadingMessage();
-      }
-    } catch {
-      if (this.dataset.activeSessionId !== sessionId || this.aguiRunToken !== aguiRunToken) return;
+      await postPrompt(sessionId, prompt, [], clientRequestId);
+    } catch (error) {
+      this.notifyResponseFailure?.(error);
       this.setMode("idle");
       this.removeLoadingMessage();
       this.setConnection("err");
-    } finally {
-      if (this.dataset.activeSessionId === sessionId
-        && this.aguiRunToken === aguiRunToken
-        && typeof EventSource !== "undefined") {
-        this.connectEvents(this.dataset.activeSessionId, { replay: true });
-      }
     }
   },
 

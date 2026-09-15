@@ -1,7 +1,6 @@
 package piweb
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"net/http"
@@ -432,49 +431,6 @@ func TestServeSessionRejectsInvalidEventCursor(t *testing.T) {
 	}
 }
 
-func TestAguiCompletionReconnectDoesNotReplayRenderedEvents(t *testing.T) {
-	store := NewMockStore()
-	broker := NewBroker()
-	server := NewServer(Config{}, store, broker)
-	body := `{"threadId":"8e7c-44ff","runId":"run-reconnect","messages":[{"role":"user","content":"hello"}],"forwardedProps":{"text":"hello"}}`
-	aguiRequest := httptest.NewRequest(http.MethodPost, "/api/sessions/8e7c-44ff/ag-ui", bytes.NewBufferString(body))
-	aguiResponse := httptest.NewRecorder()
-	server.Handler().ServeHTTP(aguiResponse, aguiRequest)
-	if aguiResponse.Code != http.StatusOK || !strings.Contains(aguiResponse.Body.String(), `"type":"RUN_FINISHED"`) {
-		t.Fatalf("AG-UI run did not complete: status=%d body=%q", aguiResponse.Code, aguiResponse.Body.String())
-	}
-	latest := broker.LatestEventID("8e7c-44ff")
-	writer := newTestSSEWriter()
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	request := httptest.NewRequest(http.MethodGet, "/events?replay=false&after="+strconv.FormatUint(latest, 10), nil).WithContext(ctx)
-	done := make(chan struct{})
-	go func() {
-		broker.ServeSession(writer, request, "8e7c-44ff")
-		close(done)
-	}()
-	select {
-	case <-writer.flushed:
-	case <-time.After(time.Second):
-		t.Fatal("reconnect did not flush initial response")
-	}
-	if events := parseSSEEnvelopes(writer.String()); len(events) != 0 {
-		t.Fatalf("AG-UI rendered events were replayed: %#v", events)
-	}
-	live := broker.Publish("8e7c-44ff", "session.status", map[string]string{"status": "idle"})
-	select {
-	case <-writer.flushed:
-	case <-time.After(time.Second):
-		t.Fatal("reconnect did not receive live event")
-	}
-	cancel()
-	<-done
-	events := parseSSEEnvelopes(writer.String())
-	if len(events) != 1 || events[0].ID != strconv.FormatUint(live.ID, 10) || events[0].Type != "session.status" {
-		t.Fatalf("unexpected live SSE envelope: %#v", events)
-	}
-}
-
 type parsedSSEEnvelope struct {
 	ID   string
 	Type string
@@ -556,7 +512,7 @@ func TestServeSessionReplayFalseDoesNotReplayAfterCursor(t *testing.T) {
 	}
 	body := writer.String()
 	if strings.Contains(body, "id: "+strconv.FormatUint(second.ID, 10)) {
-		t.Fatalf("replay=false replayed an AG-UI-consumed event: %q", body)
+		t.Fatalf("replay=false replayed an event: %q", body)
 	}
 	next := broker.Publish("s1", "session.status", map[string]string{"status": "idle"})
 	select {

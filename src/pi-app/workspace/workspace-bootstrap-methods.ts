@@ -9,6 +9,7 @@ import {
 } from "../../lib/api";
 import { clearStoredActiveSession, readStoredActiveSession, storeActiveSession } from "../sessions/session-storage";
 import { normalizeEventCursor } from "../sessions/session-recovery";
+import { createLegacyTranscriptState } from "../sessions/legacy-session-event-adapter";
 import { createSessionStreamClient } from "../sessions/session-stream-client";
 import { createTranscriptRenderScheduler } from "../transcript/transcript-render-scheduler";
 import { selectTranscriptView } from "../transcript/transcript-view-model";
@@ -623,8 +624,21 @@ export const workspaceBootstrapMethods = {
       this.sessionEventCursors.delete(session.id);
       this.setSessionEventCursor(session.id, snapshotCursor);
     }
-    this.renderMessages(messages);
-    this.setMode(status || "idle");
+    this.transcriptState = createLegacyTranscriptState(
+      session.id,
+      messages,
+      status || "idle",
+      normalizeEventCursor(snapshotCursor) || "0",
+    );
+    this.legacyEventContext = {
+      sessionId: session.id,
+      runId: this.transcriptState.runId,
+      activeToolIds: new Map([...this.transcriptState.itemsById.values()]
+        .filter((item) => item.kind === "tool" && item.toolCallId)
+        .map((item) => [item.toolCallId, item.id])),
+      activeSegmentIds: new Map(),
+    };
+    this.renderDurableTranscript();
     if (hasSnapshotCursor) {
       this.connectEvents(session.id, {
         replay: activeRun ? "active" : true,

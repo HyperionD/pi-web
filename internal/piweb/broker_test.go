@@ -46,7 +46,7 @@ func TestShouldReplayHistory(t *testing.T) {
 		t.Fatal("initial loaded sessions should not replay broker history")
 	}
 	if shouldReplayHistory(withoutReplay, 7) {
-		t.Fatal("replay=false must not replay AG-UI-consumed history")
+		t.Fatal("replay=false must not replay history")
 	}
 	withReplay := httptest.NewRequest("GET", "/events", nil)
 	if !shouldReplayHistory(withReplay, 0) {

@@ -96,7 +96,6 @@ func TestSessionRoutesRejectForbiddenWorkspace(t *testing.T) {
 		{http.MethodPatch, ""},
 		{http.MethodDelete, ""},
 		{http.MethodPost, "/prompt"},
-		{http.MethodPost, "/ag-ui"},
 		{http.MethodPost, "/compact"},
 		{http.MethodPost, "/steer"},
 		{http.MethodPost, "/cancel"},

@@ -62,7 +62,7 @@ func TestAccountSessionIsolationAndPersistence(t *testing.T) {
 			t.Fatalf("mutate other session: %d", w.Code)
 		}
 	}
-	for _, suffix := range []string{"prompt", "ag-ui", "steer", "cancel", "compact", "model"} {
+	for _, suffix := range []string{"prompt", "steer", "cancel", "compact", "model"} {
 		if w := accountRequest(s, "POST", "/api/sessions/"+aSession.ID+"/"+suffix, `{}`, bob); w.Code != 404 {
 			t.Fatalf("%s: %d", suffix, w.Code)
 		}

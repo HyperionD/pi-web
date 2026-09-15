@@ -1,4 +1,3 @@
-import { HttpAgent } from "@ag-ui/client";
 import { downloadWorkspaceFile, uploadWorkspaceFile } from "./file-transfer";
 import { normalizeEventCursor } from "../pi-app/sessions/session-recovery";
 import { apiBase } from "./api-base";
@@ -294,88 +293,6 @@ export function postPrompt(sessionId, text, attachments = [], clientRequestId = 
       ...(clientRequestId ? { clientRequestId } : {}),
     }),
   });
-}
-
-export async function runAguiSessionPrompt(sessionId, text, attachments = [], subscriber: any = {}) {
-  if (typeof EventSource === "undefined") {
-    await postPrompt(sessionId, text, attachments);
-    return false;
-  }
-  const agent = new HttpAgent({
-    url: `${apiBase()}/api/sessions/${encodeURIComponent(sessionId)}/ag-ui`,
-    threadId: sessionId,
-    initialMessages: [
-      {
-        id: `user-${Date.now()}`,
-        role: "user",
-        content: text,
-      },
-    ],
-  });
-  const toolNames = new Map<string, string>();
-  const toolOutputModes = new Map<string, "append" | "replace">();
-  try {
-    await agent.runAgent(
-      {
-        runId: `run-${Date.now()}-${Math.random().toString(36).slice(2)}`,
-        forwardedProps: { text, attachments },
-      },
-      {
-        onRunStartedEvent: () => subscriber.onRunStarted?.(),
-        onTextMessageContentEvent: ({ event }: any) => subscriber.onTextDelta?.(event.delta || ""),
-        onTextMessageEndEvent: ({ textMessageBuffer }: any) => subscriber.onTextEnd?.(textMessageBuffer || ""),
-        onReasoningMessageContentEvent: ({ event }: any) => subscriber.onThinkingDelta?.(event.delta || ""),
-        onToolCallStartEvent: ({ event }: any) => {
-          const name = event.toolCallName || "tool";
-          toolNames.set(event.toolCallId, name);
-          subscriber.onToolStart?.({ id: event.toolCallId, name });
-        },
-        onToolCallArgsEvent: ({ event, toolCallName }: any) => {
-          const name = toolCallName || toolNames.get(event.toolCallId) || "tool";
-          const chunk = event.delta || "";
-          subscriber.onToolArgs?.({ id: event.toolCallId, name, chunk });
-        },
-        onCustomEvent: ({ event }: any) => {
-          if (event.name === "piweb.broker-cursor") {
-            subscriber.onBrokerEventCursor?.(event.value?.eventId);
-            return;
-          }
-          if (event.name !== "piweb.tool-output") return;
-          const toolCallId = event.value?.toolCallId;
-          const mode = event.value?.mode;
-          if (typeof toolCallId === "string" && (mode === "append" || mode === "replace")) {
-            toolOutputModes.set(toolCallId, mode);
-          }
-        },
-        onToolCallResultEvent: ({ event }: any) => {
-          const name = toolNames.get(event.toolCallId) || "tool";
-          const content = event.content || "";
-          const mode = toolOutputModes.get(event.toolCallId) || "replace";
-          toolOutputModes.delete(event.toolCallId);
-          subscriber.onToolResult?.({ id: event.toolCallId, name, content, mode });
-        },
-        onToolCallEndEvent: ({ event, toolCallName, toolCallArgs }: any) => {
-          const name = toolCallName || toolNames.get(event.toolCallId) || "tool";
-          subscriber.onToolEnd?.({
-            id: event.toolCallId,
-            name,
-            args: typeof toolCallArgs === "string" ? toolCallArgs : JSON.stringify(toolCallArgs || {}),
-            body: "",
-          });
-        },
-        onRunErrorEvent: ({ event }: any) => subscriber.onRunError?.(event.message || "AG-UI run failed"),
-        onRunFinishedEvent: () => subscriber.onRunFinished?.(),
-        onRunFailed: ({ error }: any) => subscriber.onRunError?.(error?.message || String(error)),
-      },
-    );
-    return true;
-  } catch (error) {
-    if (String(error).includes("Failed to getReader")) {
-      await postPrompt(sessionId, text, attachments);
-      return false;
-    }
-    throw error;
-  }
 }
 
 export function steerSession(sessionId, text, attachments = []) {

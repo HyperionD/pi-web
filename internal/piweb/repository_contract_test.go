@@ -135,7 +135,6 @@ func TestRoutes(t *testing.T) {
 		{"PATCH /api/sessions/{sessionID}", "renameSession", "requireSessionAccess"},
 		{"DELETE /api/sessions/{sessionID}", "deleteSession", "requireSessionAccess"},
 		{"POST /api/sessions/{sessionID}/prompt", "prompt", "requireSessionAccess"},
-		{"POST /api/sessions/{sessionID}/ag-ui", "aguiSessionRun", "requireSessionAccess"},
 		{"POST /api/sessions/{sessionID}/compact", "compactSession", "requireSessionAccess"},
 		{"POST /api/sessions/{sessionID}/steer", "steerSession", "requireSessionAccess"},
 		{"POST /api/sessions/{sessionID}/cancel", "cancelSession", "requireSessionAccess"},
