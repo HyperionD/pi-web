@@ -19,16 +19,17 @@ import (
 )
 
 type SessionSnapshot struct {
-	Session              Session                `json:"session"`
-	Items                []ProjectedSessionItem `json:"items"`
-	Status               string                 `json:"status"`
-	RunID                string                 `json:"runId"`
-	Seq                  string                 `json:"seq"`
-	Cursor               string                 `json:"cursor"`
-	HasMore              bool                   `json:"hasMore"`
-	Limit                int                    `json:"limit"`
-	ProjectionSchema     int                    `json:"projectionSchemaVersion"`
-	ProjectionGeneration string                 `json:"projectionGeneration"`
+	Session              Session                   `json:"session"`
+	Metadata             SessionMetadataProjection `json:"metadata"`
+	Items                []ProjectedSessionItem    `json:"items"`
+	Status               string                    `json:"status"`
+	RunID                string                    `json:"runId"`
+	Seq                  string                    `json:"seq"`
+	Cursor               string                    `json:"cursor"`
+	HasMore              bool                      `json:"hasMore"`
+	Limit                int                       `json:"limit"`
+	ProjectionSchema     int                       `json:"projectionSchemaVersion"`
+	ProjectionGeneration string                    `json:"projectionGeneration"`
 }
 
 type SessionResponse struct {
@@ -101,19 +102,28 @@ func postPromptAndDecodeReceipt(t *testing.T, server *httptest.Server, sessionID
 }
 
 func postJSON(t *testing.T, server *httptest.Server, path string, body any) *http.Response {
+	return requestJSON(t, server, http.MethodPost, path, body)
+}
+
+func requestJSON(t *testing.T, server *httptest.Server, method, path string, body any) *http.Response {
 	t.Helper()
 	data, err := json.Marshal(body)
 	if err != nil {
 		t.Fatalf("encode JSON request: %v", err)
 	}
-	response, err := http.Post(server.URL+path, "application/json", bytes.NewReader(data))
+	request, err := http.NewRequest(method, server.URL+path, bytes.NewReader(data))
 	if err != nil {
-		t.Fatalf("POST %s: %v", path, err)
+		t.Fatalf("create %s request: %v", method, err)
+	}
+	request.Header.Set("Content-Type", "application/json")
+	response, err := http.DefaultClient.Do(request)
+	if err != nil {
+		t.Fatalf("%s %s: %v", method, path, err)
 	}
 	if response.StatusCode < http.StatusOK || response.StatusCode >= http.StatusMultipleChoices {
 		data, _ := io.ReadAll(response.Body)
 		response.Body.Close()
-		t.Fatalf("POST %s: status=%d body=%s", path, response.StatusCode, data)
+		t.Fatalf("%s %s: status=%d body=%s", method, path, response.StatusCode, data)
 	}
 	return response
 }
@@ -262,6 +272,32 @@ func hasEventTypes(events []StoredSessionEvent, types ...string) bool {
 		}
 	}
 	return true
+}
+
+func TestSessionDomainControlCommandsShareDurableProjection(t *testing.T) {
+	server, events, sessionID := newDurableIntegrationServer(t)
+	rename := requestJSON(t, server, http.MethodPatch, "/api/sessions/"+url.PathEscape(sessionID), map[string]any{
+		"title": "renamed", "clientRequestId": "rename-integration",
+	})
+	defer rename.Body.Close()
+	if rename.StatusCode != http.StatusAccepted {
+		t.Fatalf("rename status = %d, want %d", rename.StatusCode, http.StatusAccepted)
+	}
+	state := getState(t, server, sessionID)
+	if state.Metadata.Title != "renamed" {
+		t.Fatalf("projected title = %q", state.Metadata.Title)
+	}
+
+	deleted := requestJSON(t, server, http.MethodDelete, "/api/sessions/"+url.PathEscape(sessionID), map[string]any{})
+	deleted.Body.Close()
+	if deleted.StatusCode != http.StatusAccepted {
+		t.Fatalf("delete status = %d, want %d", deleted.StatusCode, http.StatusAccepted)
+	}
+	state = getState(t, server, sessionID)
+	if !state.Metadata.Deleted {
+		t.Fatal("durable delete did not project tombstone")
+	}
+	requireTypes(t, mustReadEvents(t, events, sessionID), EventSessionRenamed, EventSessionRebased, EventSessionDeleted)
 }
 
 func TestSessionDomainCancelAppendsDurableRequest(t *testing.T) {
