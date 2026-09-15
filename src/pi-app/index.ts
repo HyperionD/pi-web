@@ -6,11 +6,6 @@ import {
   normalizeEventCursor,
   shouldResyncAfterGap,
 } from "./sessions/session-recovery";
-import {
-  adaptLegacySessionEvent,
-  createLegacyTranscriptState,
-} from "./sessions/legacy-session-event-adapter";
-import { reduceSessionEvent, TranscriptResetError } from "./sessions/transcript-reducer";
 import { SPINNER_FRAME_COUNT } from "./constants";
 import { filePreviewMethods } from "./editor/file-preview-methods";
 import { attachmentMethods } from "./input/attachment-methods";
@@ -225,62 +220,47 @@ class PiApp extends HTMLElement {
       return;
     }
     if (event.type === "heartbeat") return;
+    this.setSessionEventCursor(event.sessionId, event.id);
     if (event.type === "session.renamed") {
       this.updateSessionTitle(event.payload);
       return;
     }
-    const status = event.type === "session.status" ? event.payload?.status : undefined;
-    if (status === "compacting") {
-      this.setMode(status);
+    if (event.type === "session.status") {
+      const status = event.payload?.status;
+      if (status) this.setMode(status);
+      if (status === "cancelled") this.notifySessionCompleted?.();
       return;
     }
-    if (!this.transcriptState || (event.sessionId && this.transcriptState.sessionId !== event.sessionId)) {
-      this.transcriptState = createLegacyTranscriptState(
-        event.sessionId || this.dataset.activeSessionId,
-        [],
-        "idle",
-        this.sessionEventCursors?.get(event.sessionId) || "0",
-      );
-      this.legacyEventContext = {
-        sessionId: this.transcriptState.sessionId,
-        runId: this.transcriptState.runId,
-        activeToolIds: new Map([...this.transcriptState.itemsById.values()]
-          .filter((item) => item.kind === "tool" && item.toolCallId)
-          .map((item) => [item.toolCallId, item.id])),
-        activeSegmentIds: new Map(),
-      };
+    if (event.type === "session.message") {
+      this.appendMessage(event.payload);
+      return;
     }
-    const context = this.legacyEventContext || {
-      sessionId: this.transcriptState.sessionId,
-      runId: this.transcriptState.runId,
-      activeToolIds: new Map([...this.transcriptState.itemsById.values()]
-        .filter((item) => item.kind === "tool" && item.toolCallId)
-        .map((item) => [item.toolCallId, item.id])),
-      activeSegmentIds: new Map(),
-    };
-    this.legacyEventContext = context;
-    const incomingEvent = event.id === undefined
-      ? { ...event, id: String(BigInt(this.transcriptState.appliedSeq || "0") + 1n) }
-      : event;
-    const incomingSeq = normalizeEventCursor(incomingEvent.id);
-    if (incomingSeq && this.transcriptState.appliedSeq === "0" && BigInt(incomingSeq) > 1n) {
-      this.transcriptState = { ...this.transcriptState, appliedSeq: (BigInt(incomingSeq) - 1n).toString() };
+    if (event.type === "session.delta") {
+      const kind = event.payload?.kind === "think" ? "think" : "pi";
+      const message = { kind, text: event.payload?.delta || "" };
+      this.appendMessage(message);
+      return;
     }
-    for (const translated of adaptLegacySessionEvent(incomingEvent, context)) {
-      try {
-        this.transcriptState = reduceSessionEvent(this.transcriptState, translated);
-      } catch (error) {
-        if (error instanceof TranscriptResetError) {
-          void this.requestSessionResync(this.transcriptState.sessionId);
-          return;
-        }
-        throw error;
-      }
-      this.setSessionEventCursor(event.sessionId, event.id);
-      if (translated.type === "run.failed") {
-        this.notifyResponseFailure?.(String(translated.payload?.error || "runtime failed"));
-      }
-      this.renderDurableTranscript?.({ syncMode: true });
+    if (event.type === "tool.started") {
+      this.appendMessage({ kind: "tool", ...event.payload, status: "running" });
+      return;
+    }
+    if (event.type === "tool.args.delta") {
+      this.updateToolArgs(event.payload);
+      return;
+    }
+    if (event.type === "tool.output") {
+      this.appendToolOutput(event.payload);
+      return;
+    }
+    if (event.type === "tool.finished") {
+      this.finishTool({ kind: "tool", ...event.payload, status: event.payload?.status || "ok" });
+      return;
+    }
+    if (event.type === "error") {
+      const detail = event.payload?.error || event.payload?.message;
+      this.appendErrorMessage(detail);
+      this.notifyResponseFailure?.(detail);
     }
   }
 

@@ -120,6 +120,40 @@ export function emptyTranscriptState(sessionId: string, viewGeneration: symbol =
   };
 }
 
+export function createTranscriptStateFromMessages(
+  sessionId: string,
+  messages: Array<Record<string, any>> = [],
+  status = "idle",
+  appliedSeq = "0",
+): TranscriptState {
+  const state = emptyTranscriptState(sessionId);
+  const items = (Array.isArray(messages) ? messages : []).map((message, index): TranscriptItem => {
+    const id = message.id || `local:${message.kind || "message"}:${index + 1}`;
+    return {
+      id,
+      ordinal: index + 1,
+      kind: message.kind || "pi",
+      origin: "local",
+      runId: message.runId,
+      entityId: message.entityId,
+      text: message.text || "",
+      tool: message.tool,
+      toolCallId: message.toolCallId || message.id,
+      args: message.args,
+      bodyPreview: message.body || message.bodyPreview || "",
+      status: message.status,
+      resultMeta: message.resultMeta,
+      durationMs: message.durationMs,
+      attachments: message.attachments,
+    };
+  });
+  state.itemOrder = items.map((item) => item.id);
+  state.itemsById = new Map(items.map((item) => [item.id, item]));
+  state.status = status as TranscriptStatus;
+  state.appliedSeq = appliedSeq;
+  return state;
+}
+
 export function emptyTranscriptItem(id: string, ordinal: number): TranscriptItem {
   return { id, ordinal, kind: "pi", origin: "runtime", text: "", bodyPreview: "" };
 }
