@@ -54,6 +54,45 @@ func applyProjectionChange(view ProjectionView, change ProjectionChange) Project
 	return view
 }
 
+func TestReduceSessionEventUpdatesSessionMetadata(t *testing.T) {
+	view := ProjectionView{Stream: SessionStreamState{SessionID: "s1", Status: SessionStatusIdle}}
+	event := storedProjectionEvent("", 1, EventSessionRenamed, "", map[string]any{"title": "New title"})
+	change, err := ReduceSessionEvent(view, event)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if change.Metadata == nil || change.Metadata.Title != "New title" || change.Metadata.UpdatedSeq != 1 {
+		t.Fatalf("metadata = %#v", change.Metadata)
+	}
+}
+
+func TestReduceSessionEventMovesCompactionThroughStatuses(t *testing.T) {
+	view := ProjectionView{Stream: SessionStreamState{SessionID: "s1", Status: SessionStatusIdle}}
+	started, err := ReduceSessionEvent(view, storedProjectionEvent("", 1, EventCompactionStarted, "", nil))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if started.Stream.Status != SessionStatusCompacting {
+		t.Fatalf("started status = %q", started.Stream.Status)
+	}
+	view.Stream = started.Stream
+	finished, err := ReduceSessionEvent(view, storedProjectionEvent("", 2, EventCompactionCommitted, "", nil))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if finished.Stream.Status != SessionStatusIdle {
+		t.Fatalf("finished status = %q", finished.Stream.Status)
+	}
+}
+
+func TestReduceSessionEventRejectsBlankSessionTitle(t *testing.T) {
+	view := ProjectionView{Stream: SessionStreamState{SessionID: "s1", Status: SessionStatusIdle}}
+	_, err := ReduceSessionEvent(view, storedProjectionEvent("", 1, EventSessionRenamed, "", map[string]any{"title": "  "}))
+	if !errors.Is(err, ErrInvalidSessionEvent) {
+		t.Fatalf("error = %v", err)
+	}
+}
+
 func TestReduceSessionEventKeepsToolIdentityAcrossRuns(t *testing.T) {
 	first := storedProjectionEvent("run-1", 1, EventToolStarted, "tool:run-1:call-1", map[string]any{"toolCallId": "call-1"})
 	second := storedProjectionEvent("run-2", 2, EventToolStarted, "tool:run-2:call-1", map[string]any{"toolCallId": "call-1"})

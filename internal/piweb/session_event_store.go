@@ -42,15 +42,16 @@ type SessionPageRequest struct {
 }
 
 type SessionStateSnapshot struct {
-	Items                   []ProjectedSessionItem `json:"items"`
-	Status                  string                 `json:"status"`
-	RunID                   string                 `json:"runId,omitempty"`
-	Seq                     int64                  `json:"-"`
-	Cursor                  string                 `json:"cursor,omitempty"`
-	HasMore                 bool                   `json:"hasMore"`
-	Limit                   int                    `json:"limit"`
-	ProjectionSchemaVersion int                    `json:"projectionSchemaVersion"`
-	ProjectionGeneration    int64                  `json:"-"`
+	Metadata                SessionMetadataProjection `json:"metadata"`
+	Items                   []ProjectedSessionItem    `json:"items"`
+	Status                  string                    `json:"status"`
+	RunID                   string                    `json:"runId,omitempty"`
+	Seq                     int64                     `json:"-"`
+	Cursor                  string                    `json:"cursor,omitempty"`
+	HasMore                 bool                      `json:"hasMore"`
+	Limit                   int                       `json:"limit"`
+	ProjectionSchemaVersion int                       `json:"projectionSchemaVersion"`
+	ProjectionGeneration    int64                     `json:"-"`
 }
 
 type EventReadLimit struct {

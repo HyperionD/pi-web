@@ -32,11 +32,72 @@ func ReduceSessionEvent(view ProjectionView, event StoredSessionEvent) (Projecti
 		return reduceToolEvent(view, event)
 	case EventRunFinished, EventRunFailed, EventRunCancelled, EventRunInterrupted:
 		return reduceTerminalRun(view, event)
-	case EventSessionRebased, EventSessionRenamed, EventWorkspaceFilesChanged:
+	case EventSessionCreated, EventSessionRenamed, EventSessionDeleted, EventSessionModelChanged,
+		EventContextUsageUpdated, EventRuntimeModelUpdated:
+		return reduceSessionMetadata(view, event)
+	case EventCompactionStarted:
+		change := ProjectionChange{Stream: view.Stream}
+		change.Stream.Status = SessionStatusCompacting
+		return change, nil
+	case EventCompactionCommitted:
+		change := ProjectionChange{Stream: view.Stream}
+		change.Stream.Status = SessionStatusIdle
+		return change, nil
+	case EventCompactionFailed:
+		change := ProjectionChange{Stream: view.Stream}
+		change.Stream.Status = SessionStatusError
+		return change, nil
+	case EventRunCancelRequested, EventSteerAccepted:
+		return ProjectionChange{Stream: view.Stream}, nil
+	case EventSessionRebased, EventWorkspaceFilesChanged:
 		return ProjectionChange{Stream: view.Stream, RequireRebase: event.Type == EventSessionRebased}, nil
 	default:
 		return ProjectionChange{}, ErrUnknownSessionEvent
 	}
+}
+
+func reduceSessionMetadata(view ProjectionView, event StoredSessionEvent) (ProjectionChange, error) {
+	metadata := view.Metadata
+	if metadata.SessionID == "" {
+		metadata.SessionID = event.SessionID
+	}
+	var payload struct {
+		WorkspaceID   string          `json:"workspaceId"`
+		Title         string          `json:"title"`
+		Provider      string          `json:"provider"`
+		Model         string          `json:"model"`
+		ThinkingLevel string          `json:"thinkingLevel"`
+		ContextUsage  json.RawMessage `json:"contextUsage"`
+	}
+	if err := decodeEventPayload(event, &payload); err != nil {
+		return ProjectionChange{}, err
+	}
+	if event.Type == EventSessionRenamed && strings.TrimSpace(payload.Title) == "" {
+		return ProjectionChange{}, ErrInvalidSessionEvent
+	}
+	if payload.WorkspaceID != "" {
+		metadata.WorkspaceID = payload.WorkspaceID
+	}
+	if payload.Title != "" {
+		metadata.Title = payload.Title
+	}
+	if payload.Provider != "" {
+		metadata.Provider = payload.Provider
+	}
+	if payload.Model != "" {
+		metadata.Model = payload.Model
+	}
+	if payload.ThinkingLevel != "" {
+		metadata.ThinkingLevel = payload.ThinkingLevel
+	}
+	if event.Type == EventSessionDeleted {
+		metadata.Deleted = true
+	}
+	if event.Type == EventContextUsageUpdated && len(payload.ContextUsage) > 0 {
+		metadata.ContextUsage = append(json.RawMessage(nil), payload.ContextUsage...)
+	}
+	metadata.UpdatedSeq = event.Seq
+	return ProjectionChange{Stream: view.Stream, Metadata: &metadata}, nil
 }
 
 func validateProjectionEvent(stream SessionStreamState, event StoredSessionEvent) error {

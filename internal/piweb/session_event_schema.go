@@ -1,6 +1,6 @@
 package piweb
 
-const sessionEventSchemaVersion = 1
+const sessionEventSchemaVersion = 2
 
 const sessionEventSchemaSQL = `
 CREATE TABLE IF NOT EXISTS piweb_schema_versions (
@@ -57,6 +57,12 @@ CREATE TABLE IF NOT EXISTS session_run_manifests (
   manifest_json BLOB NOT NULL,
   completed_seq INTEGER NOT NULL,
   PRIMARY KEY(session_id, run_id)
+);
+CREATE TABLE IF NOT EXISTS session_metadata (
+  session_id TEXT PRIMARY KEY REFERENCES session_streams(session_id) ON DELETE CASCADE,
+  payload_json BLOB NOT NULL,
+  updated_seq INTEGER NOT NULL,
+  FOREIGN KEY(session_id) REFERENCES session_streams(session_id) ON DELETE CASCADE
 );
 CREATE TABLE IF NOT EXISTS session_items (
   session_id TEXT NOT NULL REFERENCES session_streams(session_id) ON DELETE CASCADE,

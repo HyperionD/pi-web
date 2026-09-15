@@ -7,6 +7,16 @@ import (
 )
 
 const (
+	EventSessionCreated          = "session.created"
+	EventSessionDeleted          = "session.deleted"
+	EventSessionModelChanged     = "session.model.changed"
+	EventRunCancelRequested      = "run.cancel.requested"
+	EventCompactionStarted       = "compaction.started"
+	EventCompactionCommitted     = "compaction.committed"
+	EventCompactionFailed        = "compaction.failed"
+	EventContextUsageUpdated     = "context.usage.updated"
+	EventRuntimeModelUpdated     = "runtime.model.updated"
+	EventSteerAccepted           = "steer.accepted"
 	EventUserMessageCreated      = "user.message.created"
 	EventRunStarted              = "run.started"
 	EventRunFinished             = "run.finished"
@@ -93,14 +103,28 @@ type ProjectedSessionItem struct {
 	ContentLength  int64              `json:"contentLength,omitempty"`
 }
 
+type SessionMetadataProjection struct {
+	SessionID     string          `json:"sessionId"`
+	WorkspaceID   string          `json:"workspaceId,omitempty"`
+	Title         string          `json:"title,omitempty"`
+	Provider      string          `json:"provider,omitempty"`
+	Model         string          `json:"model,omitempty"`
+	ThinkingLevel string          `json:"thinkingLevel,omitempty"`
+	Deleted       bool            `json:"deleted,omitempty"`
+	ContextUsage  json.RawMessage `json:"contextUsage,omitempty"`
+	UpdatedSeq    int64           `json:"updatedSeq"`
+}
+
 type ProjectionView struct {
-	Stream SessionStreamState
-	Order  []string
-	Items  map[string]ProjectedSessionItem
+	Stream   SessionStreamState
+	Metadata SessionMetadataProjection
+	Order    []string
+	Items    map[string]ProjectedSessionItem
 }
 
 type ProjectionChange struct {
 	Stream        SessionStreamState
+	Metadata      *SessionMetadataProjection
 	Upsert        *ProjectedSessionItem
 	Terminalize   []ProjectedSessionItem
 	DeleteItemIDs []string
