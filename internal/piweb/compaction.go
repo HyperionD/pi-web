@@ -17,15 +17,11 @@ type CompactionResult struct {
 	EstimatedTokensAfter int    `json:"estimatedTokensAfter"`
 }
 
-func (r *Runner) Compact(parent context.Context, broker *Broker, store *Store, sessionID string, startupSettings ...ModelStartupSettings) (CompactionResult, error) {
-	return r.compact(parent, broker, store, nil, sessionID, "", startupSettings...)
-}
-
 func (r *Runner) CompactDurable(parent context.Context, events SessionControlEventStore, store *Store, sessionID, requestID string, startupSettings ...ModelStartupSettings) (CompactionResult, error) {
-	return r.compact(parent, nil, store, events, sessionID, requestID, startupSettings...)
+	return r.compactDurable(parent, events, store, sessionID, requestID, startupSettings...)
 }
 
-func (r *Runner) compact(parent context.Context, broker *Broker, store *Store, events SessionControlEventStore, sessionID, requestID string, startupSettings ...ModelStartupSettings) (CompactionResult, error) {
+func (r *Runner) compactDurable(parent context.Context, events SessionControlEventStore, store *Store, sessionID, requestID string, startupSettings ...ModelStartupSettings) (CompactionResult, error) {
 	manager, err := r.runtimeManager(store)
 	if err != nil {
 		return CompactionResult{}, err
@@ -65,15 +61,11 @@ func (r *Runner) compact(parent context.Context, broker *Broker, store *Store, e
 		}
 		r.finishRun(sessionID, run)
 	}()
-	if events != nil {
-		if requestID == "" {
-			requestID = "compact:" + createSessionID()
-		}
-		if err := appendCompactionEvent(parent, events, sessionID, requestID+":started", EventCompactionStarted, nil); err != nil {
-			return CompactionResult{}, err
-		}
-	} else {
-		broker.Publish(sessionID, "session.status", map[string]string{"status": "compacting"})
+	if requestID == "" {
+		requestID = "compact:" + createSessionID()
+	}
+	if err := appendCompactionEvent(parent, events, sessionID, requestID+":started", EventCompactionStarted, nil); err != nil {
+		return CompactionResult{}, err
 	}
 
 	response, err := run.sendRPCContext(commandCtx, RPCCommand{Type: "compact"})
@@ -98,7 +90,7 @@ func (r *Runner) compact(parent context.Context, broker *Broker, store *Store, e
 			}
 			return CompactionResult{}, err
 		}
-		return CompactionResult{}, r.reportCompactFailure(parent, events, broker, sessionID, requestID, err)
+		return CompactionResult{}, r.reportDurableCompactionFailure(parent, events, sessionID, requestID, err)
 	}
 	var result CompactionResult
 	if err := json.Unmarshal(response.Data, &result); err != nil {
@@ -106,7 +98,7 @@ func (r *Runner) compact(parent context.Context, broker *Broker, store *Store, e
 		if run.isCancelling() {
 			return CompactionResult{}, err
 		}
-		return CompactionResult{}, r.reportCompactFailure(parent, events, broker, sessionID, requestID, err)
+		return CompactionResult{}, r.reportDurableCompactionFailure(parent, events, sessionID, requestID, err)
 	}
 	if run.isCancelling() {
 		return CompactionResult{}, context.Canceled
@@ -114,36 +106,18 @@ func (r *Runner) compact(parent context.Context, broker *Broker, store *Store, e
 	if r.compactCompleteHook != nil {
 		r.compactCompleteHook()
 	}
-	message := Message{Kind: "pi", Text: fmt.Sprintf("context summarized · %d tokens before compaction", result.TokensBefore)}
-	if events != nil {
-		if err := appendCompactionEvent(parent, events, sessionID, requestID+":committed", EventCompactionCommitted, result); err != nil {
-			return CompactionResult{}, err
-		}
-	} else if err := appendMessageAndPublish(store, broker, sessionID, message); err != nil {
-		if run.isCancelling() {
-			return CompactionResult{}, err
-		}
-		return CompactionResult{}, r.reportCompactFailure(parent, nil, broker, sessionID, requestID, err)
+	if err := appendCompactionEvent(parent, events, sessionID, requestID+":committed", EventCompactionCommitted, result); err != nil {
+		return CompactionResult{}, err
 	}
 	if run.isCancelling() {
 		return CompactionResult{}, context.Canceled
 	}
-	if events == nil {
-		broker.Publish(sessionID, "session.status", map[string]string{
-			"status":     "idle",
-			"finishedAt": time.Now().UTC().Format(time.RFC3339),
-		})
-	}
+
 	return result, nil
 }
 
-func (r *Runner) reportCompactFailure(ctx context.Context, events SessionControlEventStore, broker *Broker, sessionID, requestID string, err error) error {
-	if events != nil {
-		_ = appendCompactionEvent(ctx, events, sessionID, requestID+":failed", EventCompactionFailed, map[string]string{"error": err.Error()})
-		return err
-	}
-	broker.Publish(sessionID, "error", map[string]string{"error": err.Error()})
-	broker.Publish(sessionID, "session.status", map[string]string{"status": "idle"})
+func (r *Runner) reportDurableCompactionFailure(ctx context.Context, events SessionControlEventStore, sessionID, requestID string, err error) error {
+	_ = appendCompactionEvent(ctx, events, sessionID, requestID+":failed", EventCompactionFailed, map[string]string{"error": err.Error()})
 	return err
 }
 

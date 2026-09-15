@@ -131,7 +131,7 @@ func TestServesStaticUI(t *testing.T) {
 	}
 }
 
-func TestWorkspaceAndSessionManagementEndpoints(t *testing.T) {
+func TestSessionManagementEndpointsRequireDurableEventStore(t *testing.T) {
 	t.Setenv("PI_CODING_AGENT_SESSION_DIR", t.TempDir())
 	store := NewMockStore()
 	workspace, err := store.OpenWorkspace(t.TempDir())
@@ -156,14 +156,14 @@ func TestWorkspaceAndSessionManagementEndpoints(t *testing.T) {
 	renameReq := httptest.NewRequest(http.MethodPatch, "/api/sessions/"+body.Session.ID, bytes.NewBufferString(`{"title":"renamed"}`))
 	renameRes := httptest.NewRecorder()
 	server.Handler().ServeHTTP(renameRes, renameReq)
-	if renameRes.Code != http.StatusOK || !strings.Contains(renameRes.Body.String(), "renamed") {
-		t.Fatalf("rename failed: %d %s", renameRes.Code, renameRes.Body.String())
+	if renameRes.Code != http.StatusServiceUnavailable {
+		t.Fatalf("rename status = %d, want service unavailable", renameRes.Code)
 	}
 	deleteReq := httptest.NewRequest(http.MethodDelete, "/api/sessions/"+body.Session.ID, nil)
 	deleteRes := httptest.NewRecorder()
 	server.Handler().ServeHTTP(deleteRes, deleteReq)
-	if deleteRes.Code != http.StatusOK {
-		t.Fatalf("delete failed: %d %s", deleteRes.Code, deleteRes.Body.String())
+	if deleteRes.Code != http.StatusServiceUnavailable {
+		t.Fatalf("delete status = %d, want service unavailable", deleteRes.Code)
 	}
 }
 

@@ -368,15 +368,6 @@ func (s *Store) appendMessageLocked(sessionID string, msg Message) error {
 	return nil
 }
 
-func appendMessageAndPublish(store *Store, broker *Broker, sessionID string, msg Message) error {
-	store.sessionMutationMu.Lock()
-	defer store.sessionMutationMu.Unlock()
-	if err := store.appendMessageLocked(sessionID, msg); err != nil {
-		return err
-	}
-	broker.Publish(sessionID, eventTypeForMessage(msg), msg)
-	return nil
-}
 func (s *Store) SessionRuntime(sessionID string) (sessionFile, cwd string, ok bool) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
