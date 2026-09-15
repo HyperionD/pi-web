@@ -521,7 +521,6 @@ export const settingsMethods = {
     if ((!provider || !model) && !thinkingLevel) return;
     try {
       await setSessionModel(sessionId, provider, model, thinkingLevel);
-      void this.loadRuntimeStatus?.();
     } catch {
       this.setSettingsStatus("模型已保存，但当前会话切换失败：模型不可用", true);
     }

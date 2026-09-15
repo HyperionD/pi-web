@@ -69,6 +69,7 @@ describe("context usage status", () => {
     app.apiConnected = true;
     app.dataset.activeSessionId = "s1";
     globalThis.PI_WEB_API_BASE = "http://backend.test";
+    app.durableEvents = true;
     app.loadSession = vi.fn();
     let resolveRequest;
     globalThis.fetch = vi.fn(() => new Promise((resolve) => { resolveRequest = resolve; }));
@@ -87,7 +88,7 @@ describe("context usage status", () => {
       "http://backend.test/api/sessions/s1/compact",
       expect.objectContaining({ method: "POST" }),
     );
-    expect(app.loadSession).toHaveBeenCalledWith("s1");
+    expect(app.loadSession).not.toHaveBeenCalled();
     expect(button.disabled).toBe(false);
     expect(button.textContent).toBe("压缩上下文");
   });

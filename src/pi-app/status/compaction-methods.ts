@@ -18,17 +18,16 @@ export const compactionMethods = {
     if (!sessionId || !this.apiConnected || this.running || this.compacting) return;
     const requestToken = Symbol(sessionId);
     this.compactionRequest = { sessionId, token: requestToken };
-    if (!this.durableEvents) this.compacting = true;
     this.syncCompactionControl();
     try {
       await compactSession(sessionId);
-      if (!this.durableEvents && this.dataset.activeSessionId === sessionId) await this.loadSession(sessionId);
+
     } catch {
       this.setConnection("err");
     } finally {
       if (this.compactionRequest?.token === requestToken) {
         this.compactionRequest = undefined;
-        if (!this.durableEvents) this.compacting = false;
+
       }
       this.syncCompactionControl();
     }
