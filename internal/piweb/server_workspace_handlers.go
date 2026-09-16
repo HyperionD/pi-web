@@ -1,6 +1,7 @@
 package piweb
 
 import (
+	"database/sql"
 	"errors"
 	"net/http"
 	"strings"
@@ -77,6 +78,14 @@ func (s *Server) workspaces(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		writeStoreError(w, err)
 		return
+	}
+	for index := range workspaces {
+		workspaces[index].Sessions, err = s.projectSessionMetadata(workspaces[index].Sessions)
+		if err != nil {
+			writeStoreError(w, err)
+			return
+		}
+		workspaces[index].SessionCount = len(workspaces[index].Sessions)
 	}
 	if policy.restricted {
 		filtered := make([]Workspace, 0, len(workspaces))
@@ -180,8 +189,39 @@ func (s *Server) workspaceSessions(w http.ResponseWriter, r *http.Request) {
 		writeStoreError(w, err)
 		return
 	}
+	sessions, err = s.projectSessionMetadata(sessions)
+	if err != nil {
+		writeStoreError(w, err)
+		return
+	}
 	writeJSON(w, http.StatusOK, map[string]any{"sessions": s.withLiveSessionFlags(sessions)})
 }
+
+func (s *Server) projectSessionMetadata(sessions []Session) ([]Session, error) {
+	if s.events == nil {
+		return sessions, nil
+	}
+	projected := make([]Session, 0, len(sessions))
+	for _, session := range sessions {
+		snapshot, err := s.events.Snapshot(s.context(), session.ID, SessionPageRequest{Limit: 1})
+		if errors.Is(err, sql.ErrNoRows) {
+			projected = append(projected, session)
+			continue
+		}
+		if err != nil {
+			return nil, err
+		}
+		if snapshot.Metadata.Deleted {
+			continue
+		}
+		if snapshot.Metadata.Title != "" {
+			session.Title = snapshot.Metadata.Title
+		}
+		projected = append(projected, session)
+	}
+	return projected, nil
+}
+
 func (s *Server) withLiveSessions(workspaces []Workspace) []Workspace {
 	for workspaceIndex := range workspaces {
 		workspaces[workspaceIndex].Sessions = s.withLiveSessionFlags(workspaces[workspaceIndex].Sessions)

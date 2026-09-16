@@ -142,8 +142,8 @@ export const sessionMethods = {
     const title = prompt("重命名会话", current)?.trim();
     if (!title) return;
     try {
-      const { session } = await renameSessionRequest(sessionId, title);
-      if (!this.durableEvents) this.updateSessionTitle(session);
+      await renameSessionRequest(sessionId, title);
+      this.updateSessionTitle({ id: sessionId, title });
     } catch {
       this.setConnection("err");
     }

@@ -148,6 +148,22 @@ describe("pi-app session method mutations", () => {
     expect(app.setConnection).toHaveBeenCalledWith("err");
   });
 
+  it("updates a non-active durable session after rename is accepted", async () => {
+    const app = await connectPiApp();
+    appendSessionShell(app);
+    const row = app.createSessionRow("w1", { id: "s1", title: "old", lastUsed: "now" });
+    app.append(row);
+    app.apiConnected = true;
+    app.durableEvents = true;
+    vi.spyOn(window, "prompt").mockReturnValue("new name");
+    mockFetchJson({ accepted: true, acceptedSeq: 1 });
+
+    await app.renameSession("s1");
+
+    expect(row.dataset.title).toBe("new name");
+    expect(row.querySelector(".title").textContent).toBe("new name");
+  });
+
   it("deletes one session through every outcome", async () => {
     const app = await connectPiApp();
     appendSessionShell(app);

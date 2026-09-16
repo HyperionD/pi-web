@@ -38,6 +38,35 @@ func TestRenameUsesDurableControlEventWhenConfigured(t *testing.T) {
 	if len(rows.Events) != 1 || rows.Events[0].Type != EventSessionRenamed {
 		t.Fatalf("events = %#v", rows.Events)
 	}
+	response, err = http.Get(httpServer.URL + "/api/workspaces")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		t.Fatalf("workspace status = %d", response.StatusCode)
+	}
+	var payload struct {
+		Workspaces []Workspace `json:"workspaces"`
+	}
+	if err := json.NewDecoder(response.Body).Decode(&payload); err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, workspace := range payload.Workspaces {
+		for _, session := range workspace.Sessions {
+			if session.ID != "8e7c-44ff" {
+				continue
+			}
+			found = true
+			if session.Title != "Renamed" {
+				t.Fatalf("workspace session title = %q", session.Title)
+			}
+		}
+	}
+	if !found {
+		t.Fatal("renamed session missing from workspace list")
+	}
 }
 
 func TestDurableSessionReadsUseEventProjection(t *testing.T) {
