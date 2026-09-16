@@ -61,6 +61,13 @@ func (s *Server) sessionRuntimeCommand(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadGateway, err)
 		return
 	}
+	if runtimeCommandBlockedWhileRunning(command.Type) && s.sessionIsRunning(sessionID) {
+		writeError(w, http.StatusConflict, errors.New("session is busy"))
+		return
+	}
+	if requestID := strings.TrimSpace(r.Header.Get("X-Client-Request-ID")); requestID != "" {
+		command.ID = "command:" + requestID
+	}
 	response, err := runtime.Send(r.Context(), command)
 	if err != nil {
 		writeError(w, http.StatusBadGateway, err)
@@ -105,6 +112,14 @@ func allowlistedSessionRuntimeCommand(request sessionRuntimeCommandRequest) (RPC
 	default:
 		return RPCCommand{}, errors.New("unsupported session runtime command")
 	}
+}
+
+func runtimeCommandBlockedWhileRunning(commandType string) bool {
+	return commandType == "reload" || commandType == "clone"
+}
+
+func (s *Server) sessionIsRunning(sessionID string) bool {
+	return s.runner.IsRunning(sessionID) || s.broker.IsRunning(sessionID)
 }
 
 func writeRuntimeCommandData(w http.ResponseWriter, data json.RawMessage) {

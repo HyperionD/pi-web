@@ -163,10 +163,11 @@ export function getSessionCommands(sessionId: string) {
   return request(`/api/sessions/${encodeURIComponent(sessionId)}/commands`);
 }
 
-export function sendSessionCommand(sessionId: string, command: string) {
+export function sendSessionCommand(sessionId: string, command: string, args = "", clientRequestId = "") {
   return request(`/api/sessions/${encodeURIComponent(sessionId)}/command`, {
     method: "POST",
-    body: JSON.stringify({ command }),
+    headers: clientRequestId ? { "X-Client-Request-ID": clientRequestId } : undefined,
+    body: JSON.stringify({ command, ...(args ? { args } : {}) }),
   });
 }
 
@@ -276,10 +277,10 @@ export function getSession(sessionId, options: { limit?: number; before?: string
   return request(`/api/sessions/${encodeURIComponent(sessionId)}${query}`);
 }
 
-export function renameSession(sessionId, title) {
+export function renameSession(sessionId, title, clientRequestId = "") {
   return request(`/api/sessions/${encodeURIComponent(sessionId)}`, {
     method: "PATCH",
-    body: JSON.stringify({ title }),
+    body: JSON.stringify({ title, ...(clientRequestId ? { clientRequestId } : {}) }),
   });
 }
 
@@ -291,8 +292,11 @@ export function cancelSession(sessionId) {
   return request(`/api/sessions/${encodeURIComponent(sessionId)}/cancel`, { method: "POST" });
 }
 
-export function compactSession(sessionId: string) {
-  return request(`/api/sessions/${encodeURIComponent(sessionId)}/compact`, { method: "POST" });
+export function compactSession(sessionId: string, clientRequestId = "") {
+  return request(`/api/sessions/${encodeURIComponent(sessionId)}/compact`, {
+    method: "POST",
+    headers: clientRequestId ? { "X-Client-Request-ID": clientRequestId } : undefined,
+  });
 }
 
 export function postPrompt(sessionId, text, attachments = [], clientRequestId = "") {

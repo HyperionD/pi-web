@@ -218,6 +218,32 @@ func TestSessionCommandsEndpointUsesCurrentRuntime(t *testing.T) {
 	}
 }
 
+func TestSessionCommandEndpointRejectsMutatingCommandsWhileRunning(t *testing.T) {
+	store := NewMockStore()
+	store.sessionFiles["8e7c-44ff"] = "/tmp/session.jsonl"
+	runtime := newFakePiRuntime()
+	manager := NewRuntimeManagerWithFactory(store, func(context.Context, string, string) (PiRuntime, error) {
+		return runtime, nil
+	})
+	defer manager.Shutdown(context.Background())
+	server := NewServerWithRuntimeManager(Config{EnablePiExecution: true}, store, NewBroker(), manager)
+	server.runner.mu.Lock()
+	server.runner.running["8e7c-44ff"] = &activePiRun{}
+	server.runner.mu.Unlock()
+
+	request := httptest.NewRequest(http.MethodPost, "/api/sessions/8e7c-44ff/command", strings.NewReader(`{"command":"clone"}`))
+	request.Header.Set("Content-Type", "application/json")
+	response := httptest.NewRecorder()
+	server.Handler().ServeHTTP(response, request)
+
+	if response.Code != http.StatusConflict {
+		t.Fatalf("running clone status = %d, want %d", response.Code, http.StatusConflict)
+	}
+	if len(runtime.sends) != 0 {
+		t.Fatalf("running clone sent runtime command: %+v", runtime.sends)
+	}
+}
+
 func TestSessionCommandEndpointAllowlistsRuntimeCommands(t *testing.T) {
 	store := NewMockStore()
 	store.sessionFiles["8e7c-44ff"] = "/tmp/session.jsonl"
@@ -231,12 +257,13 @@ func TestSessionCommandEndpointAllowlistsRuntimeCommands(t *testing.T) {
 
 	request := httptest.NewRequest(http.MethodPost, "/api/sessions/8e7c-44ff/command", strings.NewReader(`{"command":"copy"}`))
 	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("X-Client-Request-ID", "copy-1")
 	response := httptest.NewRecorder()
 	server.Handler().ServeHTTP(response, request)
 	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), `"text":"copied"`) {
 		t.Fatalf("copy response = %d %s", response.Code, response.Body.String())
 	}
-	if len(runtime.sends) != 1 || runtime.sends[0].Type != "get_last_assistant_text" {
+	if len(runtime.sends) != 1 || runtime.sends[0].Type != "get_last_assistant_text" || runtime.sends[0].ID != "command:copy-1" {
 		t.Fatalf("unexpected runtime calls: %+v", runtime.sends)
 	}
 

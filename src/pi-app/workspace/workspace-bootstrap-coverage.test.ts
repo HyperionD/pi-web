@@ -28,6 +28,19 @@ describe("workspace bootstrap coverage", () => {
     expect(app.querySelector(".slash-item")).toBeNull();
   });
 
+  it("clears session slash commands when the active session is removed", async () => {
+    const app = await connectPiApp();
+    app.dataset.activeSessionId = "s1";
+    app.slashCommandsLoadedAt = Date.now();
+    app.renderSlashCommands([{ command: "/review", source: "prompt" }]);
+
+    app.clearActiveSession("s1");
+
+    expect(app.slashCommands).toEqual([]);
+    expect(app.slashCommandsLoadedAt).toBe(0);
+    expect(app.querySelector("[data-slash='/review']")).toBeNull();
+  });
+
   it("loads slash commands from the active session runtime", async () => {
     const app = await connectPiApp();
     app.apiConnected = true;
@@ -47,21 +60,23 @@ describe("workspace bootstrap coverage", () => {
     expect(globalThis.fetch.mock.calls.some(([url]) => String(url).includes("/api/workspaces/w1/commands"))).toBe(false);
   });
 
-  it("creates a session before loading commands when none is active", async () => {
+  it("loads workspace commands without creating a session when none is active", async () => {
     const app = await connectPiApp();
     app.apiConnected = true;
     app.dataset.activeWorkspaceId = "w1";
-    app.activateCreatedSession = vi.fn((workspaceId, session) => {
-      app.dataset.activeSessionId = session.id;
-    });
-    globalThis.fetch = vi.fn(async (url) => String(url).endsWith("/sessions")
-      ? okJson({ session: { id: "s-new", title: "new session" } })
-      : okJson({ commands: [{ command: "/review", source: "prompt" }] }));
+    app.dataset.activeSessionId = "";
+    globalThis.fetch = vi.fn(async (url) => String(url).includes("/workspaces/w1/commands")
+      ? okJson({ commands: [{ command: "/review", source: "prompt" }] })
+      : failJson("unexpected request"));
 
     await app.loadWorkspaceCommands("w1");
 
-    expect(app.activateCreatedSession).toHaveBeenCalledWith("w1", { id: "s-new", title: "new session" });
-    expect(globalThis.fetch.mock.calls.some(([url]) => String(url).includes("/api/sessions/s-new/commands"))).toBe(true);
+    expect(globalThis.fetch).toHaveBeenCalledWith(
+      "http://backend.test/api/workspaces/w1/commands",
+      expect.any(Object),
+    );
+    expect(globalThis.fetch.mock.calls.some(([url]) => String(url).includes("/sessions"))).toBe(false);
+    expect(app.querySelector("[data-slash='/review']")).not.toBeNull();
   });
 
   it("clears stale slash commands when command loading fails", async () => {

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   BUILTIN_SLASH_COMMANDS,
+  builtinSlashCommandError,
   filterSlashCommands,
   getSlashQuery,
   isExactSlashCommand,
@@ -57,5 +58,12 @@ describe("slash command helpers", () => {
     expect(isExactSlashCommand("/model", command)).toBe(true);
     expect(isExactSlashCommand("/MODEL ", command)).toBe(true);
     expect(isExactSlashCommand("/model gpt", command)).toBe(false);
+  });
+
+  it("rejects unsupported builtin arguments instead of dropping them", () => {
+    expect(builtinSlashCommandError("compact", "instructions")).toBe("Usage: /compact");
+    expect(builtinSlashCommandError("copy", "extra")).toBe("Usage: /copy");
+    expect(builtinSlashCommandError("name", "release")).toBeNull();
+    expect(builtinSlashCommandError("name", "")).toBe("Usage: /name <name>");
   });
 });

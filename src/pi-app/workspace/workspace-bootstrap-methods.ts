@@ -3,6 +3,7 @@ import {
   getGitStatus,
   getSessionCommands,
   getSessionState,
+  getWorkspaceCommands,
   health,
   getWorkspaceFiles,
   getWorkspaces,
@@ -189,6 +190,8 @@ export const workspaceBootstrapMethods = {
     this.runtimeStatusRequestToken = Symbol("cleared-workspace");
     this.workspaceMetaLoadToken = Symbol("cleared-workspace");
     this.workspaceCommandsLoadToken = Symbol("cleared-workspace");
+    this.slashCommandsLoadedAt = 0;
+    this.slashCommandsLoading = false;
     this.slashCommands = [];
     this.querySelector(".slash-list")?.replaceChildren();
     this.slashPopover?.setAttribute("hidden", "");
@@ -287,6 +290,7 @@ export const workspaceBootstrapMethods = {
     const loadToken = Symbol(sessionId);
     const expectedBootstrapGeneration = bootstrapGeneration || this.bootstrapGeneration;
     this.workspaceCommandsLoadToken = loadToken;
+    this.slashCommandsLoading = true;
     this.renderSlashCommands?.([]);
     this.setSlashCommandStatus?.("loading…");
     const isCurrentLoad = () => (
@@ -298,6 +302,7 @@ export const workspaceBootstrapMethods = {
       const response = await getSessionCommands(sessionId);
       if (!isCurrentLoad()) return;
       this.renderSlashCommands(response.commands || []);
+      this.slashCommandsLoadedAt = Date.now();
       if (response.error) this.setSlashCommandStatus?.("unavailable");
     } catch (error) {
       if (isCurrentLoad()) {
@@ -305,22 +310,39 @@ export const workspaceBootstrapMethods = {
         this.setSlashCommandStatus?.("unavailable");
         this.recoverForbiddenWorkspace(error);
       }
+    } finally {
+      if (this.workspaceCommandsLoadToken === loadToken) this.slashCommandsLoading = false;
     }
   },
 
   async loadWorkspaceCommands(workspaceId, bootstrapGeneration) {
-    if (this.dataset.activeSessionId) {
-      return this.loadSessionCommands(this.dataset.activeSessionId, bootstrapGeneration);
-    }
+    const sessionId = this.dataset.activeSessionId;
+    if (sessionId) return this.loadSessionCommands(sessionId, bootstrapGeneration);
+    const loadToken = Symbol(workspaceId);
+    const expectedBootstrapGeneration = bootstrapGeneration || this.bootstrapGeneration;
+    this.workspaceCommandsLoadToken = loadToken;
+    this.slashCommandsLoading = true;
+    this.renderSlashCommands?.([]);
+    this.setSlashCommandStatus?.("loading…");
+    const isCurrentLoad = () => (
+      this.dataset.activeWorkspaceId === workspaceId
+      && !this.dataset.activeSessionId
+      && this.workspaceCommandsLoadToken === loadToken
+      && (!expectedBootstrapGeneration || this.bootstrapGeneration === expectedBootstrapGeneration)
+    );
     try {
-      const { session } = await createSession(workspaceId);
-      if (this.dataset.activeWorkspaceId !== workspaceId || this.dataset.activeSessionId) return;
-      this.activateCreatedSession(workspaceId, session);
-      return this.loadSessionCommands(session.id, bootstrapGeneration);
+      const response = await getWorkspaceCommands(workspaceId);
+      if (!isCurrentLoad()) return;
+      this.renderSlashCommands(response.commands || []);
+      this.slashCommandsLoadedAt = Date.now();
+      if (response.error) this.setSlashCommandStatus?.("unavailable");
     } catch (error) {
+      if (!isCurrentLoad()) return;
       this.renderSlashCommands?.([]);
       this.setSlashCommandStatus?.("unavailable");
       this.recoverForbiddenWorkspace(error);
+    } finally {
+      if (this.workspaceCommandsLoadToken === loadToken) this.slashCommandsLoading = false;
     }
   },
 

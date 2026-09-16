@@ -19,9 +19,20 @@ describe("browser compatibility", () => {
     expect(app).toContain('aria-controls="slash-command-list"');
   });
 
+  it("exposes slash completion state to assistive technology", () => {
+    const app = readFileSync(new URL("./App.astro", import.meta.url), "utf8");
+    expect(app).toContain('class="slash-head" data-slash-head aria-live="polite"');
+    expect(app).toContain('aria-autocomplete="list"');
+  });
+
   it("starts in the empty state when no workspace is rendered", () => {
     const app = readFileSync(new URL("./App.astro", import.meta.url), "utf8");
     expect(app).toContain('const emptyVisible = initialSession === "empty" || !activeWorkspaceID;');
+  });
+
+  it("keeps the slash palette within short mobile viewports", () => {
+    const styles = readFileSync(new URL("./styles/parts/empty-shell.css", import.meta.url), "utf8");
+    expect(styles).toContain("max-height: min(240px, calc(var(--app-viewport-height, 100vh) - 160px));");
   });
 
   it("provides a Chrome 107 viewport fallback for session toasts", () => {

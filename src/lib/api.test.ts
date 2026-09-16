@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   cancelSession,
   cloneWorkspace,
+  compactSession,
   createSession,
   deleteSession,
   closeWorkspace,
@@ -122,10 +123,18 @@ describe("api adapter", () => {
   it("fetches session runtime commands and sends allowlisted commands", async () => {
     const commands = await getSessionCommands("s/1");
     expect(commands.url).toBe("http://backend.test/api/sessions/s%2F1/commands");
-    const command = await sendSessionCommand("s/1", "copy");
+    const command = await sendSessionCommand("s/1", "copy", "", "req-1");
     expect(command.url).toBe("http://backend.test/api/sessions/s%2F1/command");
     expect(command.options.method).toBe("POST");
     expect(JSON.parse(command.options.body)).toEqual({ command: "copy" });
+    expect(command.options.headers["X-Client-Request-ID"]).toBe("req-1");
+  });
+
+  it("sends client request ids for durable builtin mutations", async () => {
+    const renamed = await renameSession("s1", "next", "rename-1");
+    expect(JSON.parse(renamed.options.body)).toEqual({ title: "next", clientRequestId: "rename-1" });
+    const compacted = await compactSession("s1", "compact-1");
+    expect(compacted.options.headers["X-Client-Request-ID"]).toBe("compact-1");
   });
 
   it("fetches workspace slash commands and runtime status", async () => {

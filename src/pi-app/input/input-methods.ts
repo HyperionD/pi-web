@@ -13,12 +13,15 @@ import { maxUploadBytesToMiB } from "../workspace/app-config-methods";
 import {
   commandDescription,
   commandName,
+  builtinSlashCommandError,
   commandValue,
   filterSlashCommands,
   getSlashQuery,
   mergeSlashCommands,
   parseBuiltinSlashCommand,
 } from "./slash-commands";
+
+const SLASH_COMMAND_TTL_MS = 30_000;
 
 export const inputMethods = {
   async submitPrompt() {
@@ -96,57 +99,67 @@ export const inputMethods = {
     const invocation = parseBuiltinSlashCommand(text);
     if (!invocation || !this.apiConnected) return false;
     if (this.running && !invocation.command.availableWhileRunning) return true;
-    const workspaceId = this.dataset.activeWorkspaceId;
-    let sessionId = this.dataset.activeSessionId;
-    if (sessionId && workspaceId && !this.activeSessionBelongsToWorkspace(sessionId, workspaceId)) {
-      sessionId = "";
-    }
-    if (!sessionId && workspaceId) {
-      try {
-        const { session } = await createSession(workspaceId);
-        this.activateCreatedSession(workspaceId, session);
-        sessionId = session.id;
-      } catch (error) {
-        this.notifyResponseFailure?.(error);
-        this.setConnection("err");
-        return true;
-      }
-    }
-    if (!sessionId) return true;
+    if (this.builtinCommandPending) return true;
+    this.builtinCommandPending = true;
     try {
       const name = invocation.command.name;
+      const usage = builtinSlashCommandError(name, invocation.args);
+      if (usage) throw new Error(usage);
+      const workspaceId = this.dataset.activeWorkspaceId;
+      let sessionId = this.dataset.activeSessionId;
+      if (sessionId && workspaceId && !this.activeSessionBelongsToWorkspace(sessionId, workspaceId)) {
+        sessionId = "";
+      }
+      if (!sessionId && workspaceId) {
+        try {
+          const { session } = await createSession(workspaceId);
+          this.activateCreatedSession(workspaceId, session);
+          sessionId = session.id;
+        } catch (error) {
+          this.notifyResponseFailure?.(error);
+          this.setConnection("err");
+          return true;
+        }
+      }
+      if (!sessionId) return true;
+      const clientRequestId = globalThis.crypto?.randomUUID?.()
+        || `command-${Date.now()}-${Math.random().toString(36).slice(2)}`;
       if (name === "compact") {
-        await compactSession(sessionId);
+        await compactSession(sessionId, clientRequestId);
       } else if (name === "name") {
-        if (!invocation.args) throw new Error("Usage: /name <name>");
-        await renameSession(sessionId, invocation.args);
+        await renameSession(sessionId, invocation.args, clientRequestId);
         this.updateSessionTitle?.({ id: sessionId, title: invocation.args });
       } else if (name === "reload") {
-        await sendSessionCommand(sessionId, name);
+        await sendSessionCommand(sessionId, name, "", clientRequestId);
         await this.loadSession?.(sessionId);
         await this.loadSessionCommands?.(sessionId);
       } else if (name === "session") {
-        const result = await sendSessionCommand(sessionId, name);
+        const result = await sendSessionCommand(sessionId, name, "", clientRequestId);
         const usage = result?.contextUsage;
         const detail = usage?.tokens != null && usage?.contextWindow
           ? `上下文 ${usage.tokens}/${usage.contextWindow} tokens (${usage.percent ?? "—"}%)`
           : "会话统计已加载";
         this.showToast?.("success", detail);
       } else if (name === "copy") {
-        const result = await sendSessionCommand(sessionId, name);
+        const result = await sendSessionCommand(sessionId, name, "", clientRequestId);
         const textToCopy = result?.text || "";
         if (!textToCopy) throw new Error("没有可复制的助手消息");
         await navigator.clipboard.writeText(textToCopy);
       } else if (name === "clone") {
-        const result = await sendSessionCommand(sessionId, name);
+        const result = await sendSessionCommand(sessionId, name, "", clientRequestId);
         if (result?.cancelled || !result?.newSessionId) throw new Error("无法克隆当前会话");
         await this.refreshWorkspaces?.();
+        const newSession = this.findSessionRow?.(result.newSessionId);
+        if (newSession) await this.pickSession?.(newSession);
       }
       this.clearPromptInput();
       this.showToast?.("success", `/${name} 已完成`);
     } catch (error) {
       this.notifyResponseFailure?.(error);
-      this.setConnection?.("err");
+      const message = error instanceof Error ? error.message : String(error);
+      if (!message.startsWith("Usage:")) this.setConnection?.("err");
+    } finally {
+      this.builtinCommandPending = false;
     }
     return true;
   },
@@ -447,6 +460,10 @@ export const inputMethods = {
     this.sendButton.setAttribute("aria-disabled", canSend ? "false" : "true");
     this.sendButton.classList.toggle("is-disabled", !canSend);
     const slashQuery = getSlashQuery(value);
+    if (slashQuery !== null && hasWorkspace && this.apiConnected && !this.slashCommandsLoading
+      && Date.now() - (this.slashCommandsLoadedAt || 0) > SLASH_COMMAND_TTL_MS) {
+      void this.loadWorkspaceCommands?.(this.dataset.activeWorkspaceId);
+    }
     this.slashPopover?.toggleAttribute("hidden", slashQuery === null);
     this.prompt.setAttribute("aria-expanded", String(slashQuery !== null));
     this.filterSlash(value);

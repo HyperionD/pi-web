@@ -101,3 +101,13 @@ export function parseBuiltinSlashCommand(value = ""):
   const command = BUILTIN_SLASH_COMMANDS.find((item) => commandName(item).toLowerCase() === name);
   return command ? { command, args: (match[2] || "").trim() } : null;
 }
+
+export function builtinSlashCommandError(name = "", args = ""): string | null {
+  const normalizedName = name.trim().toLowerCase();
+  const normalizedArgs = args.trim();
+  if (normalizedName === "name") return normalizedArgs ? null : "Usage: /name <name>";
+  if (BUILTIN_SLASH_COMMANDS.some((command) => commandName(command).toLowerCase() === normalizedName)) {
+    return normalizedArgs ? `Usage: /${normalizedName}` : null;
+  }
+  return null;
+}

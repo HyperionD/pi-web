@@ -74,7 +74,7 @@
   background: var(--bg-1);
 }
 .slash-list {
-  max-height: 240px;
+  max-height: min(240px, calc(var(--app-viewport-height, 100vh) - 160px));
   overflow-y: auto;
 }
 .slash-group {

@@ -188,8 +188,19 @@ export const sessionMethods = {
     this.sessionResync = undefined;
     this.transcriptState = undefined;
     this.dataset.activeSessionId = "";
+    this.workspaceCommandsLoadToken = Symbol("cleared-session");
+    this.slashCommandsLoadedAt = 0;
+    this.slashCommandsLoading = false;
+    this.slashCommands = [];
+    this.querySelector(".slash-list")?.replaceChildren();
+    this.slashPopover?.setAttribute("hidden", "");
+    this.prompt?.setAttribute("aria-expanded", "false");
+    this.prompt?.removeAttribute("aria-activedescendant");
     this.resetActiveSessionState();
     this.renderMessages([]);
+    if (this.dataset.activeWorkspaceId && this.apiConnected) {
+      void this.loadWorkspaceCommands?.(this.dataset.activeWorkspaceId);
+    }
     this.transcriptState = undefined;
     this.showEmptyMain();
     const title = this.querySelector("[data-active-session-title]");

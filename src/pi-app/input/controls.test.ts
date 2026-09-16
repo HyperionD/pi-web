@@ -35,6 +35,20 @@ describe("pi-app controls", () => {
     expect(app.querySelector(".slash-pop").hidden).toBe(false);
   });
 
+  it("refreshes stale slash commands when the palette opens", async () => {
+    const app = await connectPiApp();
+    app.apiConnected = true;
+    app.dataset.activeWorkspaceId = "w1";
+    app.dataset.activeSessionId = "s1";
+    app.slashCommandsLoadedAt = Date.now() - 31_000;
+    app.loadWorkspaceCommands = vi.fn();
+
+    app.prompt.value = "/";
+    app.updatePrompt();
+
+    expect(app.loadWorkspaceCommands).toHaveBeenCalledWith("w1");
+  });
+
   it("closes slash suggestions after command arguments begin", async () => {
     const app = await connectPiApp();
     app.dataset.activeWorkspaceId = "w1";

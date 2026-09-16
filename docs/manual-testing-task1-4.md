@@ -15,7 +15,7 @@
 - Task 3：按 session 持久 Pi runtime、RPC response、Cancel、shutdown、race 修复。
 - Task 4：session snapshot/cursor、SSE 断线恢复、AG-UI 去重和旧请求隔离。
 
-本轮**不测试/不应假设已实现**：slash commands、Project Trust、PTY、Git worktree、session fork/search/export、Models/Skills/Plugins 控制面和 Playwright E2E。
+本轮人工测试未覆盖：Project Trust、PTY、Git worktree、session fork/search/export、Models/Skills/Plugins 控制面和 Playwright E2E。slash commands 已有前后端自动化测试，但仍需发布前执行真实 Pi runtime 验证。
 
 ## 2. 测试环境
 

@@ -65,11 +65,52 @@ describe("pi-app input methods coverage", () => {
     await app.submitPrompt();
   });
 
+  it("prevents duplicate builtin requests while the first request is pending", async () => {
+    const app = await connectPiApp();
+    app.apiConnected = true;
+    app.dataset.activeSessionId = "s1";
+    app.dataset.activeWorkspaceId = "w1";
+    app.slashCommandsLoadedAt = Date.now();
+    let resolveCommand;
+    const commandResponse = new Promise((resolve) => { resolveCommand = resolve; });
+    globalThis.fetch = vi.fn((url) => String(url).endsWith("/command")
+      ? commandResponse
+      : Promise.resolve(ok({ workspaces: [] })));
+
+    app.prompt.value = "/clone";
+    const first = app.submitPrompt();
+    const second = app.submitPrompt();
+    await Promise.resolve();
+
+    expect(globalThis.fetch).toHaveBeenCalledTimes(1);
+    resolveCommand(ok({ newSessionId: "s2" }));
+    await Promise.all([first, second]);
+  });
+
+  it("reports unsupported builtin arguments without marking the connection failed", async () => {
+    const app = await connectPiApp();
+    app.apiConnected = true;
+    app.dataset.activeSessionId = "s1";
+    app.dataset.activeWorkspaceId = "w1";
+    app.slashCommandsLoadedAt = Date.now();
+    app.notifyResponseFailure = vi.fn();
+    app.setConnection = vi.fn();
+    globalThis.fetch = vi.fn();
+
+    app.prompt.value = "/copy extra";
+    await app.submitPrompt();
+
+    expect(globalThis.fetch).not.toHaveBeenCalled();
+    expect(app.notifyResponseFailure).toHaveBeenCalledWith(expect.objectContaining({ message: "Usage: /copy" }));
+    expect(app.setConnection).not.toHaveBeenCalled();
+  });
+
   it("dispatches the copy builtin without posting a prompt", async () => {
     const app = await connectPiApp();
     app.apiConnected = true;
     app.dataset.activeSessionId = "s1";
     app.dataset.activeWorkspaceId = "w1";
+    app.slashCommandsLoadedAt = Date.now();
     const writeText = vi.fn(async () => undefined);
     Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText } });
     globalThis.fetch = vi.fn(async (url) => String(url).endsWith("/command")
@@ -88,11 +129,33 @@ describe("pi-app input methods coverage", () => {
     expect(app.prompt.value).toBe("");
   });
 
+  it("activates the newly cloned session after refreshing workspaces", async () => {
+    const app = await connectPiApp();
+    app.apiConnected = true;
+    app.dataset.activeSessionId = "s1";
+    app.dataset.activeWorkspaceId = "w1";
+    app.slashCommandsLoadedAt = Date.now();
+    const row = document.createElement("button");
+    row.dataset.session = "s2";
+    app.append(row);
+    app.refreshWorkspaces = vi.fn(async () => undefined);
+    app.pickSession = vi.fn(async () => undefined);
+    globalThis.fetch = vi.fn(async (url) => String(url).endsWith("/command")
+      ? ok({ newSessionId: "s2" })
+      : ok({}));
+
+    app.prompt.value = "/clone";
+    await app.submitPrompt();
+
+    expect(app.pickSession).toHaveBeenCalledWith(row);
+  });
+
   it("dispatches name and compact builtins without posting prompts", async () => {
     const app = await connectPiApp();
     app.apiConnected = true;
     app.dataset.activeSessionId = "s1";
     app.dataset.activeWorkspaceId = "w1";
+    app.slashCommandsLoadedAt = Date.now();
     app.updateSessionTitle = vi.fn();
     app.showToast = vi.fn();
     globalThis.fetch = vi.fn(async () => ok({ accepted: true }));
@@ -115,6 +178,7 @@ describe("pi-app input methods coverage", () => {
     app.apiConnected = true;
     app.dataset.activeSessionId = "s1";
     app.dataset.activeWorkspaceId = "w1";
+    app.slashCommandsLoadedAt = Date.now();
     app.running = true;
     app.submitSteeringPrompt = vi.fn();
     globalThis.fetch = vi.fn(async () => ok({}));
