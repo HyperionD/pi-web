@@ -4,11 +4,437 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 )
+
+func TestStartDurablePromptFinishesWhenPromptDoesNotInvokeAgent(t *testing.T) {
+	store := runtimeTestStore()
+	events := appendTestStore(t)
+	receipt, err := events.StartRun(t.Context(), StartRunCommand{
+		SessionID: "runtime-session", ClientRequestID: "req-local", RequestHash: "h", RunID: "run-local", DisplayText: "/i-have-adhd",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	runtime := newFakePiRuntime()
+	manager := NewRuntimeManagerWithFactory(store, func(context.Context, string, string) (PiRuntime, error) {
+		return runtime, nil
+	})
+	runner := NewRunnerWithRuntimeManager(manager)
+	adapter := NewRuntimeEventAdapter("runtime-session", receipt.RunID, events)
+	if err := runner.StartDurablePrompt(t.Context(), store, "runtime-session", receipt.RunID, "/i-have-adhd", nil, adapter); err != nil {
+		t.Fatal(err)
+	}
+	runtime.mu.Lock()
+	promptID := runtime.sends[0].ID
+	runtime.mu.Unlock()
+	runtime.events <- PiEvent{
+		Type: "prompt_result",
+		Raw:  json.RawMessage(fmt.Sprintf(`{"type":"prompt_result","id":"%s","agentInvoked":false}`, promptID)),
+	}
+
+	deadline := time.Now().Add(2 * time.Second)
+	for runner.IsRunning("runtime-session") && time.Now().Before(deadline) {
+		time.Sleep(5 * time.Millisecond)
+	}
+	var count int
+	if err := events.db.QueryRow(`SELECT count(*) FROM session_events WHERE session_id='runtime-session' AND event_type=?`, EventRunFinished).Scan(&count); err != nil {
+		t.Fatal(err)
+	}
+	if count != 1 || runner.IsRunning("runtime-session") {
+		t.Fatalf("run.finished count = %d running = %v", count, runner.IsRunning("runtime-session"))
+	}
+	_ = manager.Shutdown(context.Background())
+}
+
+func TestStartDurablePromptFinishesFromPromptResponseWithoutAgent(t *testing.T) {
+	store := runtimeTestStore()
+	events := appendTestStore(t)
+	receipt, err := events.StartRun(t.Context(), StartRunCommand{
+		SessionID: "runtime-session", ClientRequestID: "req-local-response", RequestHash: "h", RunID: "run-local-response", DisplayText: "/i-have-adhd",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	runtime := newFakePiRuntime()
+	runtime.responseData = json.RawMessage(`{"agentInvoked":false}`)
+	manager := NewRuntimeManagerWithFactory(store, func(context.Context, string, string) (PiRuntime, error) {
+		return runtime, nil
+	})
+	runner := NewRunnerWithRuntimeManager(manager)
+	adapter := NewRuntimeEventAdapter("runtime-session", receipt.RunID, events)
+	if err := runner.StartDurablePrompt(t.Context(), store, "runtime-session", receipt.RunID, "/i-have-adhd", nil, adapter); err != nil {
+		t.Fatal(err)
+	}
+
+	deadline := time.Now().Add(2 * time.Second)
+	for runner.IsRunning("runtime-session") && time.Now().Before(deadline) {
+		time.Sleep(5 * time.Millisecond)
+	}
+	var count int
+	if err := events.db.QueryRow(`SELECT count(*) FROM session_events WHERE session_id='runtime-session' AND event_type=?`, EventRunFinished).Scan(&count); err != nil {
+		t.Fatal(err)
+	}
+	if count != 1 || runner.IsRunning("runtime-session") {
+		t.Fatalf("run.finished count = %d running = %v", count, runner.IsRunning("runtime-session"))
+	}
+	_ = manager.Shutdown(context.Background())
+}
+
+func TestStartDurablePromptFinishesFromIdleRuntimeAfterPromptResponse(t *testing.T) {
+	store := runtimeTestStore()
+	events := appendTestStore(t)
+	receipt, err := events.StartRun(t.Context(), StartRunCommand{
+		SessionID: "runtime-session", ClientRequestID: "req-local-state", RequestHash: "h", RunID: "run-local-state", DisplayText: "/i-have-adhd",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	runtime := newFakePiRuntime()
+	runtime.stateResponseData = json.RawMessage(`{"isStreaming":false}`)
+	manager := NewRuntimeManagerWithFactory(store, func(context.Context, string, string) (PiRuntime, error) {
+		return runtime, nil
+	})
+	runner := NewRunnerWithRuntimeManager(manager)
+	adapter := NewRuntimeEventAdapter("runtime-session", receipt.RunID, events)
+	if err := runner.StartDurablePrompt(t.Context(), store, "runtime-session", receipt.RunID, "/i-have-adhd", nil, adapter); err != nil {
+		t.Fatal(err)
+	}
+
+	deadline := time.Now().Add(2 * time.Second)
+	for runner.IsRunning("runtime-session") && time.Now().Before(deadline) {
+		time.Sleep(5 * time.Millisecond)
+	}
+	var count int
+	if err := events.db.QueryRow(`SELECT count(*) FROM session_events WHERE session_id='runtime-session' AND event_type=?`, EventRunFinished).Scan(&count); err != nil {
+		t.Fatal(err)
+	}
+	if count != 1 || runner.IsRunning("runtime-session") {
+		t.Fatalf("run.finished count = %d running = %v", count, runner.IsRunning("runtime-session"))
+	}
+	_ = manager.Shutdown(context.Background())
+}
+
+func TestStartDurablePromptIgnoresPromptResultFromAnotherPrompt(t *testing.T) {
+	store := runtimeTestStore()
+	events := appendTestStore(t)
+	receipt, err := events.StartRun(t.Context(), StartRunCommand{
+		SessionID: "runtime-session", ClientRequestID: "req-correlated", RequestHash: "h", RunID: "run-correlated", DisplayText: "hello",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	runtime := newFakePiRuntime()
+	runtime.stateResponseData = json.RawMessage(`{"isStreaming":true}`)
+	manager := NewRuntimeManagerWithFactory(store, func(context.Context, string, string) (PiRuntime, error) {
+		return runtime, nil
+	})
+	runner := NewRunnerWithRuntimeManager(manager)
+	adapter := NewRuntimeEventAdapter("runtime-session", receipt.RunID, events)
+	if err := runner.StartDurablePrompt(t.Context(), store, "runtime-session", receipt.RunID, "hello", nil, adapter); err != nil {
+		t.Fatal(err)
+	}
+	runtime.events <- PiEvent{Type: "prompt_result", Raw: json.RawMessage(`{"type":"prompt_result","id":"steer-id","agentInvoked":false}`)}
+	time.Sleep(20 * time.Millisecond)
+	if !runner.IsRunning("runtime-session") {
+		t.Fatal("an unrelated prompt_result finished the active run")
+	}
+	runtime.mu.Lock()
+	promptID := runtime.sends[0].ID
+	runtime.mu.Unlock()
+	runtime.events <- PiEvent{Type: "prompt_result", Raw: json.RawMessage(fmt.Sprintf(`{"type":"prompt_result","id":"%s","agentInvoked":false}`, promptID))}
+	waitForRunnerToStop(t, runner, "runtime-session")
+	_ = manager.Shutdown(context.Background())
+}
+
+func TestStartDurablePromptDoesNotUseIdleFallbackWhenAgentWasInvoked(t *testing.T) {
+	store := runtimeTestStore()
+	events := appendTestStore(t)
+	receipt, err := events.StartRun(t.Context(), StartRunCommand{
+		SessionID: "runtime-session", ClientRequestID: "req-agent-invoked", RequestHash: "h", RunID: "run-agent-invoked", DisplayText: "hello",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	runtime := newFakePiRuntime()
+	runtime.responseData = json.RawMessage(`{"agentInvoked":true}`)
+	runtime.stateResponseData = json.RawMessage(`{"isStreaming":false}`)
+	manager := NewRuntimeManagerWithFactory(store, func(context.Context, string, string) (PiRuntime, error) {
+		return runtime, nil
+	})
+	runner := NewRunnerWithRuntimeManager(manager)
+	adapter := NewRuntimeEventAdapter("runtime-session", receipt.RunID, events)
+	if err := runner.StartDurablePrompt(t.Context(), store, "runtime-session", receipt.RunID, "hello", nil, adapter); err != nil {
+		t.Fatal(err)
+	}
+	if !runner.IsRunning("runtime-session") {
+		t.Fatal("agent-invoked prompt was finished by idle fallback")
+	}
+	runtime.events <- PiEvent{Type: "agent_end", Raw: json.RawMessage(`{"type":"agent_end"}`)}
+	waitForRunnerToStop(t, runner, "runtime-session")
+	_ = manager.Shutdown(context.Background())
+}
+
+func TestStartDurablePromptFinishesLocalResultAsCancelledWhenCancellationWins(t *testing.T) {
+	store := runtimeTestStore()
+	events := appendTestStore(t)
+	receipt, err := events.StartRun(t.Context(), StartRunCommand{
+		SessionID: "runtime-session", ClientRequestID: "req-cancel-local", RequestHash: "h", RunID: "run-cancel-local", DisplayText: "hello",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	runtime := newFakePiRuntime()
+	runtime.stateResponseData = json.RawMessage(`{"isStreaming":true}`)
+	manager := NewRuntimeManagerWithFactory(store, func(context.Context, string, string) (PiRuntime, error) {
+		return runtime, nil
+	})
+	runner := NewRunnerWithRuntimeManager(manager)
+	adapter := NewRuntimeEventAdapter("runtime-session", receipt.RunID, events)
+	if err := runner.StartDurablePrompt(t.Context(), store, "runtime-session", receipt.RunID, "hello", nil, adapter); err != nil {
+		t.Fatal(err)
+	}
+	runner.mu.Lock()
+	run := runner.running["runtime-session"]
+	runner.mu.Unlock()
+	if run == nil || !run.beginCancel() {
+		t.Fatal("failed to mark run as cancelling")
+	}
+	runtime.mu.Lock()
+	promptID := runtime.sends[0].ID
+	runtime.mu.Unlock()
+	runtime.events <- PiEvent{Type: "prompt_result", Raw: json.RawMessage(fmt.Sprintf(`{"type":"prompt_result","id":"%s","agentInvoked":false}`, promptID))}
+	deadline := time.Now().Add(2 * time.Second)
+	var cancelled, finished int
+	for time.Now().Before(deadline) {
+		if err := events.db.QueryRow(`SELECT count(*) FROM session_events WHERE session_id='runtime-session' AND event_type=?`, EventRunCancelled).Scan(&cancelled); err != nil {
+			t.Fatal(err)
+		}
+		if cancelled == 1 {
+			break
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	if err := events.db.QueryRow(`SELECT count(*) FROM session_events WHERE session_id='runtime-session' AND event_type=?`, EventRunCancelled).Scan(&cancelled); err != nil {
+		t.Fatal(err)
+	}
+	if err := events.db.QueryRow(`SELECT count(*) FROM session_events WHERE session_id='runtime-session' AND event_type=?`, EventRunFinished).Scan(&finished); err != nil {
+		t.Fatal(err)
+	}
+	if cancelled != 1 || finished != 0 {
+		t.Fatalf("cancelled=%d finished=%d", cancelled, finished)
+	}
+	runner.releaseRun("runtime-session", run)
+	_ = manager.Shutdown(context.Background())
+}
+
+func waitForRunnerToStop(t *testing.T, runner *Runner, sessionID string) {
+	t.Helper()
+	deadline := time.Now().Add(2 * time.Second)
+	for runner.IsRunning(sessionID) && time.Now().Before(deadline) {
+		time.Sleep(5 * time.Millisecond)
+	}
+	if runner.IsRunning(sessionID) {
+		t.Fatalf("runner still holds session %q", sessionID)
+	}
+}
+
+func TestStartDurablePromptDoesNotCancelSendWhenAgentEndArrivesEarly(t *testing.T) {
+	store := runtimeTestStore()
+	events := appendTestStore(t)
+	receipt, err := events.StartRun(t.Context(), StartRunCommand{
+		SessionID: "runtime-session", ClientRequestID: "req-early-end", RequestHash: "h", RunID: "run-early-end", DisplayText: "hello",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	runtime := newFakePiRuntime()
+	runtime.events = make(chan PiEvent)
+	runtime.responseGate = make(chan struct{})
+	runtime.sendHook = func() {
+		runtime.events <- PiEvent{Type: "agent_start", Raw: json.RawMessage(`{"type":"agent_start"}`)}
+		runtime.events <- PiEvent{Type: "agent_end", Raw: json.RawMessage(`{"type":"agent_end"}`)}
+	}
+	manager := NewRuntimeManagerWithFactory(store, func(context.Context, string, string) (PiRuntime, error) {
+		return runtime, nil
+	})
+	runner := NewRunnerWithRuntimeManager(manager)
+	adapter := NewRuntimeEventAdapter("runtime-session", receipt.RunID, events)
+	startDone := make(chan error, 1)
+	go func() {
+		startDone <- runner.StartDurablePrompt(t.Context(), store, "runtime-session", receipt.RunID, "hello", nil, adapter)
+	}()
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		runtime.mu.Lock()
+		sent := len(runtime.sends) > 0
+		runtime.mu.Unlock()
+		if sent {
+			break
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	select {
+	case err := <-startDone:
+		t.Fatalf("prompt returned before its RPC response: %v", err)
+	case <-time.After(20 * time.Millisecond):
+	}
+	close(runtime.responseGate)
+	if err := <-startDone; err != nil {
+		t.Fatalf("prompt: %v", err)
+	}
+	waitForRunnerToStop(t, runner, "runtime-session")
+	var finished, failed int
+	if err := events.db.QueryRow(`SELECT count(*) FROM session_events WHERE session_id='runtime-session' AND event_type=?`, EventRunFinished).Scan(&finished); err != nil {
+		t.Fatal(err)
+	}
+	if err := events.db.QueryRow(`SELECT count(*) FROM session_events WHERE session_id='runtime-session' AND event_type=?`, EventRunFailed).Scan(&failed); err != nil {
+		t.Fatal(err)
+	}
+	if finished != 1 || failed != 0 {
+		t.Fatalf("finished=%d failed=%d", finished, failed)
+	}
+	_ = manager.Shutdown(context.Background())
+}
+
+func TestStartDurablePromptMatchesPromptResultArrivingBeforeResponse(t *testing.T) {
+	store := runtimeTestStore()
+	events := appendTestStore(t)
+	receipt, err := events.StartRun(t.Context(), StartRunCommand{
+		SessionID: "runtime-session", ClientRequestID: "req-result-before-response", RequestHash: "h", RunID: "run-result-before-response", DisplayText: "/i-have-adhd",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	runtime := newFakePiRuntime()
+	runtime.events = make(chan PiEvent)
+	runtime.responseGate = make(chan struct{})
+	runtime.sendHook = func() {
+		runtime.mu.Lock()
+		promptID := runtime.sends[0].ID
+		runtime.mu.Unlock()
+		runtime.events <- PiEvent{Type: "prompt_result", Raw: json.RawMessage(fmt.Sprintf(`{"type":"prompt_result","id":"%s","agentInvoked":false}`, promptID))}
+	}
+	manager := NewRuntimeManagerWithFactory(store, func(context.Context, string, string) (PiRuntime, error) {
+		return runtime, nil
+	})
+	runner := NewRunnerWithRuntimeManager(manager)
+	adapter := NewRuntimeEventAdapter("runtime-session", receipt.RunID, events)
+	startDone := make(chan error, 1)
+	go func() {
+		startDone <- runner.StartDurablePrompt(t.Context(), store, "runtime-session", receipt.RunID, "/i-have-adhd", nil, adapter)
+	}()
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		runtime.mu.Lock()
+		sent := len(runtime.sends) > 0
+		runtime.mu.Unlock()
+		if sent {
+			break
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	time.Sleep(20 * time.Millisecond)
+	close(runtime.responseGate)
+	if err := <-startDone; err != nil {
+		t.Fatalf("prompt: %v", err)
+	}
+	waitForRunnerToStop(t, runner, "runtime-session")
+	var finished int
+	if err := events.db.QueryRow(`SELECT count(*) FROM session_events WHERE session_id='runtime-session' AND event_type=?`, EventRunFinished).Scan(&finished); err != nil {
+		t.Fatal(err)
+	}
+	if finished != 1 {
+		t.Fatalf("run.finished count = %d", finished)
+	}
+	_ = manager.Shutdown(context.Background())
+}
+
+func TestStartDurablePromptCancelDoesNotAppendFailureAfterInFlightRPC(t *testing.T) {
+	store := runtimeTestStore()
+	events := appendTestStore(t)
+	receipt, err := events.StartRun(t.Context(), StartRunCommand{
+		SessionID: "runtime-session", ClientRequestID: "req-cancel-in-flight", RequestHash: "h", RunID: "run-cancel-in-flight", DisplayText: "hello",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	runtime := newFakePiRuntime()
+	runtime.responseGate = make(chan struct{})
+	manager := NewRuntimeManagerWithFactory(store, func(context.Context, string, string) (PiRuntime, error) {
+		return runtime, nil
+	})
+	runner := NewRunnerWithRuntimeManager(manager)
+	adapter := NewRuntimeEventAdapter("runtime-session", receipt.RunID, events)
+	startDone := make(chan error, 1)
+	go func() {
+		startDone <- runner.StartDurablePrompt(t.Context(), store, "runtime-session", receipt.RunID, "hello", nil, adapter)
+	}()
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		runtime.mu.Lock()
+		sent := len(runtime.sends) > 0
+		runtime.mu.Unlock()
+		if sent {
+			break
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	if !runner.Cancel("runtime-session") {
+		t.Fatal("cancel did not claim the in-flight run")
+	}
+	if err := <-startDone; err != nil {
+		t.Fatalf("cancelled prompt returned an error: %v", err)
+	}
+	var cancelled, failed int
+	if err := events.db.QueryRow(`SELECT count(*) FROM session_events WHERE session_id='runtime-session' AND event_type=?`, EventRunCancelled).Scan(&cancelled); err != nil {
+		t.Fatal(err)
+	}
+	if err := events.db.QueryRow(`SELECT count(*) FROM session_events WHERE session_id='runtime-session' AND event_type=?`, EventRunFailed).Scan(&failed); err != nil {
+		t.Fatal(err)
+	}
+	if cancelled != 1 || failed != 0 {
+		t.Fatalf("cancelled=%d failed=%d", cancelled, failed)
+	}
+	_ = manager.Shutdown(context.Background())
+}
+
+func TestStartDurablePromptDoesNotClassifySlowAgentAsLocal(t *testing.T) {
+	store := runtimeTestStore()
+	events := appendTestStore(t)
+	receipt, err := events.StartRun(t.Context(), StartRunCommand{
+		SessionID: "runtime-session", ClientRequestID: "req-slow-agent", RequestHash: "h", RunID: "run-slow-agent", DisplayText: "/review",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	runtime := newFakePiRuntime()
+	runtime.stateResponseData = json.RawMessage(`{"isStreaming":false}`)
+	manager := NewRuntimeManagerWithFactory(store, func(context.Context, string, string) (PiRuntime, error) {
+		return runtime, nil
+	})
+	runner := NewRunnerWithRuntimeManager(manager)
+	adapter := NewRuntimeEventAdapter("runtime-session", receipt.RunID, events)
+	startDone := make(chan error, 1)
+	go func() {
+		startDone <- runner.StartDurablePrompt(t.Context(), store, "runtime-session", receipt.RunID, "/review", nil, adapter)
+	}()
+	time.Sleep(200 * time.Millisecond)
+	runtime.events <- PiEvent{Type: "agent_start", Raw: json.RawMessage(`{"type":"agent_start"}`)}
+	if err := <-startDone; err != nil {
+		t.Fatalf("prompt: %v", err)
+	}
+	if !runner.IsRunning("runtime-session") {
+		t.Fatal("slow agent was classified as a local command")
+	}
+	runtime.events <- PiEvent{Type: "agent_end", Raw: json.RawMessage(`{"type":"agent_end"}`)}
+	waitForRunnerToStop(t, runner, "runtime-session")
+	_ = manager.Shutdown(context.Background())
+}
 
 func TestStartDurablePromptPersistsRuntimeLifecycle(t *testing.T) {
 	store := runtimeTestStore()

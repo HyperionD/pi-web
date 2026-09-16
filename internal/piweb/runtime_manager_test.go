@@ -11,21 +11,24 @@ import (
 )
 
 type fakePiRuntime struct {
-	mu         sync.Mutex
-	sends      []RPCCommand
-	closeErr   error
-	closeHook  func()
-	sendHook   func()
-	closed     int
-	events     chan PiEvent
-	subscribed bool
+	mu                sync.Mutex
+	sends             []RPCCommand
+	closeErr          error
+	closeHook         func()
+	sendHook          func()
+	responseData      json.RawMessage
+	stateResponseData json.RawMessage
+	responseGate      chan struct{}
+	closed            int
+	events            chan PiEvent
+	subscribed        bool
 }
 
 func newFakePiRuntime() *fakePiRuntime {
 	return &fakePiRuntime{events: make(chan PiEvent, 16)}
 }
 
-func (r *fakePiRuntime) Send(_ context.Context, command RPCCommand) (RPCResponse, error) {
+func (r *fakePiRuntime) Send(ctx context.Context, command RPCCommand) (RPCResponse, error) {
 	r.mu.Lock()
 	r.sends = append(r.sends, command)
 	hook := r.sendHook
@@ -33,7 +36,18 @@ func (r *fakePiRuntime) Send(_ context.Context, command RPCCommand) (RPCResponse
 	if hook != nil {
 		hook()
 	}
-	return RPCResponse{ID: command.ID, Type: "response", Command: command.Type, Success: true}, nil
+	if r.responseGate != nil {
+		select {
+		case <-r.responseGate:
+		case <-ctx.Done():
+			return RPCResponse{}, ctx.Err()
+		}
+	}
+	data := r.responseData
+	if command.Type == "get_state" {
+		data = r.stateResponseData
+	}
+	return RPCResponse{ID: command.ID, Type: "response", Command: command.Type, Success: true, Data: data}, nil
 }
 
 func (r *fakePiRuntime) Events() <-chan PiEvent {

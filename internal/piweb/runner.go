@@ -97,6 +97,10 @@ type activePiRun struct {
 	commandMu            commandGate
 	mu                   sync.Mutex
 	commandKind          string
+	promptID             string
+	promptReady          chan struct{}
+	promptReadyOnce      sync.Once
+	agentStarted         bool
 	steerPending         int
 	cancelling           bool
 	durableComplete      func(string) error
@@ -224,9 +228,31 @@ func (r *Runner) discardRun(sessionID string, run *activePiRun) {
 	r.mu.Unlock()
 }
 
+func (run *activePiRun) failDurableStart(adapter *RuntimeEventAdapter, err error) bool {
+	run.mu.Lock()
+	defer run.mu.Unlock()
+	if run.durableComplete == nil {
+		return run.cancelling
+	}
+	cancelled := run.cancelling
+	run.durableTerminalOnce.Do(func() {
+		if cancelled {
+			run.durableTerminalError = run.durableComplete(EventRunCancelled)
+			return
+		}
+		run.durableTerminalError = adapter.Fail(err)
+	})
+	return cancelled
+}
+
 func (run *activePiRun) completeDurableTerminal(eventType string) error {
+	run.mu.Lock()
+	defer run.mu.Unlock()
 	if run.durableComplete == nil {
 		return nil
+	}
+	if eventType == EventRunFinished && run.cancelling {
+		eventType = EventRunCancelled
 	}
 	run.durableTerminalOnce.Do(func() {
 		run.durableTerminalError = run.durableComplete(eventType)
@@ -350,6 +376,48 @@ func (run *activePiRun) adjustSteerPending(delta int) {
 	run.mu.Unlock()
 }
 
+func (run *activePiRun) markPromptReady() {
+	if run.promptReady != nil {
+		run.promptReadyOnce.Do(func() { close(run.promptReady) })
+	}
+}
+
+func (run *activePiRun) waitForPromptReady(ctx context.Context) bool {
+	if run.promptReady == nil {
+		return true
+	}
+	select {
+	case <-run.promptReady:
+		return true
+	case <-ctx.Done():
+		return false
+	}
+}
+
+func (run *activePiRun) setAgentStarted() {
+	run.mu.Lock()
+	run.agentStarted = true
+	run.mu.Unlock()
+}
+
+func (run *activePiRun) agentWasStarted() bool {
+	run.mu.Lock()
+	defer run.mu.Unlock()
+	return run.agentStarted
+}
+
+func (run *activePiRun) setPromptID(id string) {
+	run.mu.Lock()
+	run.promptID = id
+	run.mu.Unlock()
+}
+
+func (run *activePiRun) promptResultMatches(id string) bool {
+	run.mu.Lock()
+	defer run.mu.Unlock()
+	return run.promptID != "" && run.promptID == id
+}
+
 func (run *activePiRun) setCommandKind(kind string) {
 	run.mu.Lock()
 	run.commandKind = kind
@@ -419,28 +487,37 @@ func (r *activePiRun) send(command any) error {
 }
 
 func (r *activePiRun) sendContext(ctx context.Context, command any) error {
+	_, err := r.sendRPCCommandContext(ctx, command)
+	return err
+}
+
+func (r *activePiRun) sendPromptContext(ctx context.Context, command rpcPrompt) (RPCResponse, error) {
+	return r.sendRPCCommandContext(ctx, command)
+}
+
+func (r *activePiRun) sendRPCCommandContext(ctx context.Context, command any) (RPCResponse, error) {
 	payload, err := json.Marshal(command)
 	if err != nil {
-		return err
+		return RPCResponse{}, err
 	}
 	typeName := ""
 	if value, ok := command.(rpcPrompt); ok {
 		typeName = value.Type
 	}
 	if r.getRuntime() == nil {
-		return r.sendFallback(command)
+		return RPCResponse{}, r.sendFallback(command)
 	}
 	response, err := r.sendRPCContext(ctx, RPCCommand{Type: typeName, Payload: payload})
 	if err != nil {
-		return err
+		return RPCResponse{}, err
 	}
 	if !response.Success {
 		if response.Error == "" {
 			response.Error = "pi RPC command failed"
 		}
-		return errors.New(response.Error)
+		return RPCResponse{}, errors.New(response.Error)
 	}
-	return nil
+	return response, nil
 }
 
 func (r *activePiRun) sendFallback(command any) error {
