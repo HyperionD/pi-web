@@ -65,6 +65,18 @@ func (s *Server) sessionRuntimeCommand(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusConflict, errors.New("session is busy"))
 		return
 	}
+	if command.Type == "reload" {
+		if err := s.runtimeManager.Retire(r.Context(), sessionID, runtime); err != nil {
+			writeError(w, http.StatusBadGateway, err)
+			return
+		}
+		if _, err := s.ensureSessionRuntime(r.Context(), sessionID); err != nil {
+			writeError(w, http.StatusBadGateway, err)
+			return
+		}
+		writeRuntimeCommandData(w, nil)
+		return
+	}
 	if requestID := strings.TrimSpace(r.Header.Get("X-Client-Request-ID")); requestID != "" {
 		command.ID = "command:" + requestID
 	}

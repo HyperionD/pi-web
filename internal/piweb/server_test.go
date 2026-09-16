@@ -244,6 +244,37 @@ func TestSessionCommandEndpointRejectsMutatingCommandsWhileRunning(t *testing.T)
 	}
 }
 
+func TestSessionCommandEndpointReloadRestartsCurrentRuntime(t *testing.T) {
+	store := NewMockStore()
+	store.sessionFiles["8e7c-44ff"] = "/tmp/session.jsonl"
+	first := newFakePiRuntime()
+	second := newFakePiRuntime()
+	runtimes := []*fakePiRuntime{first, second}
+	created := 0
+	manager := NewRuntimeManagerWithFactory(store, func(context.Context, string, string) (PiRuntime, error) {
+		runtime := runtimes[created]
+		created++
+		return runtime, nil
+	})
+	defer manager.Shutdown(context.Background())
+	server := NewServerWithRuntimeManager(Config{EnablePiExecution: true}, store, NewBroker(), manager)
+
+	request := httptest.NewRequest(http.MethodPost, "/api/sessions/8e7c-44ff/command", strings.NewReader(`{"command":"reload"}`))
+	request.Header.Set("Content-Type", "application/json")
+	response := httptest.NewRecorder()
+	server.Handler().ServeHTTP(response, request)
+
+	if response.Code != http.StatusOK {
+		t.Fatalf("reload status = %d: %s", response.Code, response.Body.String())
+	}
+	if created != 2 || first.closed != 1 {
+		t.Fatalf("reload runtimes = created %d, first closed %d", created, first.closed)
+	}
+	if len(first.sends) != 0 || len(second.sends) != 0 {
+		t.Fatalf("reload sent unsupported runtime command: first=%+v second=%+v", first.sends, second.sends)
+	}
+}
+
 func TestSessionCommandEndpointAllowlistsRuntimeCommands(t *testing.T) {
 	store := NewMockStore()
 	store.sessionFiles["8e7c-44ff"] = "/tmp/session.jsonl"

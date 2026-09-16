@@ -87,6 +87,27 @@ describe("pi-app input methods coverage", () => {
     await Promise.all([first, second]);
   });
 
+  it("reloads session resources through the runtime command endpoint", async () => {
+    const app = await connectPiApp();
+    app.apiConnected = true;
+    app.dataset.activeSessionId = "s1";
+    app.dataset.activeWorkspaceId = "w1";
+    app.slashCommandsLoadedAt = Date.now();
+    app.loadSession = vi.fn(async () => undefined);
+    app.loadSessionCommands = vi.fn(async () => undefined);
+    globalThis.fetch = vi.fn(async () => ok({}));
+
+    app.prompt.value = "/reload";
+    await app.submitPrompt();
+
+    expect(app.loadSession).toHaveBeenCalledWith("s1");
+    expect(app.loadSessionCommands).toHaveBeenCalledWith("s1");
+    expect(globalThis.fetch).toHaveBeenCalledWith(
+      "http://backend.test/api/sessions/s1/command",
+      expect.objectContaining({ method: "POST", body: JSON.stringify({ command: "reload" }) }),
+    );
+  });
+
   it("renders session statistics in a persistent panel", async () => {
     const app = await connectPiApp();
     app.apiConnected = true;
