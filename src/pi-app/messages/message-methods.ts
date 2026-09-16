@@ -153,7 +153,6 @@ export const messageMethods = {
       : this.termInner?.lastElementChild;
     const historyActive = last?.matches?.([
       ".msg.streaming[data-kind='pi']",
-      ".msg[data-kind='pi']",
       ".fallback-choice-list",
     ].join(", "));
     const tailActive = this.streamingTail?.querySelector?.([

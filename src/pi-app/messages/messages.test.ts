@@ -208,12 +208,12 @@ describe("pi-app messages", () => {
 
 
 
-  it("does not show loading after a final assistant message while waiting for idle status", async () => {
+  it("keeps loading visible after a committed assistant segment while the run is active", async () => {
     const app = await connectPiApp();
-    app.renderMessages([]);
+    app.renderMessages([{ kind: "pi", text: "partial answer", status: "committed" }]);
     app.setMode("running");
-    app.appendMessage({ kind: "pi", text: "complete answer" });
-    expect(app.querySelector(".msg.loading")).toBeNull();
+
+    expect(app.querySelector(".msg.loading")).not.toBeNull();
   });
 
 
