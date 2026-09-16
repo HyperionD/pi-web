@@ -17,6 +17,36 @@ describe("workspace bootstrap coverage", () => {
   });
   afterEach(cleanupPiAppFixture);
 
+  it("clears slash commands when the active workspace is removed", async () => {
+    const app = await connectPiApp();
+    app.dataset.activeWorkspaceId = "w1";
+    app.renderSlashCommands([{ command: "/old", description: "old command" }]);
+
+    app.clearActiveWorkspaceView();
+
+    expect(app.slashCommands).toEqual([]);
+    expect(app.querySelector(".slash-item")).toBeNull();
+  });
+
+  it("clears stale slash commands when command loading fails", async () => {
+    const app = await connectPiApp();
+    app.dataset.activeWorkspaceId = "w1";
+    app.renderSlashCommands([{ command: "/old", description: "old command" }]);
+    app.recoverForbiddenWorkspace = vi.fn();
+    let resolveRequest;
+    const request = new Promise((resolve) => { resolveRequest = resolve; });
+    globalThis.fetch = vi.fn(() => request);
+
+    const loading = app.loadWorkspaceCommands("w1");
+    await vi.waitFor(() => expect(globalThis.fetch).toHaveBeenCalled());
+    expect(app.querySelector("[data-slash='/old']")).toBeNull();
+    resolveRequest(failJson("commands unavailable"));
+    await loading;
+
+    expect(app.querySelector("[data-slash='/old']")).toBeNull();
+    expect(app.querySelector("[data-slash='/compact']")).not.toBeNull();
+  });
+
   it("covers workspace API fallback branches", async () => {
     const app = await connectPiApp();
     app.apiConnected = true;

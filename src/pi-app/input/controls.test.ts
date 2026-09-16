@@ -35,6 +35,17 @@ describe("pi-app controls", () => {
     expect(app.querySelector(".slash-pop").hidden).toBe(false);
   });
 
+  it("closes slash suggestions after command arguments begin", async () => {
+    const app = await connectPiApp();
+    app.dataset.activeWorkspaceId = "w1";
+    const prompt = app.querySelector(".prompt-textarea");
+
+    prompt.value = "/name my session";
+    prompt.dispatchEvent(new Event("input"));
+
+    expect(app.querySelector(".slash-pop").hidden).toBe(true);
+  });
+
   it("disables prompt input until a workspace is opened", async () => {
     const app = await connectPiApp();
     const prompt = app.querySelector(".prompt-textarea");
@@ -123,6 +134,68 @@ describe("pi-app controls", () => {
     expect(stop.hidden).toBe(true);
   });
 
+  it("orders matching commands across source groups by match quality", async () => {
+    const app = await connectPiApp();
+    app.renderSlashCommands([
+      { command: "/team", description: "model helper", source: "extension" },
+      { command: "/model", description: "change model", source: "prompt" },
+    ]);
+    app.prompt.value = "/model";
+    app.updatePrompt();
+
+    expect([...app.querySelectorAll(".slash-item:not([hidden])")].map((item) => item.dataset.slash)).toEqual([
+      "/model", "/team",
+    ]);
+  });
+
+  it("orders visible slash commands by match quality", async () => {
+    const app = await connectPiApp();
+    app.renderSlashCommands([
+      { command: "/team", description: "model helper", source: "prompt" },
+      { command: "/model", description: "change model", source: "prompt" },
+    ]);
+    app.prompt.value = "/model";
+    app.updatePrompt();
+
+    expect([...app.querySelectorAll(".slash-item:not([hidden])")].map((item) => item.dataset.slash)).toEqual([
+      "/model", "/team",
+    ]);
+  });
+
+  it("hides unavailable built-in commands while a session is running", async () => {
+    const app = await connectPiApp();
+    app.running = true;
+    app.renderSlashCommands([]);
+    app.prompt.value = "/";
+    app.updatePrompt();
+
+    expect(app.querySelector("[data-slash='/compact']").hidden).toBe(true);
+    expect(app.querySelector("[data-slash='/session']").hidden).toBe(false);
+    expect(app.querySelector("[data-slash='/copy']").hidden).toBe(false);
+  });
+
+  it("shows an empty state when no slash command matches", async () => {
+    const app = await connectPiApp();
+    app.renderSlashCommands([{ command: "/review", description: "review", source: "prompt" }]);
+    app.prompt.value = "/unknown";
+    app.updatePrompt();
+
+    expect(app.querySelector(".slash-empty").hidden).toBe(false);
+  });
+
+  it("groups slash commands by source", async () => {
+    const app = await connectPiApp();
+    app.renderSlashCommands([
+      { command: "/review", description: "review", source: "prompt", scope: "project" },
+      { command: "/team", description: "team", source: "extension", scope: "global" },
+    ]);
+
+    expect([...app.querySelectorAll(".slash-group")].map((group) => group.dataset.source)).toEqual([
+      "builtin", "extension", "prompt",
+    ]);
+    expect(app.querySelector(".slash-group[data-source='extension'] .slash-group-count").textContent).toBe("1");
+  });
+
   it("renders global and project slash commands", async () => {
     const app = await connectPiApp();
     app.renderSlashCommands([
@@ -130,9 +203,11 @@ describe("pi-app controls", () => {
       { command: "/review", description: "project review", source: "prompt", scope: "project" },
     ]);
     const items = [...app.querySelectorAll(".slash-item")];
-    expect(items.map((item) => item.dataset.slash)).toEqual(["/team", "/review"]);
-    expect(items[0].querySelector(".sl-scope").textContent).toBe("global");
-    expect(items[1].querySelector(".sl-scope").textContent).toBe("project");
+    expect(items.map((item) => item.dataset.slash)).toEqual([
+      "/compact", "/reload", "/name", "/session", "/copy", "/clone", "/team", "/review",
+    ]);
+    expect(items.find((item) => item.dataset.slash === "/team").querySelector(".sl-scope").textContent).toBe("global");
+    expect(items.find((item) => item.dataset.slash === "/review").querySelector(".sl-scope").textContent).toBe("project");
   });
 
   it("renders the compact prompt status line from runtime status", async () => {

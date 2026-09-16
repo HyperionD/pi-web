@@ -188,6 +188,11 @@ export const workspaceBootstrapMethods = {
     this.runtimeStatusRequestToken = Symbol("cleared-workspace");
     this.workspaceMetaLoadToken = Symbol("cleared-workspace");
     this.workspaceCommandsLoadToken = Symbol("cleared-workspace");
+    this.slashCommands = [];
+    this.querySelector(".slash-list")?.replaceChildren();
+    this.slashPopover?.setAttribute("hidden", "");
+    this.prompt?.setAttribute("aria-expanded", "false");
+    this.prompt?.removeAttribute("aria-activedescendant");
     this.workspaceFiles = [];
     this.workspaceFileStatuses = {};
     window.dispatchEvent(new CustomEvent("pi-workspace-tree:update", {
@@ -281,17 +286,24 @@ export const workspaceBootstrapMethods = {
     const loadToken = Symbol(workspaceId);
     const expectedBootstrapGeneration = bootstrapGeneration || this.bootstrapGeneration;
     this.workspaceCommandsLoadToken = loadToken;
+    this.renderSlashCommands?.([]);
+    this.setSlashCommandStatus?.("loading…");
     const isCurrentLoad = () => (
       this.dataset.activeWorkspaceId === workspaceId
       && this.workspaceCommandsLoadToken === loadToken
       && (!expectedBootstrapGeneration || this.bootstrapGeneration === expectedBootstrapGeneration)
     );
     try {
-      const { commands } = await getWorkspaceCommands(workspaceId);
+      const response = await getWorkspaceCommands(workspaceId);
       if (!isCurrentLoad()) return;
-      this.renderSlashCommands(commands || []);
+      this.renderSlashCommands(response.commands || []);
+      if (response.error) this.setSlashCommandStatus?.("unavailable");
     } catch (error) {
-      if (isCurrentLoad()) this.recoverForbiddenWorkspace(error);
+      if (isCurrentLoad()) {
+        this.renderSlashCommands?.([]);
+        this.setSlashCommandStatus?.("unavailable");
+        this.recoverForbiddenWorkspace(error);
+      }
     }
   },
 

@@ -107,6 +107,8 @@ describe("pi-app core events", () => {
     ["submitShellCommand", "saveSettingsForm", "fillSettingsForm", "fillModelControls", "syncCustomSettingInput", "setModelControlsLoading",
       "submitPrompt", "cancelActiveSession", "handlePromptPaste", "navigateList", "pickSlash", "addFiles", "startResize", "startInspectorResize", "openFolderPopover", "closeFolderPopover",
       "shortcut", "closeSessionMenus"].forEach((name) => { app[name] = (...args) => calls.push([name, ...args]); });
+    app.prompt.value = "/m";
+    app.updatePrompt();
     app.slashPopover.hidden = false;
     app.slashPopover.removeAttribute("hidden");
     app.submitWorkspacePath = vi.fn();
@@ -185,6 +187,82 @@ describe("pi-app core events", () => {
 
     expect(cancelActiveSession).toHaveBeenCalledOnce();
     expect(event.defaultPrevented).toBe(true);
+  });
+
+  it("lets Enter submit an unknown slash command when there are no matches", async () => {
+    const app = await connectPiApp();
+    app.prompt.value = "/unknown";
+    app.updatePrompt();
+    app.submitPrompt = vi.fn();
+
+    const event = new KeyboardEvent("keydown", { key: "Enter", cancelable: true, bubbles: true });
+    app.prompt.dispatchEvent(event);
+
+    expect(app.submitPrompt).toHaveBeenCalledOnce();
+  });
+
+  it("uses Tab to complete a slash command", async () => {
+    const app = await connectPiApp();
+    app.prompt.value = "/mo";
+    app.updatePrompt();
+
+    const event = new KeyboardEvent("keydown", { key: "Tab", cancelable: true, bubbles: true });
+    app.prompt.dispatchEvent(event);
+
+    expect(app.prompt.value).toBe("/model ");
+    expect(event.defaultPrevented).toBe(true);
+  });
+
+  it("sends an exact slash command on Enter instead of selecting it again", async () => {
+    const app = await connectPiApp();
+    app.prompt.value = "/model";
+    app.updatePrompt();
+    app.submitPrompt = vi.fn();
+
+    const event = new KeyboardEvent("keydown", { key: "Enter", cancelable: true, bubbles: true });
+    app.prompt.dispatchEvent(event);
+
+    expect(app.submitPrompt).toHaveBeenCalledOnce();
+    expect(event.defaultPrevented).toBe(true);
+  });
+
+  it("closes slash suggestions without cancelling the running session", async () => {
+    const app = await connectPiApp();
+    app.running = true;
+    app.prompt.value = "/mo";
+    app.updatePrompt();
+    app.cancelActiveSession = vi.fn();
+
+    const event = new KeyboardEvent("keydown", { key: "Escape", cancelable: true, bubbles: true });
+    app.prompt.dispatchEvent(event);
+
+    expect(app.slashPopover.hidden).toBe(true);
+    expect(app.prompt.getAttribute("aria-expanded")).toBe("false");
+    expect(app.prompt.hasAttribute("aria-activedescendant")).toBe(false);
+    expect(app.cancelActiveSession).not.toHaveBeenCalled();
+  });
+
+  it("does not cancel a running session while the IME is composing", async () => {
+    const app = await connectPiApp();
+    app.running = true;
+    app.cancelActiveSession = vi.fn();
+    app.prompt.dispatchEvent(new Event("compositionstart"));
+    app.prompt.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+
+    expect(app.cancelActiveSession).not.toHaveBeenCalled();
+  });
+
+  it("does not intercept Enter from an active IME composition", async () => {
+    const app = await connectPiApp();
+    app.prompt.value = "/mo";
+    app.updatePrompt();
+    app.submitPrompt = vi.fn();
+    const event = new KeyboardEvent("keydown", { key: "Enter", cancelable: true, bubbles: true });
+    Object.defineProperty(event, "keyCode", { value: 229 });
+    app.prompt.dispatchEvent(event);
+
+    expect(app.submitPrompt).not.toHaveBeenCalled();
+    expect(event.defaultPrevented).toBe(false);
   });
 
   it("opens the sidebar workspace popover without entering a picker route", async () => {
@@ -312,6 +390,8 @@ describe("pi-app core events", () => {
     expect(shiftEnter.defaultPrevented).toBe(false);
     expect(app.submitPrompt).toHaveBeenCalledTimes(1);
 
+    app.prompt.value = "/m";
+    app.updatePrompt();
     app.slashPopover.hidden = false;
     const slashEnter = new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true });
     app.prompt.dispatchEvent(slashEnter);

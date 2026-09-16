@@ -204,7 +204,7 @@ func TestWorkspaceCommandsEndpointUsesMockCommandsWhenPiDisabled(t *testing.T) {
 	}
 }
 
-func TestWorkspaceCommandsEndpointFallsBackWhenPiCommandsFail(t *testing.T) {
+func TestWorkspaceCommandsEndpointReportsPiCommandFailureWithoutFakeCommands(t *testing.T) {
 	root := t.TempDir()
 	writeFakePi(t, root, "#!/bin/sh\nexit 0\n")
 	store := NewMockStore()
@@ -221,7 +221,7 @@ func TestWorkspaceCommandsEndpointFallsBackWhenPiCommandsFail(t *testing.T) {
 	if res.Code != http.StatusOK {
 		t.Fatalf("expected 200 fallback, got %d: %s", res.Code, res.Body.String())
 	}
-	if !strings.Contains(res.Body.String(), `"command":"/review"`) || !strings.Contains(res.Body.String(), `"error"`) {
+	if !strings.Contains(res.Body.String(), `"commands":[]`) || !strings.Contains(res.Body.String(), `"error"`) {
 		t.Fatalf("unexpected body: %s", res.Body.String())
 	}
 }

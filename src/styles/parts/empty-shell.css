@@ -77,6 +77,22 @@
   max-height: 240px;
   overflow-y: auto;
 }
+.slash-group {
+  padding: 4px 0;
+}
+.slash-group-head {
+  display: flex;
+  justify-content: space-between;
+  padding: 4px var(--space-3);
+  color: var(--fg-3);
+  font-size: var(--text-xs);
+  letter-spacing: var(--tracking-wide);
+  text-transform: uppercase;
+}
+.slash-group-count {
+  color: var(--fg-3);
+  font-family: var(--font-mono);
+}
 .slash-item {
   display: grid;
   grid-template-columns: minmax(120px, .8fr) auto minmax(0, 1.4fr);

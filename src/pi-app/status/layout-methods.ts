@@ -37,6 +37,7 @@ function storeInspectorWidth(width) {
 export const layoutMethods = {
   shortcut(event) {
     if (event.key === "Tab") this.trapSettingsFocus?.(event);
+    if (event.key === "Escape" && (this.promptComposing || event.isComposing || event.keyCode === 229)) return;
     if (event.key === "Escape") {
       const popover = this.querySelector("[data-folder-popover]");
       if (popover && !popover.hidden) {

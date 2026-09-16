@@ -1,6 +1,14 @@
 import { cancelSession, createSession, postPrompt, runShellCommand, steerSession } from "../../lib/api";
 import { fallbackChoicePrompt } from "./fallback-choices";
 import { maxUploadBytesToMiB } from "../workspace/app-config-methods";
+import {
+  commandDescription,
+  commandName,
+  commandValue,
+  filterSlashCommands,
+  getSlashQuery,
+  mergeSlashCommands,
+} from "./slash-commands";
 
 export const inputMethods = {
   async submitPrompt() {
@@ -357,7 +365,9 @@ export const inputMethods = {
     this.sendButton.disabled = !canSend;
     this.sendButton.setAttribute("aria-disabled", canSend ? "false" : "true");
     this.sendButton.classList.toggle("is-disabled", !canSend);
-    this.slashPopover?.toggleAttribute("hidden", !(value.startsWith("/") && !value.includes("\n")));
+    const slashQuery = getSlashQuery(value);
+    this.slashPopover?.toggleAttribute("hidden", slashQuery === null);
+    this.prompt.setAttribute("aria-expanded", String(slashQuery !== null));
     this.filterSlash(value);
     this.prompt.style.height = "auto";
     this.prompt.style.height = Math.min(180, this.prompt.scrollHeight) + "px";
@@ -377,49 +387,127 @@ export const inputMethods = {
     this.prompt.focus();
   },
 
+  setSlashCommandStatus(status = "") {
+    const head = this.querySelector("[data-slash-head]");
+    if (!head) return;
+    head.textContent = status ? `slash commands · ${status}` : "slash commands · type to filter";
+  },
+
   renderSlashCommands(commands = []) {
     const list = this.querySelector(".slash-list");
     if (!list) return;
+    this.slashCommands = mergeSlashCommands(commands);
     list.replaceChildren();
-    for (const command of commands) {
-      const name = command.command || command.cmd || `/${command.name}`;
-      if (!name || name === "/undefined") continue;
-      const item = document.createElement("button");
-      item.type = "button";
-      item.className = "slash-item";
-      item.dataset.slash = name;
-      const scope = command.scope || command.location || "global";
+    const groups = new Map();
+    for (const command of this.slashCommands) {
       const source = command.source || "command";
-      item.innerHTML = [
-        `<span class="sl-cmd"></span>`,
-        `<span class="sl-tags"><span class="sl-scope"></span><span class="sl-source"></span></span>`,
-        `<span class="sl-desc"></span>`,
-      ].join("");
-      item.querySelector(".sl-cmd").textContent = name;
-      item.querySelector(".sl-scope").textContent = scope;
-      item.querySelector(".sl-source").textContent = source;
-      item.querySelector(".sl-desc").textContent = command.description || command.desc || "";
-      list.append(item);
+      if (!groups.has(source)) groups.set(source, []);
+      groups.get(source).push(command);
     }
-    if (!list.children.length) {
-      const empty = document.createElement("div");
-      empty.className = "slash-empty";
-      empty.textContent = "no slash commands found";
-      list.append(empty);
+    const sourceOrder = ["builtin", "extension", "prompt", "skill"];
+    const orderedGroups = [...groups.entries()].sort(([left], [right]) => {
+      const leftIndex = sourceOrder.indexOf(left);
+      const rightIndex = sourceOrder.indexOf(right);
+      return (leftIndex < 0 ? 99 : leftIndex) - (rightIndex < 0 ? 99 : rightIndex);
+    });
+    let commandIndex = 0;
+    for (const [source, groupCommands] of orderedGroups) {
+      const group = document.createElement("section");
+      group.className = "slash-group";
+      group.dataset.source = source;
+      group.setAttribute("role", "group");
+      group.setAttribute("aria-label", source);
+      group.innerHTML = `<div class="slash-group-head"><span></span><span class="slash-group-count"></span></div>`;
+      group.querySelector(".slash-group-head span").textContent = source;
+      group.querySelector(".slash-group-count").textContent = String(groupCommands.length);
+      for (const command of groupCommands) {
+        const item = document.createElement("button");
+        item.type = "button";
+        item.className = "slash-item";
+        item.setAttribute("role", "option");
+        item.setAttribute("aria-selected", "false");
+        item.id = `slash-command-${commandIndex++}`;
+        item.dataset.slash = commandValue(command);
+        item.dataset.commandName = commandName(command);
+        const scope = command.scope || command.location || "global";
+        item.innerHTML = [
+          `<span class="sl-cmd"></span>`,
+          `<span class="sl-tags"><span class="sl-scope"></span><span class="sl-source"></span></span>`,
+          `<span class="sl-desc"></span>`,
+        ].join("");
+        item.querySelector(".sl-cmd").textContent = commandValue(command);
+        item.querySelector(".sl-scope").textContent = scope;
+        item.querySelector(".sl-source").textContent = source;
+        item.querySelector(".sl-desc").textContent = commandDescription(command);
+        group.append(item);
+      }
+      list.append(group);
     }
+    const empty = document.createElement("div");
+    empty.className = "slash-empty";
+    empty.textContent = "no slash commands found";
+    empty.hidden = true;
+    list.append(empty);
+    this.setSlashCommandStatus();
     this.filterSlash();
   },
 
   filterSlash(value = this.prompt?.value || "") {
-    const query = value.replace(/^\//, "").toLowerCase();
+    const query = getSlashQuery(value);
     const items = [...this.querySelectorAll(".slash-item")];
-    let first = true;
+    const empty = this.querySelector(".slash-empty");
+    if (query === null) {
+      items.forEach((item) => {
+        item.hidden = true;
+        item.classList.remove("selected");
+        item.setAttribute("aria-selected", "false");
+      });
+      if (empty) empty.hidden = true;
+      this.prompt?.removeAttribute("aria-activedescendant");
+      return;
+    }
+    const commands = this.slashCommands || items.map((item) => ({
+      name: item.dataset.commandName || item.dataset.slash?.replace(/^\//, ""),
+      command: item.dataset.slash,
+      description: item.querySelector(".sl-desc")?.textContent || item.textContent,
+    }));
+    const matchingCommands = filterSlashCommands(commands, query, Boolean(this.running));
+    const matchingNames = new Set(matchingCommands.map((command) => commandName(command).toLowerCase()));
     items.forEach((item) => {
-      const match = !query || item.textContent.toLowerCase().includes(query);
+      const itemName = item.dataset.commandName || item.dataset.slash?.replace(/^\//, "") || "";
+      const match = matchingNames.has(itemName.toLowerCase());
       item.hidden = !match;
-      item.classList.toggle("selected", match && first);
-      if (match) first = false;
+      item.classList.toggle("selected", false);
+      item.setAttribute("aria-selected", "false");
     });
+    const matchingOrder = new Map(
+      matchingCommands.map((command, index) => [commandName(command).toLowerCase(), index]),
+    );
+    const list = this.querySelector(".slash-list");
+    const groups = [...this.querySelectorAll(".slash-group")];
+    const groupRank = (group) => Math.min(
+      ...[...group.querySelectorAll(".slash-item")].map((item) => (
+        matchingOrder.get((item.dataset.commandName || "").toLowerCase()) ?? 99
+      )),
+    );
+    groups.sort((left, right) => groupRank(left) - groupRank(right));
+    groups.forEach((group) => {
+      const groupItems = [...group.querySelectorAll(".slash-item")];
+      groupItems.sort((left, right) => (
+        (matchingOrder.get((left.dataset.commandName || "").toLowerCase()) ?? 99)
+        - (matchingOrder.get((right.dataset.commandName || "").toLowerCase()) ?? 99)
+      ));
+      groupItems.forEach((item) => group.append(item));
+      const hasVisibleItem = groupItems.some((item) => !item.hidden);
+      group.toggleAttribute("hidden", !hasVisibleItem);
+      list?.append(group);
+    });
+    const first = [...this.querySelectorAll(".slash-item")].find((item) => !item.hidden);
+    if (empty) empty.hidden = Boolean(first);
+    first?.classList.add("selected");
+    first?.setAttribute("aria-selected", "true");
+    if (first?.id) this.prompt?.setAttribute("aria-activedescendant", first.id);
+    else this.prompt?.removeAttribute("aria-activedescendant");
   },
 
   pickSlash(command) {
@@ -428,16 +516,21 @@ export const inputMethods = {
   },
 
   navigateList(event, selector, onSelect) {
-    event.preventDefault();
     const items = [...this.querySelectorAll(selector)].filter((item) => !item.hidden);
     if (!items.length) return;
+    event.preventDefault();
     let index = Math.max(0, items.findIndex((item) => item.classList.contains("selected")));
     if (event.key === "ArrowDown") index = Math.min(items.length - 1, index + 1);
     if (event.key === "ArrowUp") index = Math.max(0, index - 1);
-    items.forEach((item) => item.classList.remove("selected"));
+    items.forEach((item) => {
+      item.classList.remove("selected");
+      item.setAttribute("aria-selected", "false");
+    });
     items[index].classList.add("selected");
-    items[index].scrollIntoView({ block: "nearest" });
-    if (event.key === "Enter") onSelect(items[index]);
+    items[index].setAttribute("aria-selected", "true");
+    if (items[index].id) this.prompt?.setAttribute("aria-activedescendant", items[index].id);
+    items[index].scrollIntoView?.({ block: "nearest" });
+    if (event.key === "Enter" || event.key === "Tab") onSelect(items[index]);
   },
 
 };

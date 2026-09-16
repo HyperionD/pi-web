@@ -15,7 +15,8 @@ describe("browser compatibility", () => {
 
   it("shows an idea-focused placeholder in the prompt composer", () => {
     const app = readFileSync(new URL("./App.astro", import.meta.url), "utf8");
-    expect(app).toContain('<textarea class="prompt-textarea" placeholder="输入你的想法" rows="1" disabled={!activeWorkspaceID}></textarea>');
+    expect(app).toContain('<textarea class="prompt-textarea" placeholder="输入你的想法" rows="1"');
+    expect(app).toContain('aria-controls="slash-command-list"');
   });
 
   it("starts in the empty state when no workspace is rendered", () => {

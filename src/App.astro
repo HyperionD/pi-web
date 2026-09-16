@@ -181,17 +181,17 @@ function toolStatus(msg) {
       <div class="fp-resizer" role="separator" aria-orientation="vertical" aria-label="调整 Git 详情大小" aria-valuemin="320" aria-valuemax="720" aria-valuenow="560" title="拖动以调整大小"></div>
     </aside>
   <div class="prompt-region">
-    <div class="slash-pop" hidden>
-      <div class="slash-head">slash commands · type to filter</div>
+    <div id="slash-command-list" class="slash-pop" role="listbox" aria-label="斜杠命令" hidden>
+      <div class="slash-head" data-slash-head>slash commands · type to filter</div>
       <div class="slash-list">{slashCommands.map((cmd, index) => {
         const command = cmd.command || cmd.cmd || `/${cmd.name}`;
-        return <button type="button" class:list={["slash-item", index === 0 && "selected"]} data-slash={command}><span class="sl-cmd">{command}</span><span class="sl-tags"><span class="sl-scope">{cmd.scope || "global"}</span><span class="sl-source">{cmd.source || "command"}</span></span><span class="sl-desc">{cmd.description || cmd.desc}</span></button>;
+        return <button id={`slash-command-${index}`} type="button" role="option" aria-selected={index === 0 ? "true" : "false"} class:list={["slash-item", index === 0 && "selected"]} data-slash={command}><span class="sl-cmd">{command}</span><span class="sl-tags"><span class="sl-scope">{cmd.scope || "global"}</span><span class="sl-source">{cmd.source || "command"}</span></span><span class="sl-desc">{cmd.description || cmd.desc}</span></button>;
       })}</div>
     </div>
     <div class="prompt-bar">
       <button class="attach-btn" type="button" aria-label="attach files" title="attach files"><Paperclip size={14} strokeWidth={1.5} aria-hidden="true" /></button>
       <input type="file" multiple hidden data-file-input />
-      <div class="prompt-input-col"><div class="attach-chips" hidden></div><textarea class="prompt-textarea" placeholder="输入你的想法" rows="1" disabled={!activeWorkspaceID}></textarea></div>
+      <div class="prompt-input-col"><div class="attach-chips" hidden></div><textarea class="prompt-textarea" placeholder="输入你的想法" rows="1" aria-controls="slash-command-list" aria-expanded="false" disabled={!activeWorkspaceID}></textarea></div>
       <div class="prompt-actions"><button class="stop-btn" type="button" aria-label="stop" title="stop" hidden><Square size={13} strokeWidth={2} aria-hidden="true" /></button><button class="send-btn" type="button" aria-label="send" title="send" disabled={!activeWorkspaceID} aria-disabled="true"><SendHorizontal size={14} strokeWidth={2} aria-hidden="true" /></button></div>
       <div class="drop-overlay" hidden><span>drop to attach</span></div>
     </div>

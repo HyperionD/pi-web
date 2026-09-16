@@ -30,6 +30,8 @@ describe("pi-app core events coverage", () => {
     app.submitPrompt = vi.fn();
     app.compactActiveSession = vi.fn();
     app.pickSlash = vi.fn();
+    app.prompt.value = "/mo";
+    app.updatePrompt();
     app.slashPopover.hidden = false;
     app.sendButton.disabled = false;
     app.sendButton.click();

@@ -23,6 +23,7 @@ import { oauthMethods } from "./workspace/oauth-methods";
 import { appConfigMethods } from "./workspace/app-config-methods";
 import { settingsMethods } from "./workspace/settings-methods";
 import { workspaceMethods } from "./workspace/workspace-methods";
+import { isExactSlashCommand } from "./input/slash-commands";
 
 class PiApp extends HTMLElement {
   connectedCallback() {
@@ -46,6 +47,7 @@ class PiApp extends HTMLElement {
     this.currentFolder = "~";
     this.running = false;
     this.compacting = false;
+    this.promptComposing = false;
     this.attachmentContents = [];
     this.spinnerIndex = 0;
     this.runtimeStatus = {};
@@ -142,23 +144,41 @@ class PiApp extends HTMLElement {
     this.stopButton?.addEventListener("click", () => this.cancelActiveSession());
     this.prompt?.addEventListener("input", () => this.updatePrompt());
     this.prompt?.addEventListener("paste", (event) => void this.handlePromptPaste(event));
+    this.prompt?.addEventListener("compositionstart", () => { this.promptComposing = true; });
+    this.prompt?.addEventListener("compositionend", () => { this.promptComposing = false; });
     this.prompt?.addEventListener("keydown", (event) => {
       const isEnter = event.key === "Enter";
-      const shouldNavigateSlashCommands = this.slashPopover
-        && !this.slashPopover.hidden
+      const isComposing = this.promptComposing || event.isComposing || event.keyCode === 229;
+      const slashOpen = this.slashPopover && !this.slashPopover.hidden;
+      const selectedSlash = slashOpen && this.querySelector(".slash-item.selected:not([hidden])");
+      const exactSlash = selectedSlash && isExactSlashCommand(this.prompt.value, {
+        command: selectedSlash.dataset.slash,
+      });
+      if (event.key === "Escape" && slashOpen && !isComposing) {
+        event.preventDefault();
+        event.stopPropagation();
+        this.slashPopover.setAttribute("hidden", "");
+        this.prompt.setAttribute("aria-expanded", "false");
+        this.prompt.removeAttribute("aria-activedescendant");
+        return;
+      }
+      const hasVisibleSlashItems = slashOpen
+        && [...this.querySelectorAll(".slash-item")].some((item) => !item.hidden);
+      const shouldNavigateSlashCommands = hasVisibleSlashItems
         && !event.shiftKey
-        && !event.isComposing
-        && ["ArrowDown", "ArrowUp", "Enter"].includes(event.key);
+        && !isComposing
+        && !(isEnter && exactSlash)
+        && ["ArrowDown", "ArrowUp", "Enter", "Tab"].includes(event.key);
       if (shouldNavigateSlashCommands) {
         this.navigateList(event, ".slash-item", (item) => this.pickSlash(item.dataset.slash));
         return;
       }
-      if (isEnter && !event.shiftKey && !event.isComposing) {
+      if (isEnter && !event.shiftKey && !isComposing) {
         event.preventDefault();
         void this.submitPrompt();
         return;
       }
-      if ((event.metaKey || event.ctrlKey) && isEnter) {
+      if ((event.metaKey || event.ctrlKey) && isEnter && !isComposing) {
         event.preventDefault();
         void this.submitPrompt();
       }

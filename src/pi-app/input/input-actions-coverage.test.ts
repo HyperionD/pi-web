@@ -143,6 +143,9 @@ describe("pi-app input actions coverage", () => {
     window.dispatchEvent(new CustomEvent("pi-workspace-file:open", { detail: { path: "src/skip.ts" } }));
 
     Element.prototype.scrollIntoView = vi.fn();
+    app.renderSlashCommands([{ command: "/model" }]);
+    app.prompt.value = "/";
+    app.updatePrompt();
     const event = { preventDefault: vi.fn(), key: "ArrowDown" };
     app.navigateList(event, ".slash-item", (item) => calls.push(["nav", item.dataset.slash]));
     app.navigateList({ ...event, key: "ArrowUp" }, ".slash-item", () => {});
@@ -388,7 +391,9 @@ describe("pi-app input actions coverage", () => {
       { name: "three" },
       { name: undefined },
     ]);
-    expect([...app.querySelectorAll(".slash-item")].map((item) => item.dataset.slash)).toEqual(["/one", "/two", "/three"]);
+    expect([...app.querySelectorAll(".slash-item")].map((item) => item.dataset.slash)).toEqual([
+      "/compact", "/reload", "/name", "/session", "/copy", "/clone", "/one", "/two", "/three",
+    ]);
     app.prompt.value = "/tw";
     app.updatePrompt();
     expect(app.querySelector(".slash-pop").hidden).toBe(false);
@@ -397,7 +402,8 @@ describe("pi-app input actions coverage", () => {
 
     app.querySelector(".slash-list").replaceChildren();
     app.renderSlashCommands([]);
-    expect(app.querySelector(".slash-empty").textContent).toBe("no slash commands found");
+    expect(app.querySelector(".slash-empty").hidden).toBe(true);
+    expect(app.querySelectorAll(".slash-item")).toHaveLength(6);
   });
 
   it("cancels active sessions", async () => {
