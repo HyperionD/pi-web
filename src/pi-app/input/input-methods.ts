@@ -136,6 +136,7 @@ export const inputMethods = {
       } else if (name === "session") {
         const result = await sendSessionCommand(sessionId, name, "", clientRequestId);
         const usage = result?.contextUsage;
+        this.renderSessionStats(result);
         const detail = usage?.tokens != null && usage?.contextWindow
           ? `上下文 ${usage.tokens}/${usage.contextWindow} tokens (${usage.percent ?? "—"}%)`
           : "会话统计已加载";
@@ -408,6 +409,7 @@ export const inputMethods = {
     }
     if (action === "open-settings") this.openSettingsModal?.();
     if (action === "close-settings") this.closeSettingsModal?.();
+    if (action === "close-session-stats") this.closeSessionStats();
     if (action === "compact-session") void this.compactActiveSession?.();
     if (action === "save-settings") this.saveSettingsForm?.(event);
     if (action === "save-auth-provider") this.saveAuthForm?.(event);
@@ -444,6 +446,36 @@ export const inputMethods = {
       this.removeLoadingMessage();
       this.setConnection("err");
     }
+  },
+
+  renderSessionStats(result) {
+    const panel = this.querySelector("[data-session-stats]");
+    if (!panel) return;
+    const usage = result?.contextUsage || {};
+    const formatCount = (value) => value == null || !Number.isFinite(Number(value))
+      ? "—" : Number(value).toLocaleString("en-US");
+    const context = usage.tokens != null && usage.contextWindow != null
+      ? `${formatCount(usage.tokens)} / ${formatCount(usage.contextWindow)} tokens (${usage.percent ?? "—"}%)`
+      : "—";
+    const messages = result?.totalMessages ?? result?.messages;
+    const tools = result?.toolCalls ?? result?.tools;
+    const cost = result?.cost == null || !Number.isFinite(Number(result.cost))
+      ? "—" : `$${Number(result.cost).toFixed(4)}`;
+    const setStat = (name, value, available) => {
+      const stat = panel.querySelector(`[data-session-stat='${name}']`);
+      if (!stat) return;
+      stat.querySelector("strong").textContent = value;
+      stat.toggleAttribute("hidden", !available);
+    };
+    setStat("context", context, context !== "—");
+    setStat("messages", formatCount(messages), messages != null);
+    setStat("tools", formatCount(tools), tools != null);
+    setStat("cost", cost, cost !== "—");
+    panel.removeAttribute("hidden");
+  },
+
+  closeSessionStats() {
+    this.querySelector("[data-session-stats]")?.setAttribute("hidden", "");
   },
 
   updatePrompt() {

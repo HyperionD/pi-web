@@ -76,6 +76,13 @@ export function installPiAppFixture() {
       </section>
       <button class="sb-expand-btn"></button>
       <div class="prompt-region">
+        <section class="session-stats-panel" data-session-stats role="dialog" hidden>
+          <button type="button" data-action="close-session-stats">close</button>
+          <div data-session-stat="context"><strong>—</strong></div>
+          <div data-session-stat="messages"><strong>—</strong></div>
+          <div data-session-stat="tools"><strong>—</strong></div>
+          <div data-session-stat="cost"><strong>—</strong></div>
+        </section>
         <div class="slash-pop" hidden>
           <div class="slash-list">
             <button class="slash-item selected" data-slash="/model">/model</button>
@@ -181,6 +188,13 @@ export function installEmptySessionFixture() {
       <main data-main="session" hidden><div class="term"><div class="term-inner"></div><div class="streaming-tail" data-streaming-tail></div></div></main>
       <main data-main="empty"><div class="empty-shell">new session</div></main>
       <div class="prompt-region">
+        <section class="session-stats-panel" data-session-stats role="dialog" hidden>
+          <button type="button" data-action="close-session-stats">close</button>
+          <div data-session-stat="context"><strong>—</strong></div>
+          <div data-session-stat="messages"><strong>—</strong></div>
+          <div data-session-stat="tools"><strong>—</strong></div>
+          <div data-session-stat="cost"><strong>—</strong></div>
+        </section>
         <div class="slash-pop" hidden></div>
         <div class="attach-chips" hidden></div>
         <div data-attachment-warning aria-live="polite" hidden></div>

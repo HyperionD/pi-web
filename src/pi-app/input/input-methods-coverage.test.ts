@@ -87,6 +87,34 @@ describe("pi-app input methods coverage", () => {
     await Promise.all([first, second]);
   });
 
+  it("renders session statistics in a persistent panel", async () => {
+    const app = await connectPiApp();
+    app.apiConnected = true;
+    app.dataset.activeSessionId = "s1";
+    app.dataset.activeWorkspaceId = "w1";
+    app.slashCommandsLoadedAt = Date.now();
+    globalThis.fetch = vi.fn(async (url) => String(url).endsWith("/command")
+      ? ok({
+        contextUsage: { tokens: 1200, contextWindow: 8000, percent: 15 },
+        userMessages: 4,
+        assistantMessages: 6,
+        toolCalls: 3,
+        toolResults: 3,
+        totalMessages: 10,
+        cost: 0.0123,
+      })
+      : ok({}));
+
+    app.prompt.value = "/session";
+    await app.submitPrompt();
+
+    const panel = app.querySelector("[data-session-stats]");
+    expect(panel.hidden).toBe(false);
+    expect(panel.querySelector("[data-session-stat='context']").textContent).toContain("1,200 / 8,000 tokens");
+    expect(panel.querySelector("[data-session-stat='messages']").textContent).toContain("10");
+    expect(panel.querySelector("[data-session-stat='cost']").textContent).toContain("$0.0123");
+  });
+
   it("reports unsupported builtin arguments without marking the connection failed", async () => {
     const app = await connectPiApp();
     app.apiConnected = true;

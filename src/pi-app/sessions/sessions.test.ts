@@ -37,6 +37,17 @@ describe("pi-app sessions", () => {
     expect(toggle.getAttribute("aria-expanded")).toBe("true");
   });
 
+  it("hides session statistics when switching sessions", async () => {
+    const app = await connectPiApp();
+    const panel = app.querySelector("[data-session-stats]");
+    panel.hidden = false;
+    const row = app.createSessionRow("w1", { id: "s2", title: "next session", lastUsed: "now" });
+
+    await app.pickSession(row);
+
+    expect(panel.hidden).toBe(true);
+  });
+
   it("keeps the new session button below sessions created without reload", async () => {
     const app = await connectPiApp();
     app.connectDurableEvents = () => {};

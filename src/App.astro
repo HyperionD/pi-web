@@ -181,6 +181,18 @@ function toolStatus(msg) {
       <div class="fp-resizer" role="separator" aria-orientation="vertical" aria-label="调整 Git 详情大小" aria-valuemin="320" aria-valuemax="720" aria-valuenow="560" title="拖动以调整大小"></div>
     </aside>
   <div class="prompt-region">
+    <section class="session-stats-panel" data-session-stats role="dialog" aria-labelledby="session-stats-title" hidden>
+      <div class="session-stats-head">
+        <strong id="session-stats-title">会话统计</strong>
+        <button type="button" data-action="close-session-stats" aria-label="关闭会话统计"><X size={14} strokeWidth={1.75} aria-hidden="true" /></button>
+      </div>
+      <div class="session-stats-grid">
+        <div class="session-stat" data-session-stat="context" hidden><span>上下文</span><strong>—</strong></div>
+        <div class="session-stat" data-session-stat="messages" hidden><span>消息</span><strong>—</strong></div>
+        <div class="session-stat" data-session-stat="tools" hidden><span>工具调用</span><strong>—</strong></div>
+        <div class="session-stat" data-session-stat="cost" hidden><span>成本</span><strong>—</strong></div>
+      </div>
+    </section>
     <div id="slash-command-list" class="slash-pop" role="listbox" aria-label="斜杠命令" hidden>
       <div class="slash-head" data-slash-head aria-live="polite">slash commands · type to filter</div>
       <div class="slash-list">{slashCommands.map((cmd, index) => {

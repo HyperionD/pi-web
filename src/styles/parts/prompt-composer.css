@@ -136,6 +136,52 @@
   margin: 0 auto;
 }
 
+.session-stats-panel {
+  position: absolute;
+  right: var(--space-3);
+  bottom: calc(100% + var(--space-3));
+  z-index: 40;
+  width: min(360px, calc(100vw - 32px));
+  border: 1px solid var(--border-hi);
+  background: var(--bg-2);
+  box-shadow: var(--shadow-modal);
+}
+.session-stats-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--border-dim);
+  color: var(--fg-0);
+}
+.session-stats-head button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--fg-3);
+}
+.session-stats-head button:hover { border-color: var(--border-hi); color: var(--fg-0); }
+.session-stats-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1px;
+  background: var(--border-dim);
+}
+.session-stat {
+  display: grid;
+  gap: 4px;
+  padding: 10px;
+  background: var(--bg-1);
+  color: var(--fg-3);
+  font-size: var(--text-xs);
+}
+.session-stat strong { color: var(--fg-0); font-family: var(--font-mono); font-size: var(--text-sm); }
+
 .prompt-region {
   border-top: 1px solid var(--border);
   background: var(--bg-2);

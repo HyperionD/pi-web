@@ -84,6 +84,7 @@ export const sessionMethods = {
   },
 
   async pickSession(row) {
+    this.closeSessionStats?.();
     this.clearUnreadCompletedSession?.(row.dataset.session);
     this.dataset.activeSessionId = row.dataset.session;
     this.markSelectedSessionRow(row.dataset.session);
@@ -182,6 +183,7 @@ export const sessionMethods = {
   },
 
   clearActiveSession(sessionId) {
+    this.closeSessionStats?.();
     clearStoredActiveSession(sessionId);
     this.stopDurableStream?.();
     this.sessionViewGeneration = Symbol("session-view");
@@ -263,6 +265,7 @@ export const sessionMethods = {
   },
 
   activateCreatedSession(workspaceId, session) {
+    this.closeSessionStats?.();
     this.dataset.activeSessionId = session.id;
     this.activateWorkspaceForSession(workspaceId, { loadContext: true, forceLoadContext: true });
     this.resetActiveSessionState();
