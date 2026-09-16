@@ -161,6 +161,25 @@ describe("context usage status", () => {
     expect(app.querySelector("[data-prompt-meta]").textContent).toContain("Ctx 60K / 200K (30%)");
   });
 
+  it("loads context usage when durable transcript has no usage yet", async () => {
+    const app = await connectPiApp();
+    app.apiConnected = true;
+    app.durableEvents = true;
+    app.dataset.activeSessionId = "s1";
+    app.transcriptState = {};
+    globalThis.PI_WEB_API_BASE = "http://backend.test";
+    globalThis.fetch = vi.fn(async (url) => {
+      expect(String(url)).toContain("/api/sessions/s1/context-usage");
+      return { ok: true, json: async () => ({
+        contextUsage: { tokens: 60000, contextWindow: 200000, percent: 30 },
+      }) };
+    });
+
+    await app.loadContextUsage();
+
+    expect(app.querySelector("[data-prompt-meta]").textContent).toContain("Ctx 60K / 200K (30%)");
+  });
+
   it("keeps durable session model metadata authoritative over runtime polling", async () => {
     const app = await connectPiApp();
     app.durableEvents = true;

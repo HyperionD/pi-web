@@ -58,9 +58,9 @@ export const runtimeStatusMethods = {
       if (isCurrent()) this.applyRuntimeStatus({ contextUsage: null });
       return;
     }
-    if (this.durableEvents) {
+    if (this.durableEvents && this.transcriptState?.contextUsage !== undefined) {
       if (isCurrent() && this.dataset.activeSessionId === sessionId) {
-        this.applyRuntimeStatus({ contextUsage: this.transcriptState?.contextUsage || null });
+        this.applyRuntimeStatus({ contextUsage: this.transcriptState.contextUsage || null });
       }
       return;
     }
