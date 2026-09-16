@@ -155,12 +155,10 @@ export const sessionMethods = {
     if (!confirm(`要删除会话 ${sessionId} 吗？这将移除本地 JSONL 文件。`)) return;
     try {
       await deleteSessionRequest(sessionId);
-      if (!this.durableEvents) {
-        const workspaceId = this.findWorkspaceIdForSession(sessionId);
-        this.querySelector(`[data-session='${sessionId}']`)?.remove();
-        this.refreshWorkspaceSessionControls(workspaceId);
-        if (this.dataset.activeSessionId === sessionId) this.clearActiveSession(sessionId);
-      }
+      const workspaceId = this.findWorkspaceIdForSession(sessionId);
+      this.querySelector(`[data-session='${sessionId}']`)?.remove();
+      this.refreshWorkspaceSessionControls(workspaceId);
+      if (this.dataset.activeSessionId === sessionId) this.clearActiveSession(sessionId);
     } catch {
       this.setConnection("err");
     }

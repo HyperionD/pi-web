@@ -143,6 +143,10 @@ func (s *Server) deleteSession(w http.ResponseWriter, r *http.Request) {
 		writeSessionEventError(w, eventErr)
 		return
 	}
+	if err := s.store.DeleteSession(sessionID); err != nil {
+		writeStoreError(w, err)
+		return
+	}
 	_ = s.runtimeManager.FinalizeSessionClose(sessionID, token)
 	writeJSON(w, http.StatusAccepted, map[string]any{"accepted": true, "deleted": true, "acceptedSeq": event.Seq})
 }

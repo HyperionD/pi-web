@@ -183,6 +183,21 @@ describe("pi-app session method mutations", () => {
     expect(app.setConnection).toHaveBeenCalledWith("err");
   });
 
+  it("removes a non-active durable session after deletion is accepted", async () => {
+    const app = await connectPiApp();
+    appendSessionShell(app);
+    const row = app.createSessionRow("w1", { id: "s1", title: "one", lastUsed: "now" });
+    app.append(row);
+    app.apiConnected = true;
+    app.durableEvents = true;
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    mockFetchJson({ accepted: true, deleted: true });
+
+    await app.deleteSession("s1");
+
+    expect(row.isConnected).toBe(false);
+  });
+
   it("deletes workspace sessions through every outcome", async () => {
     const app = await connectPiApp();
     appendSessionShell(app);

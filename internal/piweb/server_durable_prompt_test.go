@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -178,6 +179,9 @@ func TestDeleteUsesDurableControlEventWhenConfigured(t *testing.T) {
 	}
 	if len(rows.Events) != 1 || rows.Events[0].Type != EventSessionDeleted {
 		t.Fatalf("events = %#v", rows.Events)
+	}
+	if _, _, err := store.Session("8e7c-44ff"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("deleted session remains in store: %v", err)
 	}
 }
 

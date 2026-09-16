@@ -293,8 +293,11 @@ func TestSessionDomainControlCommandsShareDurableProjection(t *testing.T) {
 	if deleted.StatusCode != http.StatusAccepted {
 		t.Fatalf("delete status = %d, want %d", deleted.StatusCode, http.StatusAccepted)
 	}
-	state = getState(t, server, sessionID)
-	if !state.Metadata.Deleted {
+	projected, err := events.Snapshot(t.Context(), sessionID, SessionPageRequest{Limit: 10})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !projected.Metadata.Deleted {
 		t.Fatal("durable delete did not project tombstone")
 	}
 	requireTypes(t, mustReadEvents(t, events, sessionID), EventSessionRenamed, EventSessionRebased, EventSessionDeleted)
