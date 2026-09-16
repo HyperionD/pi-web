@@ -11,7 +11,7 @@ func (s *Server) workspaceCommands(w http.ResponseWriter, r *http.Request) {
 		writeStoreError(w, err)
 		return
 	}
-	commands := MockSlashCommands()
+	commands := []SlashCommand{}
 	var commandError string
 	if s.config.EnablePiExecution {
 		commands, err = ListPiCommands(r.Context(), root)

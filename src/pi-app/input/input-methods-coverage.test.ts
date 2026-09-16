@@ -65,6 +65,67 @@ describe("pi-app input methods coverage", () => {
     await app.submitPrompt();
   });
 
+  it("dispatches the copy builtin without posting a prompt", async () => {
+    const app = await connectPiApp();
+    app.apiConnected = true;
+    app.dataset.activeSessionId = "s1";
+    app.dataset.activeWorkspaceId = "w1";
+    const writeText = vi.fn(async () => undefined);
+    Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText } });
+    globalThis.fetch = vi.fn(async (url) => String(url).endsWith("/command")
+      ? ok({ text: "assistant answer" })
+      : err("unexpected prompt"));
+
+    app.prompt.value = "/copy";
+    await app.submitPrompt();
+
+    expect(globalThis.fetch).toHaveBeenCalledWith(
+      "http://backend.test/api/sessions/s1/command",
+      expect.objectContaining({ method: "POST" }),
+    );
+    expect(globalThis.fetch.mock.calls.some(([url]) => String(url).endsWith("/prompt"))).toBe(false);
+    expect(writeText).toHaveBeenCalledWith("assistant answer");
+    expect(app.prompt.value).toBe("");
+  });
+
+  it("dispatches name and compact builtins without posting prompts", async () => {
+    const app = await connectPiApp();
+    app.apiConnected = true;
+    app.dataset.activeSessionId = "s1";
+    app.dataset.activeWorkspaceId = "w1";
+    app.updateSessionTitle = vi.fn();
+    app.showToast = vi.fn();
+    globalThis.fetch = vi.fn(async () => ok({ accepted: true }));
+
+    app.prompt.value = "/name release candidate";
+    await app.submitPrompt();
+    app.prompt.value = "/compact";
+    await app.submitPrompt();
+
+    expect(globalThis.fetch.mock.calls.map(([url]) => String(url))).toEqual([
+      "http://backend.test/api/sessions/s1",
+      "http://backend.test/api/sessions/s1/compact",
+    ]);
+    expect(app.updateSessionTitle).toHaveBeenCalledWith({ id: "s1", title: "release candidate" });
+    expect(globalThis.fetch.mock.calls.some(([url]) => String(url).endsWith("/prompt"))).toBe(false);
+  });
+
+  it("does not steer builtin commands that are unavailable while running", async () => {
+    const app = await connectPiApp();
+    app.apiConnected = true;
+    app.dataset.activeSessionId = "s1";
+    app.dataset.activeWorkspaceId = "w1";
+    app.running = true;
+    app.submitSteeringPrompt = vi.fn();
+    globalThis.fetch = vi.fn(async () => ok({}));
+
+    app.prompt.value = "/compact";
+    await app.submitPrompt();
+
+    expect(app.submitSteeringPrompt).not.toHaveBeenCalled();
+    expect(globalThis.fetch).not.toHaveBeenCalled();
+  });
+
   it("uses the durable prompt endpoint when durable events are enabled", async () => {
     const app = await connectPiApp();
     app.apiConnected = true;

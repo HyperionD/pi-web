@@ -2,6 +2,7 @@ package piweb
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -191,7 +192,64 @@ func TestDeleteWorkspaceSessionsEndpoint(t *testing.T) {
 	}
 }
 
-func TestWorkspaceCommandsEndpointUsesMockCommandsWhenPiDisabled(t *testing.T) {
+func TestSessionCommandsEndpointUsesCurrentRuntime(t *testing.T) {
+	store := NewMockStore()
+	store.sessionFiles["8e7c-44ff"] = "/tmp/session.jsonl"
+	runtime := newFakePiRuntime()
+	runtime.responseData = json.RawMessage(`{"commands":[{"name":"review","description":"Review","source":"prompt","sourceInfo":{"scope":"project"}}]}`)
+	manager := NewRuntimeManagerWithFactory(store, func(context.Context, string, string) (PiRuntime, error) {
+		return runtime, nil
+	})
+	defer manager.Shutdown(context.Background())
+	server := NewServerWithRuntimeManager(Config{EnablePiExecution: true}, store, NewBroker(), manager)
+
+	request := httptest.NewRequest(http.MethodGet, "/api/sessions/8e7c-44ff/commands", nil)
+	response := httptest.NewRecorder()
+	server.Handler().ServeHTTP(response, request)
+
+	if response.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", response.Code, response.Body.String())
+	}
+	if !strings.Contains(response.Body.String(), `"command":"/review"`) {
+		t.Fatalf("unexpected body: %s", response.Body.String())
+	}
+	if len(runtime.sends) != 1 || runtime.sends[0].Type != "get_commands" {
+		t.Fatalf("unexpected runtime calls: %+v", runtime.sends)
+	}
+}
+
+func TestSessionCommandEndpointAllowlistsRuntimeCommands(t *testing.T) {
+	store := NewMockStore()
+	store.sessionFiles["8e7c-44ff"] = "/tmp/session.jsonl"
+	runtime := newFakePiRuntime()
+	runtime.responseData = json.RawMessage(`{"text":"copied"}`)
+	manager := NewRuntimeManagerWithFactory(store, func(context.Context, string, string) (PiRuntime, error) {
+		return runtime, nil
+	})
+	defer manager.Shutdown(context.Background())
+	server := NewServerWithRuntimeManager(Config{EnablePiExecution: true}, store, NewBroker(), manager)
+
+	request := httptest.NewRequest(http.MethodPost, "/api/sessions/8e7c-44ff/command", strings.NewReader(`{"command":"copy"}`))
+	request.Header.Set("Content-Type", "application/json")
+	response := httptest.NewRecorder()
+	server.Handler().ServeHTTP(response, request)
+	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), `"text":"copied"`) {
+		t.Fatalf("copy response = %d %s", response.Code, response.Body.String())
+	}
+	if len(runtime.sends) != 1 || runtime.sends[0].Type != "get_last_assistant_text" {
+		t.Fatalf("unexpected runtime calls: %+v", runtime.sends)
+	}
+
+	request = httptest.NewRequest(http.MethodPost, "/api/sessions/8e7c-44ff/command", strings.NewReader(`{"command":"delete_all"}`))
+	request.Header.Set("Content-Type", "application/json")
+	response = httptest.NewRecorder()
+	server.Handler().ServeHTTP(response, request)
+	if response.Code != http.StatusBadRequest {
+		t.Fatalf("unknown command status = %d, want 400", response.Code)
+	}
+}
+
+func TestWorkspaceCommandsEndpointDoesNotInventCommandsWhenPiDisabled(t *testing.T) {
 	server := NewServer(Config{EnablePiExecution: false}, NewMockStore(), NewBroker())
 	req := httptest.NewRequest(http.MethodGet, "/api/workspaces/pi-mono/commands", nil)
 	res := httptest.NewRecorder()
@@ -199,7 +257,7 @@ func TestWorkspaceCommandsEndpointUsesMockCommandsWhenPiDisabled(t *testing.T) {
 	if res.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", res.Code, res.Body.String())
 	}
-	if !strings.Contains(res.Body.String(), `"command":"/review"`) || !strings.Contains(res.Body.String(), `"scope":"project"`) {
+	if res.Body.String() != "{\"commands\":[]}\n" {
 		t.Fatalf("unexpected body: %s", res.Body.String())
 	}
 }

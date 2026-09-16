@@ -1,4 +1,13 @@
-import { cancelSession, createSession, postPrompt, runShellCommand, steerSession } from "../../lib/api";
+import {
+  cancelSession,
+  compactSession,
+  createSession,
+  postPrompt,
+  renameSession,
+  runShellCommand,
+  sendSessionCommand,
+  steerSession,
+} from "../../lib/api";
 import { fallbackChoicePrompt } from "./fallback-choices";
 import { maxUploadBytesToMiB } from "../workspace/app-config-methods";
 import {
@@ -8,6 +17,7 @@ import {
   filterSlashCommands,
   getSlashQuery,
   mergeSlashCommands,
+  parseBuiltinSlashCommand,
 } from "./slash-commands";
 
 export const inputMethods = {
@@ -16,6 +26,10 @@ export const inputMethods = {
     const text = this.normalizePromptText(this.prompt?.value);
     const attachments = (this.attachmentContents || []).filter(Boolean);
     if (!this.canSendPrompt(text, attachments)) return;
+    if (attachments.length === 0 && this.apiConnected && parseBuiltinSlashCommand(text)) {
+      await this.executeBuiltinSlashCommand(text);
+      return;
+    }
     this.clearPromptDraft?.();
     if (this.running) {
       await this.submitSteeringPrompt(text);
@@ -76,6 +90,73 @@ export const inputMethods = {
     } finally {
       this.promptSubmittingKeys.delete(submissionKey);
     }
+  },
+
+  async executeBuiltinSlashCommand(text) {
+    const invocation = parseBuiltinSlashCommand(text);
+    if (!invocation || !this.apiConnected) return false;
+    if (this.running && !invocation.command.availableWhileRunning) return true;
+    const workspaceId = this.dataset.activeWorkspaceId;
+    let sessionId = this.dataset.activeSessionId;
+    if (sessionId && workspaceId && !this.activeSessionBelongsToWorkspace(sessionId, workspaceId)) {
+      sessionId = "";
+    }
+    if (!sessionId && workspaceId) {
+      try {
+        const { session } = await createSession(workspaceId);
+        this.activateCreatedSession(workspaceId, session);
+        sessionId = session.id;
+      } catch (error) {
+        this.notifyResponseFailure?.(error);
+        this.setConnection("err");
+        return true;
+      }
+    }
+    if (!sessionId) return true;
+    try {
+      const name = invocation.command.name;
+      if (name === "compact") {
+        await compactSession(sessionId);
+      } else if (name === "name") {
+        if (!invocation.args) throw new Error("Usage: /name <name>");
+        await renameSession(sessionId, invocation.args);
+        this.updateSessionTitle?.({ id: sessionId, title: invocation.args });
+      } else if (name === "reload") {
+        await sendSessionCommand(sessionId, name);
+        await this.loadSession?.(sessionId);
+        await this.loadSessionCommands?.(sessionId);
+      } else if (name === "session") {
+        const result = await sendSessionCommand(sessionId, name);
+        const usage = result?.contextUsage;
+        const detail = usage?.tokens != null && usage?.contextWindow
+          ? `上下文 ${usage.tokens}/${usage.contextWindow} tokens (${usage.percent ?? "—"}%)`
+          : "会话统计已加载";
+        this.showToast?.("success", detail);
+      } else if (name === "copy") {
+        const result = await sendSessionCommand(sessionId, name);
+        const textToCopy = result?.text || "";
+        if (!textToCopy) throw new Error("没有可复制的助手消息");
+        await navigator.clipboard.writeText(textToCopy);
+      } else if (name === "clone") {
+        const result = await sendSessionCommand(sessionId, name);
+        if (result?.cancelled || !result?.newSessionId) throw new Error("无法克隆当前会话");
+        await this.refreshWorkspaces?.();
+      }
+      this.clearPromptInput();
+      this.showToast?.("success", `/${name} 已完成`);
+    } catch (error) {
+      this.notifyResponseFailure?.(error);
+      this.setConnection?.("err");
+    }
+    return true;
+  },
+
+  clearPromptInput() {
+    if (this.prompt) this.prompt.value = "";
+    this.attachmentContents = [];
+    this.attachments?.replaceChildren();
+    if (this.attachments) this.attachments.hidden = true;
+    this.updatePrompt?.();
   },
 
   hasSendableAttachments() {

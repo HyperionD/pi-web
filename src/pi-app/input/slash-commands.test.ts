@@ -5,6 +5,7 @@ import {
   getSlashQuery,
   isExactSlashCommand,
   mergeSlashCommands,
+  parseBuiltinSlashCommand,
 } from "./slash-commands";
 
 describe("slash command helpers", () => {
@@ -40,6 +41,15 @@ describe("slash command helpers", () => {
     expect(commands.filter((command) => command.source === "builtin")).toHaveLength(
       BUILTIN_SLASH_COMMANDS.length,
     );
+  });
+
+  it("parses known builtin commands and preserves arguments", () => {
+    expect(parseBuiltinSlashCommand("/name project alpha")).toMatchObject({
+      command: { name: "name" },
+      args: "project alpha",
+    });
+    expect(parseBuiltinSlashCommand("/review")).toBeNull();
+    expect(parseBuiltinSlashCommand("hello /copy")).toBeNull();
   });
 
   it("recognizes only an exact command without arguments", () => {

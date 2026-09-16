@@ -23,12 +23,12 @@ type SlashCommand struct {
 	Path        string `json:"path,omitempty"`
 }
 
-func MockSlashCommands() []SlashCommand {
-	return []SlashCommand{
-		{Name: "review", Command: "/review", Description: "Review current changes", Source: "prompt", Scope: "project"},
-		{Name: "skill:init-project", Command: "/skill:init-project", Description: "Use when creating a new project", Source: "skill", Scope: "project"},
-		{Name: "team", Command: "/team", Description: "Coordinate a team of agents", Source: "extension", Scope: "global"},
+func ListRuntimeCommands(ctx context.Context, runtime PiRuntime) ([]SlashCommand, error) {
+	response, err := runtime.Send(ctx, RPCCommand{Type: "get_commands"})
+	if err != nil {
+		return nil, err
 	}
+	return parseCommandsRPCResponse(response)
 }
 
 func ListPiCommands(ctx context.Context, cwd string) ([]SlashCommand, error) {
@@ -96,41 +96,38 @@ func ListPiCommands(ctx context.Context, cwd string) ([]SlashCommand, error) {
 	return nil, errors.New("pi get_commands returned no response")
 }
 
-func parseCommandsRPCLine(line string) ([]SlashCommand, bool, error) {
-	var response struct {
-		ID      string `json:"id"`
-		Type    string `json:"type"`
-		Command string `json:"command"`
-		Success bool   `json:"success"`
-		Error   string `json:"error"`
-		Data    struct {
-			Commands []struct {
-				Name        string `json:"name"`
-				Description string `json:"description"`
-				Source      string `json:"source"`
-				Location    string `json:"location"`
-				Path        string `json:"path"`
-				SourceInfo  struct {
-					Path  string `json:"path"`
-					Scope string `json:"scope"`
-				} `json:"sourceInfo"`
-			} `json:"commands"`
-		} `json:"data"`
-	}
-	if err := json.Unmarshal([]byte(line), &response); err != nil {
-		return nil, false, nil
-	}
-	if response.ID != "commands" || response.Type != "response" || response.Command != "get_commands" {
-		return nil, false, nil
+type commandsRPCData struct {
+	Commands []struct {
+		Name        string `json:"name"`
+		Description string `json:"description"`
+		Source      string `json:"source"`
+		Location    string `json:"location"`
+		Path        string `json:"path"`
+		SourceInfo  struct {
+			Path  string `json:"path"`
+			Scope string `json:"scope"`
+		} `json:"sourceInfo"`
+	} `json:"commands"`
+}
+
+func parseCommandsRPCResponse(response RPCResponse) ([]SlashCommand, error) {
+	if response.Type != "response" || response.Command != "get_commands" {
+		return nil, errors.New("unexpected pi get_commands response")
 	}
 	if !response.Success {
 		if response.Error == "" {
 			response.Error = "pi get_commands failed"
 		}
-		return nil, true, errors.New(response.Error)
+		return nil, errors.New(response.Error)
 	}
-	commands := make([]SlashCommand, 0, len(response.Data.Commands))
-	for _, item := range response.Data.Commands {
+	var data commandsRPCData
+	if len(response.Data) > 0 && string(response.Data) != "null" {
+		if err := json.Unmarshal(response.Data, &data); err != nil {
+			return nil, fmt.Errorf("decode pi get_commands data: %w", err)
+		}
+	}
+	commands := make([]SlashCommand, 0, len(data.Commands))
+	for _, item := range data.Commands {
 		name := strings.TrimSpace(item.Name)
 		if name == "" {
 			continue
@@ -144,15 +141,23 @@ func parseCommandsRPCLine(line string) ([]SlashCommand, bool, error) {
 			path = item.Path
 		}
 		commands = append(commands, SlashCommand{
-			Name:        name,
-			Command:     "/" + name,
-			Description: strings.TrimSpace(item.Description),
-			Source:      item.Source,
-			Scope:       displayCommandScope(scope),
-			Path:        path,
+			Name: name, Command: "/" + name, Description: strings.TrimSpace(item.Description),
+			Source: item.Source, Scope: displayCommandScope(scope), Path: path,
 		})
 	}
-	return commands, true, nil
+	return commands, nil
+}
+
+func parseCommandsRPCLine(line string) ([]SlashCommand, bool, error) {
+	var response RPCResponse
+	if err := json.Unmarshal([]byte(line), &response); err != nil {
+		return nil, false, nil
+	}
+	if response.ID != "commands" || response.Type != "response" || response.Command != "get_commands" {
+		return nil, false, nil
+	}
+	commands, err := parseCommandsRPCResponse(response)
+	return commands, true, err
 }
 
 func displayCommandScope(scope string) string {

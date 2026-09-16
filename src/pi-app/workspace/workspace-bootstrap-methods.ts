@@ -1,8 +1,9 @@
 import {
+  createSession,
   getGitStatus,
+  getSessionCommands,
   getSessionState,
   health,
-  getWorkspaceCommands,
   getWorkspaceFiles,
   getWorkspaces,
 } from "../../lib/api";
@@ -282,19 +283,19 @@ export const workspaceBootstrapMethods = {
     if (git?.branch) this.updatePromptMeta({ currentBranch: git.branch });
   },
 
-  async loadWorkspaceCommands(workspaceId, bootstrapGeneration) {
-    const loadToken = Symbol(workspaceId);
+  async loadSessionCommands(sessionId, bootstrapGeneration) {
+    const loadToken = Symbol(sessionId);
     const expectedBootstrapGeneration = bootstrapGeneration || this.bootstrapGeneration;
     this.workspaceCommandsLoadToken = loadToken;
     this.renderSlashCommands?.([]);
     this.setSlashCommandStatus?.("loading…");
     const isCurrentLoad = () => (
-      this.dataset.activeWorkspaceId === workspaceId
+      this.dataset.activeSessionId === sessionId
       && this.workspaceCommandsLoadToken === loadToken
       && (!expectedBootstrapGeneration || this.bootstrapGeneration === expectedBootstrapGeneration)
     );
     try {
-      const response = await getWorkspaceCommands(workspaceId);
+      const response = await getSessionCommands(sessionId);
       if (!isCurrentLoad()) return;
       this.renderSlashCommands(response.commands || []);
       if (response.error) this.setSlashCommandStatus?.("unavailable");
@@ -304,6 +305,22 @@ export const workspaceBootstrapMethods = {
         this.setSlashCommandStatus?.("unavailable");
         this.recoverForbiddenWorkspace(error);
       }
+    }
+  },
+
+  async loadWorkspaceCommands(workspaceId, bootstrapGeneration) {
+    if (this.dataset.activeSessionId) {
+      return this.loadSessionCommands(this.dataset.activeSessionId, bootstrapGeneration);
+    }
+    try {
+      const { session } = await createSession(workspaceId);
+      if (this.dataset.activeWorkspaceId !== workspaceId || this.dataset.activeSessionId) return;
+      this.activateCreatedSession(workspaceId, session);
+      return this.loadSessionCommands(session.id, bootstrapGeneration);
+    } catch (error) {
+      this.renderSlashCommands?.([]);
+      this.setSlashCommandStatus?.("unavailable");
+      this.recoverForbiddenWorkspace(error);
     }
   },
 

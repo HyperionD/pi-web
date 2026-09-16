@@ -159,6 +159,17 @@ export function getWorkspaceCommands(workspaceId) {
   return request(`/api/workspaces/${encodeURIComponent(workspaceId)}/commands`);
 }
 
+export function getSessionCommands(sessionId: string) {
+  return request(`/api/sessions/${encodeURIComponent(sessionId)}/commands`);
+}
+
+export function sendSessionCommand(sessionId: string, command: string) {
+  return request(`/api/sessions/${encodeURIComponent(sessionId)}/command`, {
+    method: "POST",
+    body: JSON.stringify({ command }),
+  });
+}
+
 export function getWorkspaceModels(workspaceId) {
   return request(`/api/workspaces/${encodeURIComponent(workspaceId)}/models`);
 }

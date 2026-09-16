@@ -239,6 +239,8 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /api/workspaces/{workspaceID}/git/commit", s.requireWorkspaceAccess(s.gitCommit))
 	s.mux.HandleFunc("POST /api/workspaces/{workspaceID}/shell", s.requireWorkspaceAccess(s.shellCommand))
 	s.mux.HandleFunc("GET /api/sessions/{sessionID}", s.requireSessionAccess(s.session))
+	s.mux.HandleFunc("GET /api/sessions/{sessionID}/commands", s.requireSessionAccess(s.sessionCommands))
+	s.mux.HandleFunc("POST /api/sessions/{sessionID}/command", s.requireSessionAccess(s.sessionRuntimeCommand))
 	s.mux.HandleFunc("GET /api/sessions/{sessionID}/context-usage", s.requireSessionAccess(s.handleSessionContextUsage))
 	s.mux.HandleFunc("POST /api/sessions/{sessionID}/model", s.requireSessionAccess(s.handleSessionSetModel))
 	s.mux.HandleFunc("PATCH /api/sessions/{sessionID}", s.requireSessionAccess(s.renameSession))

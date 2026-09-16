@@ -11,6 +11,7 @@ import {
   getGitHistory,
   getGitStatus,
   getSession,
+  getSessionCommands,
   getSessionContextUsage,
   setSessionModel,
   getWorkspaceCommands,
@@ -32,6 +33,7 @@ import {
   saveWorkspaceFile,
   saveWorkspaceSettings,
   searchWorkspaceFiles,
+  sendSessionCommand,
   sessionEvents,
   uploadWorkspaceFile,
 } from "./api";
@@ -115,6 +117,15 @@ describe("api adapter", () => {
     const renamed = await renameSession("s1", "next");
     expect(renamed.options.method).toBe("PATCH");
     expect(JSON.parse(renamed.options.body)).toEqual({ title: "next" });
+  });
+
+  it("fetches session runtime commands and sends allowlisted commands", async () => {
+    const commands = await getSessionCommands("s/1");
+    expect(commands.url).toBe("http://backend.test/api/sessions/s%2F1/commands");
+    const command = await sendSessionCommand("s/1", "copy");
+    expect(command.url).toBe("http://backend.test/api/sessions/s%2F1/command");
+    expect(command.options.method).toBe("POST");
+    expect(JSON.parse(command.options.body)).toEqual({ command: "copy" });
   });
 
   it("fetches workspace slash commands and runtime status", async () => {

@@ -92,3 +92,12 @@ export function mergeSlashCommands(commands: SlashCommand[] = []): SlashCommand[
 export function isExactSlashCommand(value: string, command: SlashCommand): boolean {
   return value.trim().toLowerCase() === commandValue(command).toLowerCase();
 }
+
+export function parseBuiltinSlashCommand(value = ""):
+  { command: SlashCommand; args: string } | null {
+  const match = value.trim().match(/^\/([^\s]+)(?:\s+([\s\S]*))?$/);
+  if (!match) return null;
+  const name = match[1].toLowerCase();
+  const command = BUILTIN_SLASH_COMMANDS.find((item) => commandName(item).toLowerCase() === name);
+  return command ? { command, args: (match[2] || "").trim() } : null;
+}

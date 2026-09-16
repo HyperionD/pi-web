@@ -28,9 +28,46 @@ describe("workspace bootstrap coverage", () => {
     expect(app.querySelector(".slash-item")).toBeNull();
   });
 
+  it("loads slash commands from the active session runtime", async () => {
+    const app = await connectPiApp();
+    app.apiConnected = true;
+    app.dataset.activeWorkspaceId = "w1";
+    app.dataset.activeSessionId = "s1";
+    app.loadRuntimeStatus = vi.fn();
+    app.loadWorkspaceSettingsState = vi.fn(async () => undefined);
+    app.loadWorkspaceMeta = vi.fn(async () => undefined);
+    globalThis.fetch = vi.fn(async (url) => String(url).endsWith("/commands")
+      ? okJson({ commands: [{ command: "/review", source: "prompt" }] })
+      : okJson({}));
+
+    app.loadWorkspaceContext("w1");
+    await vi.waitFor(() => expect(globalThis.fetch).toHaveBeenCalled());
+
+    expect(globalThis.fetch.mock.calls.some(([url]) => String(url).includes("/api/sessions/s1/commands"))).toBe(true);
+    expect(globalThis.fetch.mock.calls.some(([url]) => String(url).includes("/api/workspaces/w1/commands"))).toBe(false);
+  });
+
+  it("creates a session before loading commands when none is active", async () => {
+    const app = await connectPiApp();
+    app.apiConnected = true;
+    app.dataset.activeWorkspaceId = "w1";
+    app.activateCreatedSession = vi.fn((workspaceId, session) => {
+      app.dataset.activeSessionId = session.id;
+    });
+    globalThis.fetch = vi.fn(async (url) => String(url).endsWith("/sessions")
+      ? okJson({ session: { id: "s-new", title: "new session" } })
+      : okJson({ commands: [{ command: "/review", source: "prompt" }] }));
+
+    await app.loadWorkspaceCommands("w1");
+
+    expect(app.activateCreatedSession).toHaveBeenCalledWith("w1", { id: "s-new", title: "new session" });
+    expect(globalThis.fetch.mock.calls.some(([url]) => String(url).includes("/api/sessions/s-new/commands"))).toBe(true);
+  });
+
   it("clears stale slash commands when command loading fails", async () => {
     const app = await connectPiApp();
     app.dataset.activeWorkspaceId = "w1";
+    app.dataset.activeSessionId = "s1";
     app.renderSlashCommands([{ command: "/old", description: "old command" }]);
     app.recoverForbiddenWorkspace = vi.fn();
     let resolveRequest;
