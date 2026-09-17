@@ -549,6 +549,7 @@ export const workspaceBootstrapMethods = {
     const latestMessage = messages.at(-1);
     if (latestMessage?.kind === "pi") this.notifyPiMessageCommitted?.(latestMessage);
     if (syncMode) this.syncDurableTranscriptMode();
+    else this.syncLoadingMessage?.();
   },
 
   patchDurableTranscriptMessages(messages) {

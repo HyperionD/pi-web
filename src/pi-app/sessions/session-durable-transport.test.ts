@@ -60,6 +60,32 @@ describe("durable session transport", () => {
 
   afterEach(cleanupPiAppFixture);
 
+  it("keeps the response wait indicator after the server echoes a user prompt", async () => {
+    const app = await connectPiApp();
+    app.durableEvents = true;
+    app.connectEvents = vi.fn();
+    globalThis.fetch = vi.fn(async (url) => String(url).includes("/state")
+      ? {
+        ok: true,
+        status: 200,
+        statusText: "OK",
+        json: async () => ({ ...durableState(), items: [], status: "idle", runId: undefined, seq: "0" }),
+      }
+      : { ok: true, status: 200, statusText: "OK", json: async () => ({}) });
+    await app.loadSession("s1");
+    const source = FakeEventSource.instances.at(-1);
+
+    source.dispatch("session.event", {
+      seq: "1", sessionId: "s1", runId: "run-1", type: "run.started", payload: {},
+    });
+    source.dispatch("session.event", {
+      seq: "2", sessionId: "s1", runId: "run-1", type: "user.message.created",
+      sourceId: "command:req:user", payload: { text: "hello" },
+    });
+
+    expect(app.querySelector(".msg.loading")).not.toBeNull();
+  });
+
   it("renders a durable snapshot and resumes from its sequence", async () => {
     const app = await connectPiApp();
     app.durableEvents = true;
