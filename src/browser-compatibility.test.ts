@@ -35,6 +35,12 @@ describe("browser compatibility", () => {
     expect(styles).toContain("max-height: min(240px, calc(var(--app-viewport-height, 100vh) - 160px));");
   });
 
+  it("provides a Chrome 107 viewport fallback for session toasts", () => {
+    const styles = readFileSync(new URL("./styles/parts/session-toasts.css", import.meta.url), "utf8");
+    expect(styles).toContain("max-height: calc(100vh - var(--space-8));");
+    expect(styles).not.toContain("100dvh");
+  });
+
   it("does not use authored CSS features newer than the Chrome 107 baseline", () => {
     const styles = collectAuthoredCss(new URL(".", import.meta.url));
     expect(styles).toContain(".account-nav");

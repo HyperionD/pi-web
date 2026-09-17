@@ -337,7 +337,6 @@ describe("workspace bootstrap coverage", () => {
 
   it("shows app config load failures while continuing workspace bootstrap", async () => {
     const app = await connectPiApp();
-    app.sendBrowserNotification = vi.fn();
     app.renderWorkspaces = vi.fn();
     app.loadAppConfigState = vi.fn(async () => {
       throw new Error("app config unavailable");
@@ -349,11 +348,9 @@ describe("workspace bootstrap coverage", () => {
     await app.bootstrapAPI();
 
     expect(app.renderWorkspaces).toHaveBeenCalledWith([]);
-    expect(app.sendBrowserNotification).toHaveBeenCalledWith(
-      "应用配置加载失败",
-      "app config unavailable",
-      undefined,
-    );
+    const toast = document.querySelector(".session-toast.error");
+    expect(toast?.textContent).toContain("应用配置加载失败");
+    expect(toast?.textContent).toContain("app config unavailable");
     expect(app.querySelector("[data-brand]").textContent).toBe("pi.dev / web");
   });
 
@@ -570,7 +567,6 @@ describe("workspace bootstrap coverage", () => {
 
   it("recovers settings forbidden errors and clears the persisted active session", async () => {
     const app = await connectPiApp();
-    app.sendBrowserNotification = vi.fn();
     app.apiConnected = true;
     app.dataset.activeWorkspaceId = "w-forbidden";
     app.dataset.activeSessionId = "s-forbidden";
@@ -597,11 +593,8 @@ describe("workspace bootstrap coverage", () => {
     expect(app.dataset.activeWorkspaceId).toBe("");
     expect(app.dataset.activeSessionId).toBe("");
     expect(localStorage.getItem("pi.activeSession")).toBeNull();
-    expect(app.sendBrowserNotification).toHaveBeenCalledWith(
-      "工作区不可访问",
-      "outside allowed roots",
-      undefined,
-    );
+    expect([...document.querySelectorAll(".session-toast.error")].some((toast) =>
+      toast.textContent.includes("outside allowed roots"))).toBe(true);
   });
 
   it("ignores a deferred forbidden settings response after switching workspaces", async () => {
@@ -649,7 +642,6 @@ describe("workspace bootstrap coverage", () => {
 
   it("shows the empty main when a session becomes forbidden", async () => {
     const app = await connectPiApp();
-    app.sendBrowserNotification = vi.fn();
     app.apiConnected = true;
     app.dataset.activeWorkspaceId = "w-forbidden";
     app.dataset.activeSessionId = "s-forbidden";
@@ -676,11 +668,8 @@ describe("workspace bootstrap coverage", () => {
     expect(app.dataset.activeWorkspaceId).toBe("");
     expect(app.dataset.activeSessionId).toBe("");
     expect(localStorage.getItem("pi.activeSession")).toBeNull();
-    expect(app.sendBrowserNotification).toHaveBeenCalledWith(
-      "工作区不可访问",
-      "outside allowed roots",
-      undefined,
-    );
+    expect([...document.querySelectorAll(".session-toast.error")].some((toast) =>
+      toast.textContent.includes("outside allowed roots"))).toBe(true);
   });
 
   it("ignores delayed forbidden metadata after switching workspaces", async () => {

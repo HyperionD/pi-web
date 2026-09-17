@@ -411,7 +411,6 @@ describe("pi-app core events", () => {
       return { ok: true, json: async () => ({ workspaces: [] }) };
     });
     const app = await connectPiApp();
-    app.sendBrowserNotification = vi.fn();
     app.apiConnected = true;
     app.dataset.activeWorkspaceId = "w1";
 
@@ -419,11 +418,7 @@ describe("pi-app core events", () => {
     await Promise.resolve();
 
     expect(app.querySelector("[data-prompt-meta]").textContent).toContain("M");
-    expect(app.sendBrowserNotification).toHaveBeenCalledWith(
-      "身份验证警告",
-      expect.stringContaining("OAuth/API 密钥身份验证可能已断开"),
-      undefined,
-    );
+    expect(document.querySelector(".session-toast.warning").textContent).toContain("身份验证警告");
   });
 
   it("updates connection, mode, and prompt metadata branches", async () => {

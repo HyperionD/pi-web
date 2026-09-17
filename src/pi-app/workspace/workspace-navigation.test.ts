@@ -83,7 +83,6 @@ describe("pi-app workspace navigation", () => {
   it("shows the empty workspace when the active workspace becomes forbidden", async () => {
     globalThis.PI_WEB_API_BASE = "http://backend.test";
     const app = await connectPiApp();
-    app.sendBrowserNotification = vi.fn();
     app.apiConnected = true;
     app.dataset.activeWorkspaceId = "w-forbidden";
     app.dataset.activeSessionId = "s-forbidden";
@@ -105,11 +104,8 @@ describe("pi-app workspace navigation", () => {
     expect(app.querySelector("[data-action='route-picker']").getAttribute("aria-expanded")).toBe("false");
     expect(app.dataset.activeWorkspaceId).toBe("");
     expect(app.dataset.activeSessionId).toBe("");
-    expect(app.sendBrowserNotification).toHaveBeenCalledWith(
-      "工作区不可访问",
-      "outside allowed roots",
-      undefined,
-    );
+    expect([...document.querySelectorAll(".session-toast.error")].some((toast) =>
+      toast.textContent.includes("outside allowed roots"))).toBe(true);
     expect(globalThis.fetch).not.toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ method: "DELETE" }));
   });
 
