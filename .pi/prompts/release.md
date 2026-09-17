@@ -11,7 +11,7 @@ Rules
 - Version → update `package.json` to `${TAG#v}`; refresh `bun.lock` only if needed.
 - Release notes → write from git history/current changes since latest release; include user-facing changes, fixes, breaking changes, and verification summary when applicable.
 - Verify → `bun run check` before tag.
-- Git → commit `chore: release ${TAG}` with exactly `Co-authored-by: JuunAI <juunai.ai.i@gmail.com>`; annotated tag `${TAG}`; push commit, then tag.
+- Git → commit `chore: release ${TAG}`; create annotated tag `${TAG}`; push commit, then tag.
 - GitHub Actions → `.github/workflows/release.yml` owns release creation and uploads on tag push.
 - Do not manually build/upload release assets unless the workflow fails.
 - Workflow assets → linux/darwin × amd64/arm64 archives named `pi-web_${TAG#v}_{os}_{arch}.tar.gz`.

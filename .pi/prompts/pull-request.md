@@ -13,11 +13,9 @@ Rules:
 - No unverified success.
 - Merge only after Actions pass + no blocking review findings.
 
-Accounts:
-- Start: record current `gh` user = PR owner/merger.
-- If JuunAI is logged in + switchable: review comments as JuunAI; PR create/update/merge as recorded user.
-- Switch before each role action: `gh auth switch --user ...`.
-- If JuunAI unavailable/inaccessible: all actions as recorded user.
+Account:
+- Start by recording the current `gh` user as the PR owner and merger.
+- Use the current authenticated account for all review, PR, and merge actions.
 
 Flow:
 1. Inspect branch, diff, commits → title/body.

@@ -24,10 +24,10 @@ func TestAppConfigAPIWorksWithoutWorkspace(t *testing.T) {
 	}
 
 	patch := httptest.NewRecorder()
-	request := httptest.NewRequest(http.MethodPatch, "/api/app-config", strings.NewReader(`{"brand":"JuunAI / web"}`))
+	request := httptest.NewRequest(http.MethodPatch, "/api/app-config", strings.NewReader(`{"brand":"pi-web / web"}`))
 	request.Header.Set(adminPasswordHeader, "correct horse battery")
 	server.Handler().ServeHTTP(patch, request)
-	if patch.Code != http.StatusOK || !strings.Contains(patch.Body.String(), `"brand":"JuunAI / web"`) {
+	if patch.Code != http.StatusOK || !strings.Contains(patch.Body.String(), `"brand":"pi-web / web"`) {
 		t.Fatalf("PATCH %d %s", patch.Code, patch.Body.String())
 	}
 }

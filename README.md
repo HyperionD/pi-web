@@ -1,25 +1,14 @@
-<h1 align="center">JuunAI pi-web</h1>
+<h1 align="center">pi-web</h1>
 
 <div align="center">
 
 基于 `pi` coding agent 的离线 Web 控制台，面向本地开发与隔离网络环境。
 
-预发行版本：`v1.10.0-alpha.1`
-
-![pi-web web UI](./docs/assets/pi-web.png)
-
-| Desktop |
-| --- |
-| ![Workspace session UI](docs/assets/screenshot.png) |
-
-| Tablet | Mobile |
-| --- | --- |
-| ![Tablet workspace UI](docs/assets/tablet.webp) | ![Mobile file tree UI](docs/assets/mobile.webp) |
+当前基线版本：`v1.10.0-alpha.1`
 
 </div>
 
-> 本项目是 [Epsilondelta-ai/pi-web](https://github.com/Epsilondelta-ai/pi-web) 的 JuunAI Fork。
-> Fork 保留上游同步能力，同时独立维护中文默认界面、浅色蓝灰视觉和离线发行版本。
+> 本项目 fork 自 [Epsilondelta-ai/pi-web](https://github.com/Epsilondelta-ai/pi-web) 的 `v1.10.0-alpha.1` 基线，之后独立维护中文默认界面、浅色蓝灰视觉、权限隔离和离线发行能力。
 
 ## 特性
 
@@ -78,7 +67,7 @@ pi-web --host 127.0.0.1 --port 8732 --mock
 ```json
 {
   "version": 1,
-  "brand": "JuunAI / web",
+  "brand": "pi-web / web",
   "workspace": {
     "allowedRoots": ["~/code", "/workspaces"],
     "maxUploadBytes": 104857600
@@ -94,7 +83,7 @@ pi-web --host 127.0.0.1 --port 8732 --mock
 
 ## 从上游同步
 
-本 Fork 保留源项目关系，建议使用两个 remote：
+项目保持与源项目的代码来源说明；如需同步上游，可临时添加 remote：
 
 ```bash
 git remote add upstream https://github.com/Epsilondelta-ai/pi-web.git
@@ -103,7 +92,7 @@ git switch main
 git merge upstream/main
 ```
 
-JuunAI 的定制修改应在自己的分支提交；同步上游后运行完整检查，再合并到 `main` 发布。
+同步后运行完整检查，再合并到 `main` 发布。
 
 ## 本地开发
 
@@ -122,12 +111,7 @@ bun run build:single
 
 `bun run build:single` 会先构建 Astro，再刷新 `static/` 嵌入资源并生成 `dist/pi-web`。发布前应在干净工作区执行检查，并确认生成的静态资源已与代码同步。
 
-更多说明：
-
-- [仓库结构](docs/repository-structure.md)
-- [后端布局](backend/README.md)
-- [手动测试清单](docs/manual-testing-task1-4.md)
-- [版本测试计划](docs/releases/v1.10.0-alpha.1-test-plan.md)
+后端说明见 [backend/README.md](backend/README.md)。
 
 ## License
 

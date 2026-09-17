@@ -1,70 +1,73 @@
-# JuunAI
+# pi-web
 
-AI. No mistakes. Juunini's alter ego. Complete product > MVP/time excuse.
+离线 AI Web 控制台项目。保持 Go 单二进制、Astro/React 前端和本地持久化架构，优先保证可验证、可维护和可离线部署。
 
-## Core
+## 语言
 
-- Web search first (local stale) → intent → ≤3 lines, max 5.
-- Style → terse; fragments/words/arrows OK.
-- Ambiguous/hard rollback → ask.
-- Done = verified; unverified = failed.
-- Final = checks/rules/commit.
-- Code/project edit → commit unless forbidden.
+默认使用中文交流；代码、命令、提交信息和技术术语可使用 English。
 
-## Thinking
+## 核心原则
 
-- Think short; speak short.
-- Output conclusions, decisions, actions, blockers only.
-- No step-by-step rationale unless asked; then ≤3 bullets.
-- Plan only when useful; max 5 bullets, 1 line each.
-- Uncertain → ask 1 focused question; no analysis dump.
-- Failed → blocker + evidence + next ask.
-- Explanations compress to why/impact/fix; ≤3 lines, hard max 5.
+- 先确认意图与范围；信息不足时只提出一个聚焦问题。
+- 结论简洁；只报告结论、决定、行动和阻塞项。
+- 完成必须有验证证据；未验证的结果不得宣称完成。
+- 优先最小改动，不进行无关重构。
+- 复杂任务先拆分为可验证的阶段；并行任务使用隔离工作区。
 
-## Flow
+## 工作流
 
-- Simple → do. Complex → `.pi/tasks/{kebab}.md`.
-- Work → research/implement/verify; observable; deps ordered.
-- Before new feature → search OSS/library first; use proven pkg unless worse; note why.
-- Parallelizable → use subagents/team agents; isolate work, merge once.
-- Independent → `[Parallelizable]` + agents.
-- Edits → single writer; concurrent impl → worktrees; consolidate before deps.
+- 修改前先读取相关文件、近期提交和工作区状态。
+- 新功能先检查现有实现和成熟依赖，避免重复造轮子。
+- 遵循“测试 → 实现 → 通过 → 重构 → 再验证”的顺序。
+- 单一写入者负责最终合并；并行调查默认只读。
+- 任务完成后检查 diff、运行相关测试并确认工作区状态。
 
-## Code
+## 项目结构
 
-- Test → code → green refactor → rerun checks.
-- Match existing structure/name/case/format; ≤120 cols; no prose reflow.
-- Small funcs; readable flow; code > comments.
-- Touch cleanup → dup/dead/complex/unclear out.
-- Touched source ≤300 lines; coverage 100% stmt/branch/func/line.
+- Go 服务端是部署边界，负责 API、认证、工作区和持久化。
+- Astro/React 前端负责 Web UI，通过 typed client 调用 Go API。
+- SQLite 保存索引与控制面数据；Pi 会话事实按现有运行时约定保存。
+- `static/` 是嵌入式前端资源；修改后必须确认与构建产物同步。
 
-## TS/FE
+## 代码规范
 
-- ESLint / Prettier / typecheck separate.
-- Same FE bug x2 → temp state `console.log` + evidence ask.
+- 遵循现有目录、命名、大小写和格式；行宽不超过 120 列。
+- 函数保持短小、职责单一；复杂逻辑才添加注释。
+- 所有外部输入都要校验；错误必须显式处理，禁止静默失败。
+- 不得硬编码密码、Token、API key 或其他秘密。
+- TypeScript 使用 ESLint、Prettier 和 `tsc --noEmit`；Go 使用标准格式化工具。
 
-## Tests
+## 测试
 
-- URLs via env; `.env.test`; no hardcoded endpoints.
-- Mock externals; deterministic; fixed real-data fixtures.
-- Coverage 100%; hard → testability first.
-- FE unit: no render tests; ignore behaviorless; `bun:test`.
-- Backend unit: Go `testing` / TS `bun:test`; 100% unit ⇒ no backend e2e.
-- FE e2e: Playwright visible roles/labels/text; test IDs last; no shared state; mock backend; real explicit.
-
-## New
-
-- Init script → official generators → minimal tools.
-- TS `bun init`; FE `bun create astro` + ESLint/Prettier; backend Go.
-- Prettier 120 unless template differs.
+- 外部服务使用 mock；测试数据固定且可重复。
+- 前端单元测试使用 `bun:test`/现有测试工具，优先验证状态和行为。
+- 后端测试使用 Go `testing`；优先通过单元测试覆盖边界和错误路径。
+- 运行测试前读取 `package.json` 和项目脚本，使用仓库已有命令。
+- 重要变更至少运行相关 lint、typecheck 和单元测试。
 
 ## Git
 
-- Branch `main` → clear name → small commits.
-- No GitHub CI → PR + `main` workflows.
-- CI: install → lint → typecheck → unit → e2e.
-- PR: intent/changes/checks; `--body-file`; verify.
-- Apply review; merge `main` only after review + required CI pass.
-- Never modify git config or change `user.name` / `user.email`.
-- Use current git author/committer identity.
-- Every commit message must include exactly: `Co-authored-by: JuunAI <juunai.ai.i@gmail.com>`
+- `main` 是默认分支；功能修改使用清晰的 feature/fix 分支。
+- 提交信息遵循 Conventional Commits：`feat`、`fix`、`refactor`、`docs`、`test`、`chore`。
+- 提交应保持原子性；提交前确认 diff 只包含当前任务。
+- 使用当前 Git author/committer 身份，不修改 Git 全局配置或用户身份。
+- 不强制推送共享分支；历史重写必须得到明确授权，并使用 `--force-with-lease`。
+- 不提交构建缓存、测试产物、依赖目录或秘密文件。
+
+## 验证命令
+
+常用检查命令：
+
+```bash
+bun run lint
+bun run typecheck
+bun run test
+bun run backend:test
+bun run build:single
+```
+
+完整检查使用：
+
+```bash
+bun run check
+```

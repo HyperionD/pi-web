@@ -31,11 +31,11 @@ describe("app config methods", () => {
 
   it("preserves unknown keys in valid app config responses", () => {
     expect(parseAppConfigResponse({
-      config: { version: 1, brand: "JuunAI / web", custom: { keep: true } },
+      config: { version: 1, brand: "pi-web / web", custom: { keep: true } },
       path: "/home/me/.pi/agent/pi-web-config.json",
       requestId: "req-1",
     })).toMatchObject({
-      config: { version: 1, brand: "JuunAI / web", custom: { keep: true } },
+      config: { version: 1, brand: "pi-web / web", custom: { keep: true } },
       requestId: "req-1",
     });
   });
@@ -123,16 +123,16 @@ describe("app config methods", () => {
   it("loads the server brand without a workspace id", async () => {
     const app = await connectPiApp();
     globalThis.fetch = vi.fn(async () => ok({
-      config: { version: 1, brand: "JuunAI / web" },
+      config: { version: 1, brand: "pi-web / web" },
       path: "/home/me/.pi/agent/pi-web-config.json",
     }));
     Object.assign(app, appConfigMethods);
 
     await app.loadAppConfigState();
 
-    expect(app.appConfigState.config.brand).toBe("JuunAI / web");
-    expect(app.querySelector("[data-brand]").textContent).toBe("JuunAI / web");
-    expect(document.title).toBe("JuunAI / web");
+    expect(app.appConfigState.config.brand).toBe("pi-web / web");
+    expect(app.querySelector("[data-brand]").textContent).toBe("pi-web / web");
+    expect(document.title).toBe("pi-web / web");
     expect(globalThis.fetch.mock.calls[0][0]).toBe("http://backend.test/api/app-config");
   });
 
