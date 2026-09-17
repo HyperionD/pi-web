@@ -476,8 +476,20 @@ export const workspaceBootstrapMethods = {
       onReset: () => {
         if (this.dataset.activeSessionId === sessionId) void this.requestSessionResync(sessionId);
       },
-      onOpen: () => this.confirmConnection?.(),
-      onError: () => this.setConnection("reconnecting"),
+      onOpen: () => {
+        this.confirmConnection?.();
+        this.systemToastKeys?.delete(`event-stream:${sessionId}`);
+      },
+      onError: () => {
+        this.setConnection("reconnecting");
+        this.showSystemToast?.(
+          "connection",
+          "后端连接已断开",
+          "事件流连接已断开，正在重新连接。",
+          `event-stream:${sessionId}`,
+          sessionId,
+        );
+      },
     });
     this.durableStream = client;
     client.start();

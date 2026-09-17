@@ -95,6 +95,6 @@ export const runtimeStatusMethods = {
       ? { ...status, model: durableModel.model, thinkingLevel: durableModel.thinkingLevel }
       : status;
     this.updatePromptMeta(durableStatus);
-    if (status.warning) this.notifyRuntimeWarning?.(status.warning);
+    if (status.warning) this.notifyRuntimeWarning?.(status.warning, this.currentToastContext?.());
   },
 };

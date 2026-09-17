@@ -196,6 +196,21 @@
   color: var(--fg-3);
   font-size: var(--text-xs);
 }
+.notification-settings {
+  margin: 12px 0;
+  border-top: 1px solid var(--border-dim);
+  padding-top: 12px;
+}
+.notification-settings small {
+  color: var(--fg-3);
+  font-size: var(--text-xs);
+}
+.notification-settings small[role="status"] {
+  display: block;
+  min-height: 1.25em;
+  margin-top: 8px;
+}
+.notification-settings small[role="status"].err { color: var(--danger); }
 .allowed-roots-settings {
   margin-top: 12px;
   border-top: 1px solid var(--border-dim);

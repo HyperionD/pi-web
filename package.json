@@ -60,7 +60,6 @@
     "astro": "6.3.3",
     "markdown-it": "^14.1.1",
     "material-icon-theme": "5.35.0",
-    "notyf": "^3.10.0",
     "react": "^19.2.6",
     "react-arborist": "^3.7.0",
     "react-dom": "^19.2.6",

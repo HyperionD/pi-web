@@ -1,6 +1,8 @@
-import { Notyf, NotyfEvent } from "notyf";
 import { getSessionState } from "../../lib/api";
-import { escapeHtml } from "../../lib/renderers";
+import {
+  requestBrowserNotificationPermission,
+  showBrowserNotification,
+} from "../../lib/browser-notifications";
 import { createSessionStreamClient } from "../sessions/session-stream-client";
 import { parseFallbackChoices } from "../input/fallback-choices";
 
@@ -85,22 +87,19 @@ function toastText(kind, detail, context) {
   };
 }
 
-function toastHtml(message) {
-  return [
-    `<span class="toast-dot" aria-hidden="true"></span>`,
-    `<span class="toast-copy"><strong>${escapeHtml(message.title)}</strong>`,
-    `<span class="toast-line toast-workspace" title="${escapeHtml(message.workspace)}">${escapeHtml(message.workspace)}</span>`,
-    `<span class="toast-line toast-session" title="${escapeHtml(message.session)}">${escapeHtml(message.session)}</span>`,
-    `<small class="toast-line toast-prompt" title="${escapeHtml(message.prompt)}">${escapeHtml(message.prompt)}</small></span>`,
-  ].join("");
+function notificationBody(message) {
+  return [message.workspace, message.session, message.prompt].filter(Boolean).join(" · ");
 }
 
-function systemToastHtml(title, detail) {
-  return [
-    `<span class="toast-dot" aria-hidden="true"></span>`,
-    `<span class="toast-copy"><strong>${escapeHtml(title)}</strong>`,
-    `<small class="toast-line toast-prompt" title="${escapeHtml(detail)}">${escapeHtml(detail)}</small></span>`,
-  ].join("");
+function snapshotWaitsForFeedback(items = []) {
+  let latestChoice = -1;
+  let latestUserMessage = -1;
+  items.forEach((item, index) => {
+    const text = item?.text || item?.bodyPreview || "";
+    if (item?.kind === "pi" && parseFallbackChoices(text).length) latestChoice = index;
+    if (item?.kind === "user") latestUserMessage = index;
+  });
+  return latestChoice > latestUserMessage;
 }
 
 function toastContextWorkspace(context) {
@@ -130,96 +129,59 @@ function displayName(name, id) {
 }
 
 export const toastMethods = {
-  ensureToastRegion() {
-    if (!this.notyf) {
-      this.notyf = new Notyf({
-        duration: 0,
-        dismissible: true,
-        position: { x: "right", y: "top" },
-        ripple: false,
-        types: [
-          { type: "success", icon: false, className: "session-toast success" },
-          { type: "choice", icon: false, className: "session-toast choice" },
-          { type: "warning", icon: false, className: "session-toast warning" },
-          { type: "error", icon: false, className: "session-toast error" },
-          { type: "connection", icon: false, className: "session-toast connection" },
-        ],
-      });
-      this.toastDismissObserver = new MutationObserver(() => this.syncToastDismissAll());
-    }
-    return this.notyf;
-  },
-
-  handleToastClick() {},
-
   showToast(kind, detail, context = this.currentToastContext()) {
-    const notyf = this.ensureToastRegion();
     const message = toastText(kind, detail, context);
-    const sessionId = toastContextSessionId(context);
-    const notification = notyf.open({
-      type: TOAST_MESSAGES[kind] ? kind : "success",
-      message: toastHtml(message),
-    });
-    notification.on(NotyfEvent.Click, (payload = {}) => {
-      const event = (payload as { event?: Event }).event;
-      const target = event?.target as Element | null | undefined;
-      if (target?.closest?.(".notyf__dismiss")) return;
-      this.activateToastSession(sessionId);
-      this.dismissToast(notification);
-    });
-    this.syncToastDismissAll();
-    return notification;
+    void this.sendBrowserNotification(message.title, notificationBody(message), toastContextSessionId(context));
   },
 
-  showSystemToast(type, title, detail, key = `${type}:${title}:${detail}`) {
+  showSystemToast(type, title, detail, key = `${type}:${title}:${detail}`, sessionId) {
     this.systemToastKeys ??= new Set();
-    if (this.systemToastKeys.has(key)) return undefined;
+    if (this.systemToastKeys.has(key)) return;
     this.systemToastKeys.add(key);
-    const notification = this.ensureToastRegion().open({
-      type: TOAST_MESSAGES[type] ? type : "warning",
-      message: systemToastHtml(title, detail),
-    });
-    this.syncToastDismissAll();
-    return notification;
-  },
-
-  notifyRuntimeWarning(detail) {
-    const message = authWarningDetail(detail);
-    this.showSystemToast("warning", "身份验证警告", message, `auth:${message}`);
-  },
-
-  dismissToast(toast) {
-    if (toast) this.notyf?.dismiss(toast);
-    this.syncToastDismissAll();
-  },
-
-  dismissAllToasts() {
-    this.notyf?.dismissAll();
-    this.syncToastDismissAll();
-  },
-
-  syncToastDismissAll() {
-    const region = document.querySelector(".notyf");
-    if (!region) return;
-    let button = region.querySelector(".toast-dismiss-all");
-    if (!button) {
-      button = document.createElement("button");
-      button.type = "button";
-      button.className = "toast-dismiss-all";
-      button.textContent = "关闭全部";
-      button.addEventListener("click", (event) => {
-        event.stopPropagation();
-        this.dismissAllToasts();
-      });
-      region.prepend(button);
-      this.toastDismissObserver?.observe(region, { childList: true });
+    let delivery;
+    try {
+      delivery = this.sendBrowserNotification(title, detail, sessionId);
+    } catch {
+      this.systemToastKeys.delete(key);
+      return;
     }
-    const activeToasts = [...region.querySelectorAll(".notyf__toast:not(.notyf__toast--disappear)")];
-    activeToasts.forEach((toast, index) => {
-      toast.style.setProperty("--toast-stack-index", String(index));
-      toast.style.zIndex = String(index + 1);
+    void Promise.resolve(delivery).then((shown) => {
+      if (!shown) this.systemToastKeys.delete(key);
     });
-    button.hidden = activeToasts.length === 0;
+  },
+
+  sendBrowserNotification(title, body, sessionId) {
+    return showBrowserNotification({
+      title,
+      body,
+      onClick: () => {
+        window.focus?.();
+        this.activateToastSession(sessionId);
+      },
+    }, this.browserNotificationEnvironment);
+  },
+
+  async enableBrowserNotifications() {
+    const permission = await requestBrowserNotificationPermission(this.browserNotificationEnvironment);
+    const status = this.querySelector("[data-notification-status]");
+    if (!status) return permission;
+    status.textContent = permission === "granted"
+      ? "系统通知已启用。"
+      : "未获得系统通知权限。";
+    status.classList.toggle("err", permission !== "granted");
+    return permission;
+  },
+
+  notifyRuntimeWarning(detail, context = this.currentToastContext()) {
+    const message = authWarningDetail(detail);
+    const sessionId = toastContextSessionId(context);
+    this.showSystemToast(
+      "warning",
+      "身份验证警告",
+      message,
+      `auth:${message}:${sessionId || "global"}`,
+      sessionId,
+    );
   },
 
   activateToastSession(sessionId) {
@@ -276,7 +238,7 @@ export const toastMethods = {
       return;
     }
     if (isAuthCredentialError(detail)) {
-      this.notifyRuntimeWarning(detail);
+      this.notifyRuntimeWarning(detail, context);
       return;
     }
     this.showToast("error", detail, context);
@@ -312,12 +274,31 @@ export const toastMethods = {
 
   watchBackgroundSession(row) {
     const sessionId = row.dataset.session;
-    const watch: any = { failed: false, row, wasRunning: true, stopped: false, appliedSeq: "0" };
+    const watch: any = {
+      failed: false,
+      waitingForFeedback: false,
+      row,
+      wasRunning: true,
+      stopped: false,
+      appliedSeq: "0",
+    };
     watch.client = createSessionStreamClient({
       sessionId,
       appliedSeq: () => watch.appliedSeq,
-      onOpen: () => this.confirmConnection?.(),
-      onError: () => undefined,
+      onOpen: () => {
+        this.confirmConnection?.();
+        this.systemToastKeys?.delete(`event-stream:${sessionId}`);
+      },
+      onError: () => {
+        this.setConnection?.("reconnecting");
+        this.showSystemToast?.(
+          "connection",
+          "后端连接已断开",
+          "事件流连接已断开，正在重新连接。",
+          `event-stream:${sessionId}`,
+          sessionId,
+        );
+      },
       onReset: () => void this.startDurableBackgroundWatch(watch),
       onEvent: (event) => {
         watch.appliedSeq = event.seq || watch.appliedSeq;
@@ -335,17 +316,21 @@ export const toastMethods = {
       const state = await getSessionState(watch.row.dataset.session);
       if (watch.stopped || !this.backgroundSessionWatches?.has(watch.row.dataset.session)) return;
       watch.appliedSeq = state.seq || "0";
+      watch.waitingForFeedback = snapshotWaitsForFeedback(state.items);
       watch.wasRunning = watch.wasRunning || ["running", "thinking"].includes(state.status);
       if (["idle", "cancelled"].includes(state.status)) {
         this.dismissBackgroundSessionWatch(watch.row.dataset.session, watch);
-        if (watch.wasRunning && state.status === "idle" && !watch.failed) {
+        if (watch.wasRunning && state.status === "idle" && !watch.failed && !watch.waitingForFeedback) {
           this.notifySessionCompleted(this.toastContextForSessionRow(watch.row));
         }
         return;
       }
       watch.client.start();
     } catch (error) {
-      if (!watch.stopped) this.notifyResponseFailure(error, this.toastContextForSessionRow(watch.row));
+      if (!watch.stopped) {
+        this.notifyResponseFailure(error, this.toastContextForSessionRow(watch.row));
+        if (this.backgroundSessionWatches?.get(watch.row.dataset.session) === watch) watch.client.start();
+      }
     }
   },
 
@@ -365,16 +350,18 @@ export const toastMethods = {
       return;
     }
     if (event.type === "assistant.segment.committed" && parseFallbackChoices(event.payload?.text).length) {
+      watch.waitingForFeedback = true;
       this.notifyChoiceRequested(context);
       return;
     }
     if (event.type === "run.started") {
       watch.wasRunning = true;
+      watch.waitingForFeedback = false;
       return;
     }
     if (!["run.finished", "run.cancelled", "run.interrupted"].includes(event.type)) return;
     this.dismissBackgroundSessionWatch(event.sessionId, watch);
-    if (event.type === "run.finished" && watch.wasRunning && !watch.failed) {
+    if (event.type === "run.finished" && watch.wasRunning && !watch.failed && !watch.waitingForFeedback) {
       this.notifySessionCompleted(context);
     }
   },

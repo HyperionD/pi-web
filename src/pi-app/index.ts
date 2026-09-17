@@ -76,7 +76,6 @@ class PiApp extends HTMLElement {
     if (this.spinnerTimer) clearInterval(this.spinnerTimer);
     if (this.runtimeStatusTimer) clearInterval(this.runtimeStatusTimer);
     if (this.connectionErrorTimer) clearTimeout(this.connectionErrorTimer);
-    this.toastDismissObserver?.disconnect?.();
     this.clearStreamingTail?.();
     this.durableTranscriptRenderScheduler?.reset?.();
     if (this.scrollFrame != null) {
@@ -133,6 +132,10 @@ class PiApp extends HTMLElement {
       const locale = normalizeUiLocale((event.currentTarget as HTMLSelectElement).value);
       if (locale) setUiLocale(locale, this);
     });
+    this.querySelector("[data-action='enable-notifications']")?.addEventListener(
+      "click",
+      () => void this.enableBrowserNotifications?.(),
+    );
     this.querySelector("[data-setting='defaultProvider']")?.addEventListener("change", (event) => {
       this.syncCustomSettingInput(event.currentTarget);
       this.fillModelControls();
