@@ -173,4 +173,7 @@ func (s *orderingEventStore) RecoverInterrupted(ctx context.Context) error {
 func (s *orderingEventStore) DeleteSession(ctx context.Context, sessionID string) error {
 	return s.inner.DeleteSession(ctx, sessionID)
 }
+func (s *orderingEventStore) IsSessionDeleted(ctx context.Context, sessionID string) (bool, error) {
+	return s.inner.IsSessionDeleted(ctx, sessionID)
+}
 func (s *orderingEventStore) Close(ctx context.Context) error { return s.inner.Close(ctx) }

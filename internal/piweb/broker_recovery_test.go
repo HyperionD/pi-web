@@ -393,6 +393,7 @@ func TestSnapshotCursorSafelyBridgesPublishBeforeSubscribe(t *testing.T) {
 		close(done)
 	}()
 	<-subscribeStarted
+	<-writer.flushed
 	publishDone := make(chan Event, 1)
 	go func() {
 		publishDone <- broker.Publish("8e7c-44ff", "session.status", map[string]string{"status": "idle"})

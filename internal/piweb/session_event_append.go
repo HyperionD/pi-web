@@ -274,6 +274,12 @@ func (s *SQLiteSessionEventStore) notify(sessionID string) {
 }
 
 func ensureStream(conn *sql.Conn, sessionID string) (SessionStreamState, error) {
+	var deletedAt string
+	if err := conn.QueryRowContext(context.Background(), `SELECT deleted_at FROM session_deletions WHERE session_id=?`, sessionID).Scan(&deletedAt); err == nil {
+		return SessionStreamState{}, ErrNotFound
+	} else if !errors.Is(err, sql.ErrNoRows) {
+		return SessionStreamState{}, err
+	}
 	stream, err := loadStream(conn, sessionID)
 	if err == nil {
 		return stream, nil

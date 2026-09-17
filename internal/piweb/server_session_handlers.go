@@ -137,13 +137,33 @@ func (s *Server) deleteSession(w http.ResponseWriter, r *http.Request) {
 	if requestID == "" {
 		requestID = createSessionID()
 	}
-	event, eventErr := s.commands.AppendControlEvent(r.Context(), sessionID, requestID, EventSessionDeleted, nil)
-	if eventErr != nil {
+	alreadyDeleted, deletionStateErr := s.durableSessionDeleted(r.Context(), sessionID)
+	if deletionStateErr != nil {
 		_ = s.runtimeManager.RollbackSessionCloseToken(sessionID, token)
-		writeSessionEventError(w, eventErr)
+		writeStoreError(w, deletionStateErr)
+		return
+	}
+	var event StoredSessionEvent
+	if !alreadyDeleted {
+		var eventErr error
+		event, eventErr = s.commands.AppendControlEvent(r.Context(), sessionID, requestID, EventSessionDeleted, nil)
+		if eventErr != nil {
+			_ = s.runtimeManager.RollbackSessionCloseToken(sessionID, token)
+			writeSessionEventError(w, eventErr)
+			return
+		}
+	}
+	if err := s.deleteDurableSession(r.Context(), sessionID); err != nil {
+		_ = s.runtimeManager.RollbackSessionCloseToken(sessionID, token)
+		writeStoreError(w, err)
 		return
 	}
 	if err := s.store.DeleteSession(sessionID); err != nil {
+		if errors.Is(err, ErrNotFound) {
+			_ = s.runtimeManager.FinalizeSessionClose(sessionID, token)
+			writeJSON(w, http.StatusAccepted, map[string]any{"accepted": true, "deleted": true, "acceptedSeq": event.Seq})
+			return
+		}
 		writeStoreError(w, err)
 		return
 	}

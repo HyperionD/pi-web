@@ -203,12 +203,14 @@ func (s *Store) DeleteSession(sessionID string) error {
 	for workspaceIndex := range s.workspaces {
 		for sessionIndex := range s.workspaces[workspaceIndex].Sessions {
 			if s.workspaces[workspaceIndex].Sessions[sessionIndex].ID == sessionID {
+				if file := s.sessionFiles[sessionID]; file != "" {
+					if err := os.Remove(file); err != nil && !os.IsNotExist(err) {
+						return err
+					}
+				}
 				sessions := s.workspaces[workspaceIndex].Sessions
 				s.workspaces[workspaceIndex].Sessions = append(sessions[:sessionIndex], sessions[sessionIndex+1:]...)
 				s.workspaces[workspaceIndex].SessionCount = len(s.workspaces[workspaceIndex].Sessions)
-				if file := s.sessionFiles[sessionID]; file != "" {
-					_ = os.Remove(file)
-				}
 				delete(s.conversations, sessionID)
 				delete(s.sessionFiles, sessionID)
 				delete(s.sessionCWD, sessionID)

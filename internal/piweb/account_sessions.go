@@ -1,6 +1,9 @@
 package piweb
 
-import "net/http"
+import (
+	"errors"
+	"net/http"
+)
 
 func (s *Server) deleteAccountSessions(w http.ResponseWriter, r *http.Request) {
 	sessions, err := s.workspaceAccess.Sessions(requestActor(r), r.PathValue("workspaceID"))
@@ -25,13 +28,28 @@ func (s *Server) deleteAccountSessions(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, closeErr)
 		return
 	}
+	cleaned, err := s.deleteDurableSessions(r.Context(), sessions)
+	if err != nil {
+		for index, session := range sessions {
+			if index >= cleaned {
+				_ = s.runtimeManager.RollbackSessionCloseToken(session.ID, tokens[index])
+			}
+		}
+		writeStoreError(w, err)
+		return
+	}
 	deleted := 0
-	for _, session := range sessions {
+	for index, session := range sessions {
 		if err := s.store.DeleteSession(session.ID); err != nil {
+			if errors.Is(err, ErrNotFound) {
+				_ = s.runtimeManager.FinalizeSessionClose(session.ID, tokens[index])
+				deleted++
+				continue
+			}
 			for index, rollback := range sessions {
 				if index < deleted {
 					_ = s.runtimeManager.FinalizeSessionClose(rollback.ID, tokens[index])
-				} else {
+				} else if s.events == nil {
 					_ = s.runtimeManager.RollbackSessionCloseToken(rollback.ID, tokens[index])
 				}
 			}

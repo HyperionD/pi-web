@@ -161,6 +161,8 @@ func (s *Server) closeWorkspace(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"closed": true})
 }
 func (s *Server) createSession(w http.ResponseWriter, r *http.Request) {
+	s.sessionDeletionMu.RLock()
+	defer s.sessionDeletionMu.RUnlock()
 	workspaceID := r.PathValue("workspaceID")
 	session, err := s.workspaceAccess.CreateSession(requestActor(r), workspaceID)
 	if err != nil {
@@ -256,6 +258,8 @@ func (s *Server) runningSessionIDs() map[string]bool {
 }
 
 func (s *Server) deleteWorkspaceSessions(w http.ResponseWriter, r *http.Request) {
+	s.sessionDeletionMu.Lock()
+	defer s.sessionDeletionMu.Unlock()
 	if _, ok := requestAccount(r); ok {
 		s.deleteAccountSessions(w, r)
 		return
@@ -283,10 +287,22 @@ func (s *Server) deleteWorkspaceSessions(w http.ResponseWriter, r *http.Request)
 		writeError(w, http.StatusInternalServerError, closeErr)
 		return
 	}
-	deletedCount, err := s.store.DeleteWorkspaceSessions(workspaceID)
+	cleaned, err := s.deleteDurableSessions(r.Context(), sessions)
 	if err != nil {
 		for index, session := range sessions {
-			_ = s.runtimeManager.RollbackSessionCloseToken(session.ID, tokens[index])
+			if index >= cleaned {
+				_ = s.runtimeManager.RollbackSessionCloseToken(session.ID, tokens[index])
+			}
+		}
+		writeStoreError(w, err)
+		return
+	}
+	deletedCount, err := s.store.DeleteWorkspaceSessions(workspaceID)
+	if err != nil {
+		if s.events == nil {
+			for index, session := range sessions {
+				_ = s.runtimeManager.RollbackSessionCloseToken(session.ID, tokens[index])
+			}
 		}
 		writeStoreError(w, err)
 		return

@@ -22,6 +22,7 @@ type SessionEventStore interface {
 	OpenSession(context.Context, SessionSource) (ImportReport, error)
 	RecoverInterrupted(context.Context) error
 	DeleteSession(context.Context, string) error
+	IsSessionDeleted(context.Context, string) (bool, error)
 	Close(context.Context) error
 }
 

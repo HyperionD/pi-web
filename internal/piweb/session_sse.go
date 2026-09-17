@@ -104,11 +104,19 @@ func (s *Server) sessionEventsV2(w http.ResponseWriter, r *http.Request) {
 	ticker := time.NewTicker(sseHeartbeatGap)
 	defer ticker.Stop()
 	lastSent := after
+	deleteEventSent := false
 	for {
 		catchUp := false
 		for {
 			batch, err := s.events.EventsAfter(r.Context(), sessionID, lastSent, EventReadLimit{MaxRows: sseMaxBatchRows, MaxBytes: sseMaxBatchSize})
 			if err != nil {
+				if errors.Is(err, sql.ErrNoRows) {
+					deleted, stateErr := s.durableSessionDeleted(r.Context(), sessionID)
+					if stateErr == nil && deleted && !deleteEventSent {
+						_ = writeDeletedSessionEvent(w, sessionID, lastSent+1)
+						flusher.Flush()
+					}
+				}
 				return
 			}
 			if batch.ResetRequired {
@@ -122,6 +130,9 @@ func (s *Server) sessionEventsV2(w http.ResponseWriter, r *http.Request) {
 			for _, event := range batch.Events {
 				if err := writeSessionEventSSE(w, event); err != nil {
 					return
+				}
+				if event.Type == EventSessionDeleted {
+					deleteEventSent = true
 				}
 				lastSent = event.Seq
 				flusher.Flush()
@@ -224,6 +235,15 @@ func parseSessionEventCursorV2(r *http.Request) (int64, error) {
 		return 0, errors.New("invalid event cursor")
 	}
 	return cursor, nil
+}
+
+func writeDeletedSessionEvent(w http.ResponseWriter, sessionID string, seq int64) error {
+	return writeSessionEventSSE(w, StoredSessionEvent{
+		Seq: seq,
+		SessionEventDraft: SessionEventDraft{
+			SessionID: sessionID, SourceID: "system:delete", Type: EventSessionDeleted, OccurredAt: time.Now().UTC(),
+		},
+	})
 }
 
 func writeSessionEventSSE(w http.ResponseWriter, event StoredSessionEvent) error {

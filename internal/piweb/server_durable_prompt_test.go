@@ -3,6 +3,7 @@ package piweb
 import (
 	"bytes"
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -202,15 +203,38 @@ func TestDeleteUsesDurableControlEventWhenConfigured(t *testing.T) {
 	if response.StatusCode != http.StatusAccepted {
 		t.Fatalf("status = %d", response.StatusCode)
 	}
-	rows, err := events.EventsAfter(t.Context(), "8e7c-44ff", 0, EventReadLimit{MaxRows: 10})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(rows.Events) != 1 || rows.Events[0].Type != EventSessionDeleted {
-		t.Fatalf("events = %#v", rows.Events)
+	if _, err := events.Snapshot(t.Context(), "8e7c-44ff", SessionPageRequest{Limit: 10}); !errors.Is(err, sql.ErrNoRows) {
+		t.Fatalf("durable session snapshot error = %v, want sql.ErrNoRows", err)
 	}
 	if _, _, err := store.Session("8e7c-44ff"); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("deleted session remains in store: %v", err)
+	}
+}
+
+func TestDeleteRetriesAfterDurableCleanup(t *testing.T) {
+	store := runtimeTestStore()
+	events := appendTestStore(t)
+	if err := events.DeleteSession(t.Context(), "8e7c-44ff"); err != nil {
+		t.Fatal(err)
+	}
+	server := NewServerWithEventStore(Config{EnablePiExecution: true}, store, NewBroker(), events, NewSessionWakeHub())
+	httpServer := httptest.NewServer(server.Handler())
+	defer httpServer.Close()
+
+	request, err := http.NewRequest(http.MethodDelete, httpServer.URL+"/api/sessions/8e7c-44ff", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	response, err := http.DefaultClient.Do(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusAccepted {
+		t.Fatalf("status = %d, want %d", response.StatusCode, http.StatusAccepted)
+	}
+	if _, _, err := store.Session("8e7c-44ff"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("session remains in store after retry: %v", err)
 	}
 }
 

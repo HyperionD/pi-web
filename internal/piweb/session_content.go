@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"time"
 )
 
 func (s *SQLiteSessionEventStore) ItemContent(ctx context.Context, sessionID, itemID string, version, start, end int64) ([]byte, int64, error) {
@@ -140,6 +141,26 @@ func (s *SQLiteSessionEventStore) SetRetentionLimits(limits RetentionLimits) {
 }
 
 func (s *SQLiteSessionEventStore) DeleteSession(ctx context.Context, sessionID string) error {
-	_, err := s.db.ExecContext(ctx, `DELETE FROM session_streams WHERE session_id=?`, sessionID)
+	err := s.withImmediateTx(ctx, func(conn *sql.Conn) error {
+		if _, err := conn.ExecContext(ctx, `INSERT OR IGNORE INTO session_deletions(session_id, deleted_at) VALUES (?, ?)`, sessionID, time.Now().UTC().Format(time.RFC3339Nano)); err != nil {
+			return err
+		}
+		_, err := conn.ExecContext(ctx, `DELETE FROM session_streams WHERE session_id=?`, sessionID)
+		return err
+	})
+	if err == nil {
+		s.notify(sessionID)
+	}
 	return err
+}
+
+func (s *SQLiteSessionEventStore) IsSessionDeleted(ctx context.Context, sessionID string) (bool, error) {
+	var deleted bool
+	err := s.db.QueryRowContext(ctx, `
+		SELECT EXISTS(
+			SELECT 1 FROM session_deletions WHERE session_id=?
+			UNION ALL
+			SELECT 1 FROM session_events WHERE session_id=? AND event_type=?
+		)`, sessionID, sessionID, EventSessionDeleted).Scan(&deleted)
+	return deleted, err
 }

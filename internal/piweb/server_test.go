@@ -3,7 +3,9 @@ package piweb
 import (
 	"bytes"
 	"context"
+	"database/sql"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -165,6 +167,106 @@ func TestSessionManagementEndpointsRequireDurableEventStore(t *testing.T) {
 	server.Handler().ServeHTTP(deleteRes, deleteReq)
 	if deleteRes.Code != http.StatusServiceUnavailable {
 		t.Fatalf("delete status = %d, want service unavailable", deleteRes.Code)
+	}
+}
+
+type failingDeleteEventStore struct {
+	SessionEventStore
+	calls  int
+	failAt int
+}
+
+func (s *failingDeleteEventStore) DeleteSession(ctx context.Context, sessionID string) error {
+	s.calls++
+	if s.calls == s.failAt {
+		return errors.New("durable delete failed")
+	}
+	return s.SessionEventStore.DeleteSession(ctx, sessionID)
+}
+
+func TestDeleteWorkspaceSessionsPreservesStoreWhenDurableCleanupFails(t *testing.T) {
+	t.Setenv("PI_CODING_AGENT_SESSION_DIR", t.TempDir())
+	store := NewMockStore()
+	workspace, err := store.OpenWorkspace(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	sessions := make([]Session, 2)
+	paths := make([]string, 2)
+	for index := range sessions {
+		sessions[index], err = store.CreateSession(workspace.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	hub := NewSessionWakeHub()
+	events, err := OpenSQLiteSessionEventStore(filepath.Join(t.TempDir(), "events.db"), hub)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer events.Close(t.Context())
+	for index, session := range sessions {
+		path, _, ok := store.SessionRuntime(session.ID)
+		if !ok {
+			t.Fatalf("session runtime file was not created for %s", session.ID)
+		}
+		paths[index] = path
+		if _, err := events.OpenSession(t.Context(), SessionSource{SessionID: session.ID, Path: path}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	failing := &failingDeleteEventStore{SessionEventStore: events, failAt: 2}
+	server := NewServerWithEventStore(Config{}, store, NewBroker(), failing, hub)
+	request := httptest.NewRequest(http.MethodDelete, "/api/workspaces/"+workspace.ID+"/sessions", nil)
+	request = request.WithContext(context.WithValue(request.Context(), accountContextKey{}, Account{Role: "admin"}))
+	response := httptest.NewRecorder()
+	server.Handler().ServeHTTP(response, request)
+	if response.Code != http.StatusInternalServerError {
+		t.Fatalf("delete status = %d, want %d", response.Code, http.StatusInternalServerError)
+	}
+	for index, session := range sessions {
+		if _, _, err := store.Session(session.ID); err != nil {
+			t.Fatalf("session %s was removed after durable cleanup failure: %v", session.ID, err)
+		}
+		if _, err := os.Stat(paths[index]); err != nil {
+			t.Fatalf("session JSONL %s was removed after durable cleanup failure: %v", session.ID, err)
+		}
+	}
+}
+
+func TestDeleteWorkspaceSessionsPurgesDurableEventStore(t *testing.T) {
+	t.Setenv("PI_CODING_AGENT_SESSION_DIR", t.TempDir())
+	store := NewMockStore()
+	workspace, err := store.OpenWorkspace(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	session, err := store.CreateSession(workspace.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	path, _, ok := store.SessionRuntime(session.ID)
+	if !ok {
+		t.Fatal("session runtime file was not created")
+	}
+	hub := NewSessionWakeHub()
+	events, err := OpenSQLiteSessionEventStore(filepath.Join(t.TempDir(), "events.db"), hub)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer events.Close(t.Context())
+	if _, err := events.OpenSession(t.Context(), SessionSource{SessionID: session.ID, Path: path}); err != nil {
+		t.Fatal(err)
+	}
+	server := NewServerWithEventStore(Config{}, store, NewBroker(), events, hub)
+	request := httptest.NewRequest(http.MethodDelete, "/api/workspaces/"+workspace.ID+"/sessions", nil)
+	response := httptest.NewRecorder()
+	server.Handler().ServeHTTP(response, request)
+	if response.Code != http.StatusOK {
+		t.Fatalf("delete status = %d, want %d: %s", response.Code, http.StatusOK, response.Body.String())
+	}
+	if _, err := events.Snapshot(t.Context(), session.ID, SessionPageRequest{Limit: 10}); !errors.Is(err, sql.ErrNoRows) {
+		t.Fatalf("durable session snapshot error = %v, want sql.ErrNoRows", err)
 	}
 }
 

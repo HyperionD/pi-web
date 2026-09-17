@@ -98,6 +98,7 @@ type Server struct {
 	ctx                     context.Context
 	cancel                  context.CancelFunc
 	lifecycle               *serverLifecycle
+	sessionDeletionMu       sync.RWMutex
 	accounts                *accountStore
 	workspaceAccess         *WorkspaceAccess
 	adminPasswordConfigured bool

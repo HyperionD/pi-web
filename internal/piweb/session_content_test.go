@@ -2,10 +2,13 @@ package piweb
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
+	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func appendToolOutputChunk(t *testing.T, store *SQLiteSessionEventStore, runID, callID string, ordinal int64, chunk, mode string) StoredSessionEvent {
@@ -81,6 +84,50 @@ func TestSnapshotInlineBodyAndContentRef(t *testing.T) {
 	}
 	if tool == nil || tool.ContentRef != tool.ItemID || tool.ContentVersion == 0 || tool.ContentLength != int64(len("inline body")) {
 		t.Fatalf("tool content metadata = %#v", tool)
+	}
+}
+
+func TestDeleteSessionWaitsForDurableWriteSlot(t *testing.T) {
+	store := appendTestStore(t)
+	store.writeSlot <- struct{}{}
+	defer func() { <-store.writeSlot }()
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+	defer cancel()
+	if err := store.DeleteSession(ctx, "s1"); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("delete error = %v, want context deadline exceeded", err)
+	}
+}
+
+func TestDeleteSessionPreventsDurableStreamRecreation(t *testing.T) {
+	store := appendTestStore(t)
+	if err := store.DeleteSession(t.Context(), "s1"); err != nil {
+		t.Fatal(err)
+	}
+	_, err := store.AppendControl(t.Context(), "s1", "retry", EventSessionRenamed, []byte(`{"title":"should fail"}`))
+	if !errors.Is(err, ErrNotFound) {
+		t.Fatalf("append after delete error = %v, want ErrNotFound", err)
+	}
+}
+
+func TestDeleteSessionNotifiesSubscribers(t *testing.T) {
+	hub := NewSessionWakeHub()
+	store, err := OpenSQLiteSessionEventStore(filepath.Join(t.TempDir(), "events.db"), hub)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close(t.Context())
+	if _, err := store.StartRun(t.Context(), StartRunCommand{SessionID: "s1", ClientRequestID: "request-1", RequestHash: "hash", RunID: "run-1"}); err != nil {
+		t.Fatal(err)
+	}
+	subscription := hub.Subscribe("s1")
+	defer subscription.Close()
+	if err := store.DeleteSession(t.Context(), "s1"); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-subscription.Wake:
+	case <-time.After(time.Second):
+		t.Fatal("delete did not notify subscribers")
 	}
 }
 

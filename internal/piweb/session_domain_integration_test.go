@@ -4,7 +4,9 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"database/sql"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -274,6 +276,39 @@ func hasEventTypes(events []StoredSessionEvent, types ...string) bool {
 	return true
 }
 
+func TestSessionDomainDeletePurgesDurableEventStore(t *testing.T) {
+	server, events, sessionID := newDurableIntegrationServer(t)
+	deleted := requestJSON(t, server, http.MethodDelete, "/api/sessions/"+url.PathEscape(sessionID), map[string]any{})
+	defer deleted.Body.Close()
+	if deleted.StatusCode != http.StatusAccepted {
+		t.Fatalf("delete status = %d, want %d", deleted.StatusCode, http.StatusAccepted)
+	}
+	if _, err := events.Snapshot(t.Context(), sessionID, SessionPageRequest{Limit: 10}); !errors.Is(err, sql.ErrNoRows) {
+		t.Fatalf("durable session snapshot error = %v, want sql.ErrNoRows", err)
+	}
+}
+
+func TestSessionDeleteNotifiesExistingSSEClient(t *testing.T) {
+	server, _, sessionID := newDurableIntegrationServer(t)
+	stream, closeStream := openSessionEventStream(t, server, sessionID)
+	defer closeStream()
+	deleted := requestJSON(t, server, http.MethodDelete, "/api/sessions/"+url.PathEscape(sessionID), map[string]any{})
+	defer deleted.Body.Close()
+	for {
+		select {
+		case event, ok := <-stream:
+			if !ok {
+				t.Fatal("SSE closed before session.deleted")
+			}
+			if event.Type == EventSessionDeleted {
+				return
+			}
+		case <-time.After(time.Second):
+			t.Fatal("SSE did not deliver session.deleted")
+		}
+	}
+}
+
 func TestSessionDomainControlCommandsShareDurableProjection(t *testing.T) {
 	server, events, sessionID := newDurableIntegrationServer(t)
 	rename := requestJSON(t, server, http.MethodPatch, "/api/sessions/"+url.PathEscape(sessionID), map[string]any{
@@ -293,14 +328,9 @@ func TestSessionDomainControlCommandsShareDurableProjection(t *testing.T) {
 	if deleted.StatusCode != http.StatusAccepted {
 		t.Fatalf("delete status = %d, want %d", deleted.StatusCode, http.StatusAccepted)
 	}
-	projected, err := events.Snapshot(t.Context(), sessionID, SessionPageRequest{Limit: 10})
-	if err != nil {
-		t.Fatal(err)
+	if _, err := events.Snapshot(t.Context(), sessionID, SessionPageRequest{Limit: 10}); !errors.Is(err, sql.ErrNoRows) {
+		t.Fatalf("durable session snapshot error = %v, want sql.ErrNoRows", err)
 	}
-	if !projected.Metadata.Deleted {
-		t.Fatal("durable delete did not project tombstone")
-	}
-	requireTypes(t, mustReadEvents(t, events, sessionID), EventSessionRenamed, EventSessionRebased, EventSessionDeleted)
 }
 
 func TestSessionDomainCancelAppendsDurableRequest(t *testing.T) {

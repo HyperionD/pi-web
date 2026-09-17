@@ -1,11 +1,15 @@
 package piweb
 
-const sessionEventSchemaVersion = 2
+const sessionEventSchemaVersion = 3
 
 const sessionEventSchemaSQL = `
 CREATE TABLE IF NOT EXISTS piweb_schema_versions (
   version INTEGER PRIMARY KEY,
   applied_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS session_deletions (
+  session_id TEXT PRIMARY KEY,
+  deleted_at TEXT NOT NULL
 );
 CREATE TABLE IF NOT EXISTS session_streams (
   session_id TEXT PRIMARY KEY,
