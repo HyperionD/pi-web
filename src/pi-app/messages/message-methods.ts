@@ -220,12 +220,17 @@ export const messageMethods = {
   },
 
   assistantMessageNode(message) {
-    const choices = parseFallbackChoices(message.text);
+    const streaming = message.status === "streaming";
+    const choices = streaming ? [] : parseFallbackChoices(message.text);
     const text = stripFallbackChoices(message.text);
     const messageRow = this.simpleMessage("pi", "agent >", "");
     const body = messageRow.querySelector(".body");
     messageRow.dataset.rawText = message.text;
     body.classList.add("markdown-body");
+    if (streaming) {
+      body.append(document.createTextNode(message.text || ""));
+      return messageRow;
+    }
     body.innerHTML = renderPiBody(choices.length ? text : message.text);
     if (!choices.length) return messageRow;
 

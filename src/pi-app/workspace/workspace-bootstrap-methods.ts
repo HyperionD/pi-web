@@ -597,6 +597,15 @@ export const workspaceBootstrapMethods = {
     const nextBody = rendered.querySelector(".body");
     if (!body || !nextBody) return false;
     current.dataset.rawText = message.text || "";
+    if (message.kind === "pi" && message.status === "streaming") {
+      const textNode = body.firstChild;
+      if (textNode?.nodeType === Node.TEXT_NODE && body.childNodes.length === 1) {
+        textNode.nodeValue = message.text || "";
+      } else {
+        body.replaceChildren(document.createTextNode(message.text || ""));
+      }
+      return true;
+    }
     body.innerHTML = nextBody.innerHTML;
     return true;
   },

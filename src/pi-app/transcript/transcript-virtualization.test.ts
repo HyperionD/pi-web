@@ -104,6 +104,36 @@ describe("pi-app transcript virtualization", () => {
       .toContain("new user message");
   });
 
+  it("keeps the streaming assistant text node stable between durable deltas", async () => {
+    const app = await connectPiApp();
+    app.durableEvents = true;
+    app.dataset.activeSessionId = "s1";
+    app.transcriptState = emptyTranscriptState("s1");
+    app.renderDurableTranscript();
+
+    app.applyDurableEvent({
+      seq: "1",
+      sessionId: "s1",
+      type: "assistant.segment.started",
+      entityId: "assistant:run-1:1",
+      payload: { kind: "pi" },
+    });
+    const body = app.querySelector(".transcript-item .body");
+    const initialChild = body.firstChild;
+
+    app.applyDurableEvent({
+      seq: "2",
+      sessionId: "s1",
+      type: "assistant.segment.delta",
+      entityId: "assistant:run-1:1",
+      payload: { kind: "pi", delta: "summary" },
+    });
+    await new Promise((resolve) => requestAnimationFrame(resolve));
+
+    expect(body.firstChild).toBe(initialChild);
+    expect(body.textContent).toBe("summary");
+  });
+
   it("renders a choice panel when a streamed assistant item is committed", async () => {
     const app = await connectPiApp();
     app.durableEvents = true;
