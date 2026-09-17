@@ -134,6 +134,34 @@ describe("pi-app transcript virtualization", () => {
     expect(body.textContent).toBe("summary");
   });
 
+  it("does not force-scroll on every streaming delta when height is unchanged", async () => {
+    const app = await connectPiApp();
+    app.durableEvents = true;
+    app.dataset.activeSessionId = "s1";
+    app.transcriptState = emptyTranscriptState("s1");
+    app.renderDurableTranscript();
+    app.applyDurableEvent({
+      seq: "1",
+      sessionId: "s1",
+      type: "assistant.segment.started",
+      entityId: "assistant:run-1:1",
+      payload: { kind: "pi" },
+    });
+    await new Promise((resolve) => requestAnimationFrame(resolve));
+    const scrollTerm = vi.spyOn(app, "scrollTerm").mockClear();
+
+    app.applyDurableEvent({
+      seq: "2",
+      sessionId: "s1",
+      type: "assistant.segment.delta",
+      entityId: "assistant:run-1:1",
+      payload: { kind: "pi", delta: "summary" },
+    });
+    await new Promise((resolve) => requestAnimationFrame(resolve));
+
+    expect(scrollTerm).not.toHaveBeenCalled();
+  });
+
   it("renders a choice panel when a streamed assistant item is committed", async () => {
     const app = await connectPiApp();
     app.durableEvents = true;

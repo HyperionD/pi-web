@@ -327,7 +327,7 @@ export const transcriptWindowMethods = {
     if (changed && this.transcriptVirtualScrollerStarted && this.isTranscriptItemVisibleInScroller(item)) {
       this.transcriptVirtualScroller?.onItemHeightDidChange(item);
     }
-    if (this.transcriptFollowBottom !== false && (changed || this.isTermPinnedToBottom())) this.scrollTerm({ force: true });
+    if (changed && this.transcriptFollowBottom !== false) this.scrollTerm({ force: true });
   },
 
   isTranscriptItemVisible(item) {
