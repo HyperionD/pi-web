@@ -15,6 +15,7 @@ test("shows a durable assistant delta before the run completes", async ({ page }
   await fixture.runUntilBoundary();
 
   await expect(page.locator(".term-inner .msg[data-kind='pi'] .body")).toHaveText("hello");
+  await expect(page.getByText("waiting for response…", { exact: true })).toHaveCount(0);
 });
 
 for (const boundary of BOUNDARIES) {

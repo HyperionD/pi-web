@@ -148,18 +148,12 @@ export const messageMethods = {
   },
 
   hasActiveTranscriptItem() {
-    const last = this.termInner?.lastElementChild?.matches?.(".transcript-item")
-      ? this.termInner.lastElementChild.lastElementChild
-      : this.termInner?.lastElementChild;
-    const historyActive = last?.matches?.([
-      ".msg.streaming[data-kind='pi']",
-      ".fallback-choice-list",
-    ].join(", "));
-    const tailActive = this.streamingTail?.querySelector?.([
-      ".msg.streaming[data-kind='pi']",
-      ".fallback-choice-list",
-    ].join(", "));
-    return !!(historyActive || tailActive);
+    const latestMessage = this.transcriptItems?.at(-1)?.message;
+    const projectedActive = latestMessage?.kind === "pi" && latestMessage.status === "streaming";
+    const selector = [".msg.streaming[data-kind='pi']", ".fallback-choice-list"].join(", ");
+    const historyActive = this.termInner?.querySelector?.(selector);
+    const tailActive = this.streamingTail?.querySelector?.(selector);
+    return !!(projectedActive || historyActive || tailActive);
   },
 
   commitStreamingMessages() {
