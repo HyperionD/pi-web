@@ -139,6 +139,7 @@ export const skillMethods = {
     } finally {
       if (this.skillManagerLoadToken === token) {
         state.loading = false;
+        this.renderSkillList();
         this.renderSkillManagerStatus();
       }
     }

@@ -62,6 +62,7 @@ describe("skill manager structure", () => {
     await app.openSkillManager();
     expect(app.querySelector("[data-skill-manager]").hidden).toBe(false);
     expect(app.querySelector("[data-skill-name]").textContent).toBe("demo");
+    expect(app.querySelector("[data-skill-list] .skill-manager-item").textContent).toContain("demo");
     app.closeSkillManager();
     expect(app.querySelector("[data-skill-manager]").hidden).toBe(true);
     expect(document.activeElement).toBe(button);
