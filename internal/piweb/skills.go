@@ -16,6 +16,9 @@ type PiSkillCommand struct {
 	Description string
 	Path        string
 	Scope       string
+	Source      string
+	Origin      string
+	BaseDir     string
 }
 
 type Skill struct {
@@ -24,6 +27,9 @@ type Skill struct {
 	Path        string `json:"path"`
 	Scope       string `json:"scope"`
 	Enabled     bool   `json:"enabled"`
+	SourceKind  string `json:"sourceKind"`
+	SourceID    string `json:"sourceId"`
+	SourceLabel string `json:"sourceLabel"`
 }
 
 type SkillDiscoveryResponse struct {
@@ -53,9 +59,11 @@ func loadWorkspaceSkills(ctx context.Context, cwd string) ([]Skill, error) {
 		if err != nil {
 			continue
 		}
+		source := classifySkillSource(ctx, command, path, cwd)
 		skills = append(skills, Skill{
 			Name: command.Name, Description: command.Description,
 			Path: path, Scope: command.Scope, Enabled: enabled,
+			SourceKind: source.Kind, SourceID: source.ID, SourceLabel: source.Label,
 		})
 	}
 	sort.Slice(skills, func(i, j int) bool {
@@ -116,8 +124,11 @@ func parsePiSkillCommands(response RPCResponse) ([]PiSkillCommand, error) {
 			Description string `json:"description"`
 			Source      string `json:"source"`
 			SourceInfo  struct {
-				Path  string `json:"path"`
-				Scope string `json:"scope"`
+				Path    string `json:"path"`
+				Scope   string `json:"scope"`
+				Source  string `json:"source"`
+				Origin  string `json:"origin"`
+				BaseDir string `json:"baseDir"`
 			} `json:"sourceInfo"`
 		} `json:"commands"`
 	}
@@ -141,6 +152,8 @@ func parsePiSkillCommands(response RPCResponse) ([]PiSkillCommand, error) {
 		}
 		skills = append(skills, PiSkillCommand{
 			Name: name, Description: description, Path: path, Scope: scope,
+			Source: command.SourceInfo.Source, Origin: command.SourceInfo.Origin,
+			BaseDir: strings.TrimSpace(command.SourceInfo.BaseDir),
 		})
 	}
 	sort.Slice(skills, func(i, j int) bool {

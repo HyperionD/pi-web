@@ -15,6 +15,9 @@ export type WorkspaceSkill = {
   path: string;
   scope: "global" | "project" | "path";
   enabled: boolean;
+  sourceKind: "repository" | "package" | "local" | "temporary";
+  sourceId: string;
+  sourceLabel: string;
 };
 
 export type WorkspaceSkillsResponse = {

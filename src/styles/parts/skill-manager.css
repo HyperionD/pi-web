@@ -163,6 +163,13 @@
   white-space: nowrap;
 }
 
+.skill-manager-item-scope {
+  flex: 0 0 auto;
+  margin-left: auto;
+  color: var(--fg-4);
+  font-size: 10px;
+}
+
 .skill-manager-status-dot {
   flex: 0 0 auto;
   width: 7px;

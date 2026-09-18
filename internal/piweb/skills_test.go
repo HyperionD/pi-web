@@ -13,9 +13,9 @@ func TestParsePiSkillCommandsFiltersNonSkills(t *testing.T) {
 	response := RPCResponse{
 		Type: "response", Command: "get_commands", Success: true,
 		Data: json.RawMessage(`{"commands":[
-		  {"name":"skill:review","description":"Review code","source":"skill","sourceInfo":{"path":"/tmp/review/SKILL.md","scope":"project"}},
+		  {"name":"skill:review","description":"Review code","source":"skill","sourceInfo":{"path":"/tmp/review/SKILL.md","scope":"project","source":"local","origin":"top-level","baseDir":"/tmp/project/.pi"}},
 		  {"name":"format","description":"Format","source":"extension","sourceInfo":{"path":"/tmp/format.ts","scope":"project"}},
-		  {"name":"skill:global","description":"Global","source":"skill","sourceInfo":{"path":"/home/u/.pi/agent/skills/global/SKILL.md","scope":"user"}}
+		  {"name":"skill:global","description":"Global","source":"skill","sourceInfo":{"path":"/home/u/.pi/agent/skills/global/SKILL.md","scope":"user","source":"local","origin":"top-level"}}
 		]}`),
 	}
 
@@ -28,6 +28,9 @@ func TestParsePiSkillCommandsFiltersNonSkills(t *testing.T) {
 	}
 	if skills[0].Scope != "global" || skills[1].Scope != "project" {
 		t.Fatalf("unexpected scopes: %#v", skills)
+	}
+	if skills[1].Source != "local" || skills[1].Origin != "top-level" || skills[1].BaseDir != "/tmp/project/.pi" {
+		t.Fatalf("unexpected source info: %#v", skills[1])
 	}
 }
 

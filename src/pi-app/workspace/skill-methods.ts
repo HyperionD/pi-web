@@ -4,8 +4,10 @@ import {
   type WorkspaceSkill,
 } from "../../lib/api";
 
-const SKILL_SCOPE_ORDER = ["global", "project", "path"] as const;
 const SKILL_SCOPE_LABELS = { global: "全局", project: "项目", path: "自定义路径" };
+const SKILL_SOURCE_KIND_LABELS = {
+  repository: "Git 仓库", package: "Package", local: "本地自定义技能", temporary: "临时资源",
+};
 
 type SkillManagerState = {
   skills: WorkspaceSkill[];
@@ -53,6 +55,14 @@ function canEditSkill(skill: WorkspaceSkill): boolean {
 
 function skillScopeLabel(scope: WorkspaceSkill["scope"]): string {
   return SKILL_SCOPE_LABELS[scope] || scope;
+}
+
+function skillSourceKey(skill: WorkspaceSkill): string {
+  return skill.sourceId || `${skill.sourceKind || "local"}:${skill.scope}`;
+}
+
+function skillSourceLabel(skill: WorkspaceSkill): string {
+  return skill.sourceLabel || SKILL_SOURCE_KIND_LABELS[skill.sourceKind] || "本地自定义技能";
 }
 
 export const skillMethods = {
@@ -151,31 +161,15 @@ export const skillMethods = {
     const state = skillManagerState(this);
     list.replaceChildren();
     if (state.loading) return;
-    for (const scope of SKILL_SCOPE_ORDER) {
-      const skills = state.skills.filter((skill) => skill.scope === scope);
-      if (!skills.length) continue;
-      const group = document.createElement("div");
-      group.className = "skill-manager-group";
-      const heading = document.createElement("strong");
-      heading.className = "skill-manager-group-title";
-      heading.textContent = SKILL_SCOPE_LABELS[scope];
-      group.append(heading);
-      for (const skill of skills) {
-        const item = document.createElement("button");
-        item.type = "button";
-        item.className = "skill-manager-item";
-        item.dataset.skillPath = skill.path;
-        item.classList.toggle("is-selected", skill.path === state.selectedPath);
-        const dot = document.createElement("span");
-        dot.className = "skill-manager-status-dot";
-        dot.classList.toggle("is-disabled", !skill.enabled);
-        const name = document.createElement("span");
-        name.className = "skill-manager-item-name";
-        name.textContent = skill.name;
-        item.append(dot, name);
-        group.append(item);
-      }
-      list.append(group);
+    const groups = new Map<string, WorkspaceSkill[]>();
+    for (const skill of state.skills) {
+      const key = skillSourceKey(skill);
+      const group = groups.get(key) || [];
+      group.push(skill);
+      groups.set(key, group);
+    }
+    for (const skills of groups.values()) {
+      this.renderSkillSourceGroup(list, skills, state.selectedPath);
     }
     if (!state.skills.length && !state.error) {
       const empty = document.createElement("span");
@@ -183,6 +177,39 @@ export const skillMethods = {
       empty.textContent = "当前工作区没有可用 skill";
       list.append(empty);
     }
+  },
+
+  renderSkillSourceGroup(list, skills: WorkspaceSkill[], selectedPath: string) {
+    const group = document.createElement("div");
+    group.className = "skill-manager-group";
+    const heading = document.createElement("strong");
+    heading.className = "skill-manager-group-title";
+    heading.dataset.skillSourceGroup = "true";
+    heading.textContent = skillSourceLabel(skills[0]);
+    group.append(heading);
+    for (const skill of skills) {
+      group.append(this.renderSkillItem(skill, selectedPath));
+    }
+    list.append(group);
+  },
+
+  renderSkillItem(skill: WorkspaceSkill, selectedPath: string): HTMLButtonElement {
+    const item = document.createElement("button");
+    item.type = "button";
+    item.className = "skill-manager-item";
+    item.dataset.skillPath = skill.path;
+    item.classList.toggle("is-selected", skill.path === selectedPath);
+    const dot = document.createElement("span");
+    dot.className = "skill-manager-status-dot";
+    dot.classList.toggle("is-disabled", !skill.enabled);
+    const name = document.createElement("span");
+    name.className = "skill-manager-item-name";
+    name.textContent = skill.name;
+    const scope = document.createElement("span");
+    scope.className = "skill-manager-item-scope";
+    scope.textContent = skillScopeLabel(skill.scope);
+    item.append(dot, name, scope);
+    return item;
   },
 
   renderSelectedSkill() {
