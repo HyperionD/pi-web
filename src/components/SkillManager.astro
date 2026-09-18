@@ -1,0 +1,46 @@
+---
+import { RefreshCw, Sparkles, X } from "@lucide/astro";
+---
+
+<div class="skill-manager" data-skill-manager hidden>
+  <div class="skill-manager-overlay" data-skill-overlay></div>
+  <section class="skill-manager-dialog" role="dialog" aria-modal="true" aria-labelledby="skill-manager-title" tabindex="-1">
+    <header class="skill-manager-head">
+      <div>
+        <strong id="skill-manager-title"><Sparkles size={15} strokeWidth={1.75} aria-hidden="true" /> 技能管理</strong>
+        <small data-skill-workspace>当前工作区：—</small>
+      </div>
+      <button type="button" class="skill-manager-close" data-skill-close aria-label="关闭技能管理"><X size={15} strokeWidth={1.75} aria-hidden="true" /></button>
+    </header>
+    <div class="skill-manager-body">
+      <aside class="skill-manager-sidebar" aria-label="技能列表">
+        <div class="skill-manager-sidebar-status" data-skill-sidebar-status aria-live="polite">等待加载</div>
+        <div class="skill-manager-list" data-skill-list></div>
+      </aside>
+      <section class="skill-manager-detail" data-skill-detail aria-live="polite">
+        <div class="skill-manager-empty" data-skill-empty>选择一个技能查看详情</div>
+        <div class="skill-manager-detail-content" data-skill-detail-content hidden>
+          <div class="skill-manager-detail-heading">
+            <span class="skill-manager-scope" data-skill-scope>—</span>
+            <h2 data-skill-name>—</h2>
+          </div>
+          <p class="skill-manager-description" data-skill-description>—</p>
+          <dl class="skill-manager-meta">
+            <div><dt>路径</dt><dd data-skill-path>—</dd></div>
+            <div><dt>状态</dt><dd data-skill-state>—</dd></div>
+          </dl>
+          <label class="skill-manager-toggle-row">
+            <span>允许模型自动调用</span>
+            <input type="checkbox" data-skill-toggle />
+          </label>
+          <small class="skill-manager-permission" data-skill-permission hidden></small>
+        </div>
+      </section>
+    </div>
+    <footer class="skill-manager-foot">
+      <span data-skill-status role="status" aria-live="polite"></span>
+      <span class="skill-manager-count" data-skill-count>0 个技能</span>
+      <button type="button" class="skill-manager-refresh" data-skill-refresh><RefreshCw size={13} strokeWidth={1.75} aria-hidden="true" /> 刷新</button>
+    </footer>
+  </section>
+</div>

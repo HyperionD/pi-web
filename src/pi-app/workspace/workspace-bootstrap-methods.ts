@@ -172,6 +172,7 @@ export const workspaceBootstrapMethods = {
     clearStoredActiveSession();
     this.dataset.activeWorkspaceId = "";
     this.dataset.activeSessionId = "";
+    this.syncSkillManagerButton?.();
     this.querySelectorAll(".session-row.active").forEach((row) => {
       this.markSessionRunning?.(row, false);
       this.updateSessionMeta?.(row, false);
@@ -234,6 +235,7 @@ export const workspaceBootstrapMethods = {
 
   activateBootstrapWorkspace(workspace) {
     this.dataset.activeWorkspaceId = workspace.id;
+    this.syncSkillManagerButton?.();
     this.syncEmptyWorkspaceState();
     const label = this.querySelector("[data-active-workspace]");
     if (label) label.textContent = workspace.name;
