@@ -35,12 +35,22 @@ func TestWorkspaceSkillsEndpointListsAndPatchesSkill(t *testing.T) {
 	if response.Code != http.StatusOK {
 		t.Fatalf("GET status=%d body=%s", response.Code, response.Body.String())
 	}
+	rawBody := append([]byte(nil), response.Body.Bytes()...)
 	var body SkillDiscoveryResponse
 	if err := json.NewDecoder(response.Body).Decode(&body); err != nil {
 		t.Fatal(err)
 	}
 	if !body.Available || len(body.Skills) != 1 || !body.Skills[0].Enabled {
 		t.Fatalf("unexpected GET body: %#v", body)
+	}
+	var raw struct {
+		Skills []map[string]any `json:"skills"`
+	}
+	if err := json.Unmarshal(rawBody, &raw); err != nil {
+		t.Fatal(err)
+	}
+	if raw.Skills[0]["sourceKind"] != "local" || raw.Skills[0]["sourceLabel"] != "项目自定义技能" {
+		t.Fatalf("unexpected skill source: %#v", raw.Skills[0])
 	}
 
 	patchBody, err := json.Marshal(SkillPatchRequest{Path: skillPath, Enabled: boolPointer(false)})

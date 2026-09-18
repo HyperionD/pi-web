@@ -55,7 +55,10 @@ describe("skill manager structure", () => {
       expect(String(url)).toContain("/api/workspaces/ws-1/skills");
       return new Response(JSON.stringify({
         available: true,
-        skills: [{ name: "demo", description: "Demo", path: "/tmp/demo/SKILL.md", scope: "project", enabled: true }],
+        skills: [{
+          name: "demo", description: "Demo", path: "/tmp/demo/SKILL.md", scope: "project", enabled: true,
+          sourceKind: "local", sourceId: "project:.pi/skills", sourceLabel: "项目自定义技能",
+        }],
       }), { status: 200 });
     });
 
@@ -63,6 +66,7 @@ describe("skill manager structure", () => {
     expect(app.querySelector("[data-skill-manager]").hidden).toBe(false);
     expect(app.querySelector("[data-skill-name]").textContent).toBe("demo");
     expect(app.querySelector("[data-skill-list] .skill-manager-item").textContent).toContain("demo");
+    expect(app.querySelector("[data-skill-source-group]").textContent).toContain("项目自定义技能");
     app.closeSkillManager();
     expect(app.querySelector("[data-skill-manager]").hidden).toBe(true);
     expect(document.activeElement).toBe(button);
