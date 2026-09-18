@@ -9,4 +9,8 @@ describe("login page markup", () => {
     expect(loginPage).not.toContain("使用管理员分配的账号登录。会话仅对本人可见。");
     expect(loginPage).not.toContain("工作区由管理员分配，普通用户不能自行添加。仅提供应用权限隔离，不提供终端沙箱。");
   });
+
+  it("renders the setup hint that first-time admin initialization updates", () => {
+    expect(loginPage).toContain('data-login-hint');
+  });
 });
