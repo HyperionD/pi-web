@@ -26,4 +26,8 @@ describe("users page layout", () => {
     expect(accountLayout).toContain('<html lang="zh-CN" class="account-document">');
     expect(accountStyles).toContain("html.account-document, body.account-page { background: var(--bg-1); }");
   });
+
+  it("keeps the user count heading separate from its supporting description", () => {
+    expect(accountStyles).toContain(".account-section-hint { margin: 4px 0 0; font-size: 12px; }");
+  });
 });
