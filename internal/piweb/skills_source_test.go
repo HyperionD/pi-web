@@ -21,6 +21,15 @@ func TestNormalizeRepositoryRemote(t *testing.T) {
 	}
 }
 
+func TestClassifySkillSourceUsesTemporarySource(t *testing.T) {
+	source := classifySkillSource(context.Background(), PiSkillCommand{
+		Scope: "temporary", Path: "<inline:demo>",
+	}, "<inline:demo>", t.TempDir())
+	if source.Kind != "temporary" || source.Label != "临时资源" {
+		t.Fatalf("unexpected source: %#v", source)
+	}
+}
+
 func TestClassifySkillSourceUsesLocalFallback(t *testing.T) {
 	root := t.TempDir()
 	source := classifySkillSource(context.Background(), PiSkillCommand{Scope: "project"}, filepath.Join(root, ".pi", "skills", "demo", "SKILL.md"), root)

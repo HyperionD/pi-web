@@ -16,11 +16,33 @@ type SkillSource struct {
 	Label string
 }
 
+type skillSourceClassifier struct {
+	ctx                 context.Context
+	workspaceRoot       string
+	repositorySources   map[string]SkillSource
+	checkedRepositories map[string]bool
+}
+
+func newSkillSourceClassifier(ctx context.Context, workspaceRoot string) *skillSourceClassifier {
+	return &skillSourceClassifier{
+		ctx: ctx, workspaceRoot: workspaceRoot,
+		repositorySources:   make(map[string]SkillSource),
+		checkedRepositories: make(map[string]bool),
+	}
+}
+
 func classifySkillSource(ctx context.Context, command PiSkillCommand, skillPath, workspaceRoot string) SkillSource {
+	return newSkillSourceClassifier(ctx, workspaceRoot).classify(command, skillPath)
+}
+
+func (c *skillSourceClassifier) classify(command PiSkillCommand, skillPath string) SkillSource {
+	if command.Scope == "temporary" {
+		return SkillSource{Kind: "temporary", ID: "temporary:" + skillPath, Label: "临时资源"}
+	}
 	if source, ok := packageSkillSource(command, skillPath); ok {
 		return source
 	}
-	if source, ok := repositorySkillSource(ctx, skillPath, workspaceRoot); ok {
+	if source, ok := c.repositorySkillSource(skillPath); ok {
 		return source
 	}
 	return localSkillSource(command.Scope)
@@ -71,17 +93,36 @@ func packageName(root string) string {
 	return strings.TrimSpace(metadata.Name)
 }
 
-func repositorySkillSource(ctx context.Context, skillPath, workspaceRoot string) (SkillSource, bool) {
-	root, ok := gitOutput(ctx, filepath.Dir(skillPath), "rev-parse", "--show-toplevel")
-	if !ok || samePath(root, workspaceRoot) {
+func (c *skillSourceClassifier) repositorySkillSource(skillPath string) (SkillSource, bool) {
+	root, ok := findGitRoot(filepath.Dir(skillPath))
+	if !ok || samePath(root, c.workspaceRoot) {
 		return SkillSource{}, false
 	}
-	remote, ok := gitOutput(ctx, root, "config", "--get", "remote.origin.url")
+	if c.checkedRepositories[root] {
+		source := c.repositorySources[root]
+		return source, source.Kind != ""
+	}
+	c.checkedRepositories[root] = true
+	remote, ok := gitOutput(c.ctx, root, "config", "--get", "remote.origin.url")
 	id := normalizeRepositoryRemote(remote)
 	if !ok || id == "" {
 		return SkillSource{}, false
 	}
-	return SkillSource{Kind: "repository", ID: id, Label: id}, true
+	source := SkillSource{Kind: "repository", ID: id, Label: id}
+	c.repositorySources[root] = source
+	return source, true
+}
+
+func findGitRoot(start string) (string, bool) {
+	for current := filepath.Clean(start); ; current = filepath.Dir(current) {
+		if _, err := os.Stat(filepath.Join(current, ".git")); err == nil {
+			return current, true
+		}
+		parent := filepath.Dir(current)
+		if parent == current {
+			return "", false
+		}
+	}
 }
 
 func gitOutput(ctx context.Context, dir string, args ...string) (string, bool) {

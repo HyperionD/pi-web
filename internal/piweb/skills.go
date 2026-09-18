@@ -50,6 +50,7 @@ func loadWorkspaceSkills(ctx context.Context, cwd string) ([]Skill, error) {
 		return nil, err
 	}
 	skills := make([]Skill, 0, len(commands))
+	classifier := newSkillSourceClassifier(ctx, cwd)
 	for _, command := range commands {
 		path, err := canonicalSkillPath(command.Path)
 		if err != nil {
@@ -59,7 +60,7 @@ func loadWorkspaceSkills(ctx context.Context, cwd string) ([]Skill, error) {
 		if err != nil {
 			continue
 		}
-		source := classifySkillSource(ctx, command, path, cwd)
+		source := classifier.classify(command, path)
 		skills = append(skills, Skill{
 			Name: command.Name, Description: command.Description,
 			Path: path, Scope: command.Scope, Enabled: enabled,
@@ -176,6 +177,8 @@ func skillScope(scope string) string {
 		return "project"
 	case "path":
 		return "path"
+	case "temporary":
+		return "temporary"
 	default:
 		return ""
 	}

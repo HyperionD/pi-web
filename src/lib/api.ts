@@ -13,7 +13,7 @@ export type WorkspaceSkill = {
   name: string;
   description: string;
   path: string;
-  scope: "global" | "project" | "path";
+  scope: "global" | "project" | "path" | "temporary";
   enabled: boolean;
   sourceKind: "repository" | "package" | "local" | "temporary";
   sourceId: string;

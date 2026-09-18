@@ -15,7 +15,8 @@ func TestParsePiSkillCommandsFiltersNonSkills(t *testing.T) {
 		Data: json.RawMessage(`{"commands":[
 		  {"name":"skill:review","description":"Review code","source":"skill","sourceInfo":{"path":"/tmp/review/SKILL.md","scope":"project","source":"local","origin":"top-level","baseDir":"/tmp/project/.pi"}},
 		  {"name":"format","description":"Format","source":"extension","sourceInfo":{"path":"/tmp/format.ts","scope":"project"}},
-		  {"name":"skill:global","description":"Global","source":"skill","sourceInfo":{"path":"/home/u/.pi/agent/skills/global/SKILL.md","scope":"user","source":"local","origin":"top-level"}}
+		  {"name":"skill:global","description":"Global","source":"skill","sourceInfo":{"path":"/home/u/.pi/agent/skills/global/SKILL.md","scope":"user","source":"local","origin":"top-level"}},
+		  {"name":"skill:temporary","description":"Temporary","source":"skill","sourceInfo":{"path":"/tmp/temporary/SKILL.md","scope":"temporary","source":"inline","origin":"top-level"}}
 		]}`),
 	}
 
@@ -23,10 +24,10 @@ func TestParsePiSkillCommandsFiltersNonSkills(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(skills) != 2 {
-		t.Fatalf("got %d skills, want 2", len(skills))
+	if len(skills) != 3 {
+		t.Fatalf("got %d skills, want 3", len(skills))
 	}
-	if skills[0].Scope != "global" || skills[1].Scope != "project" {
+	if skills[0].Scope != "global" || skills[1].Scope != "project" || skills[2].Scope != "temporary" {
 		t.Fatalf("unexpected scopes: %#v", skills)
 	}
 	if skills[1].Source != "local" || skills[1].Origin != "top-level" || skills[1].BaseDir != "/tmp/project/.pi" {

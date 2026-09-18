@@ -4,7 +4,9 @@ import {
   type WorkspaceSkill,
 } from "../../lib/api";
 
-const SKILL_SCOPE_LABELS = { global: "全局", project: "项目", path: "自定义路径" };
+const SKILL_SCOPE_LABELS = {
+  global: "全局", project: "项目", path: "自定义路径", temporary: "临时",
+};
 const SKILL_SOURCE_KIND_LABELS = {
   repository: "Git 仓库", package: "Package", local: "本地自定义技能", temporary: "临时资源",
 };
@@ -50,6 +52,7 @@ function selectedSkill(app): WorkspaceSkill | undefined {
 }
 
 function canEditSkill(skill: WorkspaceSkill): boolean {
+  if (skill.sourceKind === "temporary" || skill.scope === "temporary") return false;
   return skill.scope === "project" || document.body.dataset.accountRole !== "user";
 }
 
