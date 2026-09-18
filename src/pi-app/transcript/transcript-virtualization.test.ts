@@ -134,6 +134,129 @@ describe("pi-app transcript virtualization", () => {
     expect(body.textContent).toBe("summary");
   });
 
+  it("keeps the streaming thinking text node stable between durable deltas", async () => {
+    HTMLElement.prototype.getBoundingClientRect.mockImplementation(function () {
+      const lineCount = (this.textContent?.match(/\n/g)?.length || 0) + 1;
+      const height = this.classList?.contains("transcript-item") ? 80 + lineCount * 20 : 0;
+      return {
+        x: 0, y: 0, width: 0, height, top: 0, right: 0, bottom: height, left: 0, toJSON: () => ({}),
+      };
+    });
+    const app = await connectPiApp();
+    Object.defineProperty(app.term, "clientHeight", { configurable: true, value: 600 });
+    app.durableEvents = true;
+    app.dataset.activeSessionId = "s1";
+    app.transcriptState = emptyTranscriptState("s1");
+    app.renderDurableTranscript();
+
+    app.applyDurableEvent({
+      seq: "1",
+      sessionId: "s1",
+      type: "assistant.segment.started",
+      entityId: "thinking:run-1:1",
+      payload: { kind: "think" },
+    });
+    app.applyDurableEvent({
+      seq: "2",
+      sessionId: "s1",
+      type: "assistant.segment.delta",
+      entityId: "thinking:run-1:1",
+      payload: { kind: "think", delta: "plan" },
+    });
+    app.flushDurableTranscriptRender();
+
+    expect(app.transcriptVirtualScrollerStarted).toBe(true);
+    const thinkingBlock = app.querySelector(".thinking-block");
+    const initialText = thinkingBlock.lastChild;
+
+    app.applyDurableEvent({
+      seq: "3",
+      sessionId: "s1",
+      type: "assistant.segment.delta",
+      entityId: "thinking:run-1:1",
+      payload: { kind: "think", delta: "\nmore" },
+    });
+    app.flushDurableTranscriptRender();
+
+    const currentThinkingBlock = app.querySelector(".thinking-block");
+    expect(currentThinkingBlock).toBe(thinkingBlock);
+    expect(currentThinkingBlock.lastChild).toBe(initialText);
+    expect(currentThinkingBlock.textContent).toContain("plan\nmore");
+  });
+
+  it("does not rebuild detached message nodes for streaming thinking deltas", async () => {
+    const app = await connectPiApp();
+    app.durableEvents = true;
+    app.dataset.activeSessionId = "s1";
+    app.transcriptState = emptyTranscriptState("s1");
+    app.renderDurableTranscript();
+    app.applyDurableEvent({
+      seq: "1",
+      sessionId: "s1",
+      type: "assistant.segment.started",
+      entityId: "thinking:run-1:1",
+      payload: { kind: "think" },
+    });
+    const messageNode = vi.spyOn(app, "messageNode").mockClear();
+
+    app.applyDurableEvent({
+      seq: "2",
+      sessionId: "s1",
+      type: "assistant.segment.delta",
+      entityId: "thinking:run-1:1",
+      payload: { kind: "think", delta: "plan" },
+    });
+    app.flushDurableTranscriptRender();
+
+    expect(messageNode).not.toHaveBeenCalled();
+    expect(app.querySelector(".thinking-block").textContent).toContain("plan");
+  });
+
+  it("keeps the loading row stable while streaming thinking deltas", async () => {
+    const app = await connectPiApp();
+    app.durableEvents = true;
+    app.dataset.activeSessionId = "s1";
+    app.transcriptState = emptyTranscriptState("s1");
+    app.renderDurableTranscript();
+
+    app.applyDurableEvent({
+      seq: "1",
+      sessionId: "s1",
+      runId: "run-1",
+      type: "run.started",
+      payload: {},
+    });
+    app.applyDurableEvent({
+      seq: "2",
+      sessionId: "s1",
+      type: "user.message.created",
+      sourceId: "command:test:user",
+      payload: { text: "hello" },
+    });
+    app.applyDurableEvent({
+      seq: "3",
+      sessionId: "s1",
+      runId: "run-1",
+      type: "assistant.segment.started",
+      entityId: "thinking:run-1:1",
+      payload: { kind: "think" },
+    });
+    const loadingRow = app.querySelector(".streaming-tail .msg.loading");
+    expect(loadingRow).not.toBeNull();
+
+    app.applyDurableEvent({
+      seq: "4",
+      sessionId: "s1",
+      runId: "run-1",
+      type: "assistant.segment.delta",
+      entityId: "thinking:run-1:1",
+      payload: { kind: "think", delta: "plan" },
+    });
+    app.flushDurableTranscriptRender();
+
+    expect(app.querySelector(".streaming-tail .msg.loading")).toBe(loadingRow);
+  });
+
   it("does not flash the loading row when a virtual-scroller spacer follows active output", async () => {
     const app = await connectPiApp();
     app.durableEvents = true;

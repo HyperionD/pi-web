@@ -42,7 +42,7 @@ describe("skill manager structure", () => {
   it("keeps the skill entry beside the account entry", async () => {
     const source = await import("../../App.astro?raw");
     expect(source.default).toContain("data-action=\"open-skill-manager\"");
-    expect(source.default).toContain("Sparkles");
+    expect(source.default).toContain("Puzzle");
   });
 
   it("loads only the active workspace and restores focus on close", async () => {

@@ -22,7 +22,10 @@
   align-items: center;
   gap: 4px;
 }
-.sb-footer-actions a {
+.sb-footer-actions a,
+.sb-footer-actions button {
+  appearance: none;
+  padding: 0;
   width: 28px;
   height: 28px;
   display: inline-flex;
@@ -30,9 +33,11 @@
   justify-content: center;
   border: 1px solid transparent;
   border-radius: var(--radius-1);
+  background: transparent;
   color: var(--fg-3);
 }
-.sb-footer-actions a:hover {
+.sb-footer-actions a:hover,
+.sb-footer-actions button:not(:disabled):hover {
   border-color: var(--border-hi);
   color: var(--accent);
   background: var(--bg-1);

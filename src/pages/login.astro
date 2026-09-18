@@ -4,6 +4,7 @@ import AccountLayout from "../components/AccountLayout.astro";
 <AccountLayout title="登录" hideHeader>
   <section class="account-card account-login">
     <h1 data-login-title>登录工作区</h1>
+    <p data-login-hint>使用账号和密码登录。</p>
     <form data-login-form>
       <fieldset disabled data-login-fields>
         <label>账号<input name="account" autocomplete="username" required maxlength="64" pattern="[a-zA-Z0-9][a-zA-Z0-9_.\-]{0,63}" /></label>

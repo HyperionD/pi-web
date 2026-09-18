@@ -1,5 +1,5 @@
 ---
-import { RefreshCw, Sparkles, X } from "@lucide/astro";
+import { Puzzle, RefreshCw, X } from "@lucide/astro";
 ---
 
 <div class="skill-manager" data-skill-manager hidden>
@@ -7,7 +7,7 @@ import { RefreshCw, Sparkles, X } from "@lucide/astro";
   <section class="skill-manager-dialog" role="dialog" aria-modal="true" aria-labelledby="skill-manager-title" tabindex="-1">
     <header class="skill-manager-head">
       <div>
-        <strong id="skill-manager-title"><Sparkles size={15} strokeWidth={1.75} aria-hidden="true" /> 技能管理</strong>
+        <strong id="skill-manager-title"><Puzzle size={15} strokeWidth={1.75} aria-hidden="true" /> 技能管理</strong>
         <small data-skill-workspace>当前工作区：—</small>
       </div>
       <button type="button" class="skill-manager-close" data-skill-close aria-label="关闭技能管理"><X size={15} strokeWidth={1.75} aria-hidden="true" /></button>

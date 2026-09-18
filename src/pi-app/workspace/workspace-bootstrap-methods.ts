@@ -45,6 +45,28 @@ function findStoredSession(workspaces, stored) {
   return undefined;
 }
 
+function patchStreamingTranscriptBody(current, message) {
+  if (message.status !== "streaming" || current.dataset.kind !== message.kind) return false;
+  const body = current.querySelector(".body");
+  if (!body) return false;
+  if (message.kind === "pi") {
+    const textNode = body.firstChild;
+    if (textNode?.nodeType === Node.TEXT_NODE && body.childNodes.length === 1) {
+      textNode.nodeValue = message.text || "";
+    } else {
+      body.replaceChildren(document.createTextNode(message.text || ""));
+    }
+    return true;
+  }
+  if (message.kind !== "think") return false;
+  const thinkingBlock = body.querySelector(".thinking-block");
+  if (!thinkingBlock) return false;
+  const textNode = [...thinkingBlock.childNodes].find((node) => node.nodeType === Node.TEXT_NODE);
+  if (textNode) textNode.nodeValue = message.text || "";
+  else thinkingBlock.append(document.createTextNode(message.text || ""));
+  return true;
+}
+
 export const workspaceBootstrapMethods = {
   filterAllowedWorkspaces(workspaces) {
     if (document.body.dataset.accountRole) return workspaces;
@@ -522,7 +544,6 @@ export const workspaceBootstrapMethods = {
     }
     if (state.contextUsage !== undefined) sessionMeta.contextUsage = state.contextUsage;
     if (Object.keys(sessionMeta).length) this.updatePromptMeta?.(sessionMeta);
-    if (view.items.some((item) => item.kind === "user")) this.removeLoadingMessage?.();
     const ids = view.items.map((item) => item.key);
     const messages = view.items;
     const currentIds = this.durableTranscriptIds;
@@ -573,6 +594,10 @@ export const workspaceBootstrapMethods = {
   patchDurableTranscriptNode(wrapper, message) {
     const current = wrapper.firstElementChild;
     if (!current) return false;
+    if (patchStreamingTranscriptBody(current, message)) {
+      current.dataset.rawText = message.text || "";
+      return true;
+    }
     const renderedNodes = this.transcriptElementNodes(this.messageNode(message));
     if (!renderedNodes.length) return false;
     if (renderedNodes.length !== 1 || wrapper.children.length !== 1) {
@@ -599,15 +624,6 @@ export const workspaceBootstrapMethods = {
     const nextBody = rendered.querySelector(".body");
     if (!body || !nextBody) return false;
     current.dataset.rawText = message.text || "";
-    if (message.kind === "pi" && message.status === "streaming") {
-      const textNode = body.firstChild;
-      if (textNode?.nodeType === Node.TEXT_NODE && body.childNodes.length === 1) {
-        textNode.nodeValue = message.text || "";
-      } else {
-        body.replaceChildren(document.createTextNode(message.text || ""));
-      }
-      return true;
-    }
     body.innerHTML = nextBody.innerHTML;
     return true;
   },
