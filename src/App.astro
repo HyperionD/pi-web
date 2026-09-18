@@ -11,12 +11,14 @@ import {
   RefreshCw,
   SendHorizontal,
   Settings,
+  Sparkles,
   Square,
   Users,
   X,
 } from "@lucide/astro";
 import WorkspaceFileTree from "./components/WorkspaceFileTree";
 import SettingsDialog from "./components/SettingsDialog.astro";
+import SkillManager from "./components/SkillManager.astro";
 import AccountNav from "./components/AccountNav.astro";
 import { escapeHtml, renderBannerBody, renderPiBody, renderUserBody } from "./lib/renderers";
 import { formatToolArgs, toolIconHtml } from "./pi-app/messages/tool-message-methods";
@@ -133,7 +135,7 @@ function toolStatus(msg) {
         <div class="sb-footer">
           <div class="sb-footer-status">
             <span class="status-dot"></span><span>连接中</span>
-            <span class="sb-footer-actions"><a href="/users" data-account-admin hidden title="用户管理" aria-label="用户管理"><Users size={14} strokeWidth={1.75} aria-hidden="true" /></a><button class="sb-settings" type="button" data-action="open-settings" title="设置" aria-label="打开设置"><Settings size={14} strokeWidth={1.75} aria-hidden="true" /></button></span>
+            <span class="sb-footer-actions"><a href="/users" data-account-admin hidden title="用户管理" aria-label="用户管理"><Users size={14} strokeWidth={1.75} aria-hidden="true" /></a><button class="sb-skill-manager" type="button" data-action="open-skill-manager" title="技能管理" aria-label="打开技能管理" disabled={!activeWorkspaceID}><Sparkles size={14} strokeWidth={1.75} aria-hidden="true" /></button><button class="sb-settings" type="button" data-action="open-settings" title="设置" aria-label="打开设置"><Settings size={14} strokeWidth={1.75} aria-hidden="true" /></button></span>
           </div>
         </div>
       </aside>
@@ -235,6 +237,7 @@ function toolStatus(msg) {
   </div>
 
   <SettingsDialog />
+  <SkillManager />
 
   <div class="twk-panel" data-tweaks hidden><div class="twk-hd"><b>调整项</b><button class="twk-x" type="button" data-action="close-tweaks" aria-label="关闭调整项"><X size={14} strokeWidth={1.75} aria-hidden="true" /></button></div><div class="twk-body"><div class="twk-sect">布局</div><button class="twk-btn secondary" type="button" data-action="route-picker">工作区选择器</button><button class="twk-btn secondary" type="button" data-action="route-workspace">会话视图</button><button class="twk-btn secondary" type="button" data-action="new-session">新建会话</button></div></div>
 </pi-app>

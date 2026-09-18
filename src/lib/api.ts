@@ -9,6 +9,21 @@ export type AppConfigPatch = {
   workspace?: { allowedRoots?: string[]; maxUploadBytes?: number } | null;
 };
 
+export type WorkspaceSkill = {
+  name: string;
+  description: string;
+  path: string;
+  scope: "global" | "project" | "path";
+  enabled: boolean;
+};
+
+export type WorkspaceSkillsResponse = {
+  skills: WorkspaceSkill[];
+  available: boolean;
+  error?: string;
+  notice?: string;
+};
+
 export type AdminPasswordStatus = {
   configured: boolean;
 };
@@ -149,6 +164,17 @@ export function closeWorkspace(workspaceId) {
 
 export function getWorkspaceFiles(workspaceId) {
   return request(`/api/workspaces/${encodeURIComponent(workspaceId)}/files`);
+}
+
+export function getWorkspaceSkills(workspaceId: string): Promise<WorkspaceSkillsResponse> {
+  return request(`/api/workspaces/${encodeURIComponent(workspaceId)}/skills`);
+}
+
+export function setWorkspaceSkillEnabled(workspaceId: string, path: string, enabled: boolean) {
+  return request(`/api/workspaces/${encodeURIComponent(workspaceId)}/skills`, {
+    method: "PATCH",
+    body: JSON.stringify({ path, enabled }),
+  });
 }
 
 export function searchWorkspaceFiles(workspaceId, query) {

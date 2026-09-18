@@ -59,7 +59,7 @@ export function installPiAppFixture() {
             </div>
           </aside>
           <div class="sb-footer">
-            <div class="sb-footer-status"><span class="status-dot"></span><span>connecting</span></div>
+            <div class="sb-footer-status"><span class="status-dot"></span><span>connecting</span><span class="sb-footer-actions"><a href="/users" data-account-admin hidden>users</a><button type="button" data-action="open-skill-manager">skills</button><button type="button" data-action="open-settings">settings</button></span></div>
           </div>
           </aside>
         </div>
@@ -106,6 +106,25 @@ export function installPiAppFixture() {
           <span data-admin-password-status></span>
           <button type="submit">继续</button>
         </form>
+      </div>
+      <div class="skill-manager" data-skill-manager hidden>
+        <div class="skill-manager-overlay" data-skill-overlay></div>
+        <section class="skill-manager-dialog" role="dialog" aria-modal="true" tabindex="-1">
+          <button type="button" data-skill-close>close</button>
+          <small data-skill-workspace></small>
+          <div data-skill-sidebar-status></div>
+          <div data-skill-list></div>
+          <div data-skill-detail>
+            <div data-skill-empty></div>
+            <div data-skill-detail-content hidden>
+              <span data-skill-scope></span><h2 data-skill-name></h2><p data-skill-description></p>
+              <dd data-skill-path></dd><dd data-skill-state></dd>
+              <input type="checkbox" data-skill-toggle />
+              <small data-skill-permission hidden></small>
+            </div>
+          </div>
+          <span data-skill-status></span><span data-skill-count></span><button type="button" data-skill-refresh>refresh</button>
+        </section>
       </div>
       <div class="settings-modal" data-settings-modal hidden>
         <form data-settings-form>
