@@ -123,7 +123,7 @@ func memberAccountRoute(r *http.Request) bool {
 		return true
 	}
 	switch parts[3] {
-	case "sessions", "files", "commands", "models", "runtime-status", "runtime-model", "runtime-quota", "git", "shell":
+	case "sessions", "files", "commands", "models", "runtime-status", "runtime-model", "runtime-quota", "skills", "git", "shell":
 		return true
 	}
 	return false

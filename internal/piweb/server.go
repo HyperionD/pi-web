@@ -99,6 +99,7 @@ type Server struct {
 	cancel                  context.CancelFunc
 	lifecycle               *serverLifecycle
 	sessionDeletionMu       sync.RWMutex
+	skillMutationMu         sync.Mutex
 	accounts                *accountStore
 	workspaceAccess         *WorkspaceAccess
 	adminPasswordConfigured bool
@@ -227,6 +228,8 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /api/workspaces/{workspaceID}/runtime-status", s.requireWorkspaceAccess(s.workspaceRuntimeStatus))
 	s.mux.HandleFunc("GET /api/workspaces/{workspaceID}/runtime-model", s.requireWorkspaceAccess(s.workspaceRuntimeModel))
 	s.mux.HandleFunc("GET /api/workspaces/{workspaceID}/runtime-quota", s.requireWorkspaceAccess(s.workspaceRuntimeQuota))
+	s.mux.HandleFunc("GET /api/workspaces/{workspaceID}/skills", s.requireWorkspaceAccess(s.workspaceSkills))
+	s.mux.HandleFunc("PATCH /api/workspaces/{workspaceID}/skills", s.requireWorkspaceAccess(s.patchWorkspaceSkill))
 	s.mux.HandleFunc("GET /api/workspaces/{workspaceID}/settings", s.requireWorkspaceAccess(s.workspaceSettings))
 	s.mux.HandleFunc("PUT /api/workspaces/{workspaceID}/settings", s.requireWorkspaceAccess(s.saveWorkspaceSettings))
 	s.mux.HandleFunc("GET /api/workspaces/{workspaceID}/files/read", s.requireWorkspaceAccess(s.readWorkspaceFile))
