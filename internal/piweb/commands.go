@@ -1,17 +1,11 @@
 package piweb
 
 import (
-	"bufio"
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
-	"os"
-	"os/exec"
 	"strings"
-	"time"
 )
 
 type SlashCommand struct {
@@ -32,68 +26,11 @@ func ListRuntimeCommands(ctx context.Context, runtime PiRuntime) ([]SlashCommand
 }
 
 func ListPiCommands(ctx context.Context, cwd string) ([]SlashCommand, error) {
-	ctx, cancel := context.WithTimeout(ctx, 8*time.Second)
-	defer cancel()
-
-	cmd := exec.CommandContext(ctx, "pi", "--mode", "rpc", "--no-session")
-	cmd.Dir = cwd
-	cmd.Env = append(os.Environ(), "PI_SKIP_VERSION_CHECK=1")
-	configureCommandProcessGroup(cmd)
-
-	stdin, err := cmd.StdinPipe()
+	response, err := runPiRPC(ctx, cwd, nil, RPCCommand{ID: "commands", Type: "get_commands"})
 	if err != nil {
 		return nil, err
 	}
-	stdout, err := cmd.StdoutPipe()
-	if err != nil {
-		return nil, err
-	}
-	stderr, _ := cmd.StderrPipe()
-	var stderrBuf bytes.Buffer
-	stderrDone := make(chan struct{})
-	if stderr != nil {
-		go func() {
-			defer close(stderrDone)
-			_, _ = stderrBuf.ReadFrom(stderr)
-		}()
-	} else {
-		close(stderrDone)
-	}
-	if err := cmd.Start(); err != nil {
-		return nil, err
-	}
-	defer func() {
-		terminateCommandProcessGroup(cmd)
-		_ = cmd.Wait()
-	}()
-
-	if _, err := io.WriteString(stdin, `{"id":"commands","type":"get_commands"}`+"\n"); err != nil {
-		return nil, err
-	}
-	_ = stdin.Close()
-
-	scanner := bufio.NewScanner(stdout)
-	scanner.Buffer(make([]byte, 64*1024), 8*1024*1024)
-	for scanner.Scan() {
-		commands, matched, err := parseCommandsRPCLine(scanner.Text())
-		if err != nil {
-			return nil, err
-		}
-		if matched {
-			return commands, nil
-		}
-	}
-	if err := scanner.Err(); err != nil {
-		return nil, err
-	}
-	if ctx.Err() != nil {
-		return nil, ctx.Err()
-	}
-	<-stderrDone
-	if output := strings.TrimSpace(stderrBuf.String()); output != "" {
-		return nil, fmt.Errorf("pi get_commands failed: %s", output)
-	}
-	return nil, errors.New("pi get_commands returned no response")
+	return parseCommandsRPCResponse(response)
 }
 
 type commandsRPCData struct {
