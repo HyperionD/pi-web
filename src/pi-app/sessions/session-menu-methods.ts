@@ -21,5 +21,6 @@ export const sessionMenuMethods = {
     this.closeSessionMenus();
     this.closeFilePreview?.();
     this.closeSettingsModal?.();
+    this.closeSkillManager?.();
   },
 };

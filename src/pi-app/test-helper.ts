@@ -185,6 +185,7 @@ export function installPiAppFixture() {
       </div>
     </pi-app>
   `;
+  return document.querySelector("pi-app");
 }
 
 function settingsField(tag, name) {

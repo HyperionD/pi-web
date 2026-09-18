@@ -22,6 +22,7 @@ import { transcriptWindowMethods } from "./transcript/transcript-window-methods"
 import { oauthMethods } from "./workspace/oauth-methods";
 import { appConfigMethods } from "./workspace/app-config-methods";
 import { settingsMethods } from "./workspace/settings-methods";
+import { skillMethods } from "./workspace/skill-methods";
 import { workspaceMethods } from "./workspace/workspace-methods";
 import { isExactSlashCommand } from "./input/slash-commands";
 
@@ -127,6 +128,7 @@ class PiApp extends HTMLElement {
     this.querySelector("[data-shell-form]")?.addEventListener("submit", (event) => this.submitShellCommand(event));
     this.querySelector("[data-settings-form]")?.addEventListener("submit", (event) => this.saveSettingsForm(event));
     this.querySelector("[data-admin-password-setup-form]")?.addEventListener("submit", (event) => this.submitAdminPasswordSetup(event));
+    this.querySelector("[data-action='open-skill-manager']")?.addEventListener("click", () => void this.openSkillManager());
     this.querySelector("[data-settings-scope]")?.addEventListener("change", () => this.fillSettingsForm());
     this.querySelector("[data-settings-location]")?.addEventListener("change", () => this.fillSettingsForm());
     this.querySelector("[data-ui-language]")?.addEventListener("change", (event) => {
@@ -445,6 +447,7 @@ Object.assign(
   runtimeStatusMethods,
   compactionMethods,
   settingsMethods,
+  skillMethods,
   appConfigMethods,
   oauthMethods,
 );

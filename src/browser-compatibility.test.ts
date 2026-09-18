@@ -41,6 +41,14 @@ describe("browser compatibility", () => {
     expect(styles).not.toContain("100dvh");
   });
 
+  it("keeps the skill manager within the Chrome 107 CSS baseline", () => {
+    const styles = readFileSync(new URL("./styles/parts/skill-manager.css", import.meta.url), "utf8");
+    expect(styles).not.toContain("color-mix(");
+    expect(styles).not.toContain("100dvh");
+    expect(styles).not.toContain("backdrop-filter");
+    expect(styles).toContain("100vh");
+  });
+
   it("does not use authored CSS features newer than the Chrome 107 baseline", () => {
     const styles = collectAuthoredCss(new URL(".", import.meta.url));
     expect(styles).toContain(".account-nav");
