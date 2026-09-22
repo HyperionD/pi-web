@@ -175,7 +175,10 @@ export function editableFileState(file: FileLike): EditableFileState {
 }
 
 export function isTextFile(file: FileLike) {
-  return file.previewKind === "text" || file.previewKind === "html" || file.mime === "image/svg+xml";
+  if (file.previewKind === "text" || file.previewKind === "html" || file.mime === "image/svg+xml") return true;
+  const name = String(file.path || "").replaceAll("\\", "/").split("/").pop()?.toLowerCase() || "";
+  return [".gitignore", ".npmignore", ".dockerignore", ".editorconfig", ".env", "license", "readme", "makefile", "dockerfile"].includes(name)
+    || /\.(?:md|markdown|mdx|txt|log|json|ya?ml|toml|ini|conf|cfg|csv|tsv|xml|css|scss|less|js|jsx|mjs|cjs|ts|tsx|vue|svelte|astro|go|rs|py|rb|php|java|kt|swift|c|h|cpp|hpp|sh|bash|zsh|fish|sql)$/i.test(name);
 }
 
 export function codeMirrorLanguageName(file: FileLike) {

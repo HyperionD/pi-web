@@ -16,7 +16,7 @@ export function fileDisplayKind(file: FilePreviewLike): FileDisplayKind {
   if (mime.startsWith("audio/")) return "audio";
   if (mime.startsWith("video/")) return "video";
   if (mime === "application/pdf") return "pdf";
-  if (previewKind === "text" || mime.startsWith("text/") || mime === "application/json") {
+  if (previewKind === "text" || mime.startsWith("text/") || mime === "application/json" || isPlainTextPath(file.path || "")) {
     return isMarkdownPath(file.path || "") ? "markdown" : isHTMLPath(file.path || "") ? "html" : "text";
   }
   return "unsupported";
@@ -40,4 +40,12 @@ export function previewStateKey(workspaceId: string, path: string): string {
 
 function normalizePath(path: string): string {
   return String(path || "").replaceAll("\\", "/");
+}
+
+function isPlainTextPath(path: string): boolean {
+  const name = normalizePath(path).split("/").pop()?.toLowerCase() || "";
+  if ([".gitignore", ".npmignore", ".dockerignore", ".editorconfig", ".env", "license", "readme", "makefile", "dockerfile"].includes(name)) {
+    return true;
+  }
+  return /\.(?:md|markdown|mdx|txt|log|json|ya?ml|toml|ini|conf|cfg|csv|tsv|xml|css|scss|less|js|jsx|mjs|cjs|ts|tsx|vue|svelte|astro|go|rs|py|rb|php|java|kt|swift|c|h|cpp|hpp|sh|bash|zsh|fish|sql)$/i.test(name);
 }

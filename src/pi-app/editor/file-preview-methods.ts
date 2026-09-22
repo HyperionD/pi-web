@@ -43,7 +43,7 @@ export const filePreviewMethods = {
     this.filePreview = {
       workspaceId,
       file,
-      mode: savedState?.mode || defaultPreviewMode(file),
+      mode: restoredPreviewMode(file, savedState?.mode),
       cleanContent: file.content || "",
       originalContent: gitOriginalContent(file),
       dirty: false,
@@ -86,8 +86,8 @@ export const filePreviewMethods = {
       body.append(htmlPreviewNode(file));
       return;
     }
-    if (kind === "image" && mode === "image" && file.dataUrl) {
-      body.append(imagePreviewNode(file));
+    if (kind === "image" && mode === "image") {
+      body.append(imagePreviewNode(file, state.workspaceId));
       return;
     }
     if (kind === "audio") {
@@ -338,9 +338,21 @@ function gitOriginalContent(file) {
   return typeof file?.originalContent === "string" ? file.originalContent : file?.content || "";
 }
 
+function restoredPreviewMode(file, savedMode) {
+  const defaultMode = defaultPreviewMode(file);
+  if (!savedMode || savedMode === "unsupported") return defaultMode;
+  const kind = fileDisplayKind(file);
+  if (kind === "image" && file.mime !== "image/svg+xml") return "image";
+  if (["audio", "video", "pdf"].includes(kind)) return kind;
+  if (kind === "html" && savedMode !== "preview" && savedMode !== "text") return defaultMode;
+  if (kind === "markdown" && savedMode !== "markdown" && savedMode !== "text") return defaultMode;
+  if (kind === "text" && savedMode !== "text") return defaultMode;
+  return savedMode;
+}
+
 function defaultPreviewMode(file) {
   const kind = fileDisplayKind(file);
-  if (kind === "image" && file.dataUrl) return "image";
+  if (kind === "image") return "image";
   if (kind === "markdown") return "markdown";
   if (kind === "html") return "preview";
   if (["audio", "video", "pdf"].includes(kind)) return kind;
@@ -438,9 +450,9 @@ function workspaceFileURLPath(path) {
   return String(path).split("/").map(encodeURIComponent).join("/");
 }
 
-function imagePreviewNode(file) {
+function imagePreviewNode(file, workspaceId) {
   const image = document.createElement("img");
-  image.src = file.dataUrl;
+  image.src = file.dataUrl || getWorkspaceFileAssetURL(workspaceId, file.path);
   image.alt = file.path || "file preview";
   return image;
 }

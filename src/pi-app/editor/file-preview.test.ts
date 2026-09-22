@@ -351,6 +351,31 @@ describe("file preview CodeMirror editor", () => {
     expect(event.defaultPrevented).toBe(true);
   });
 
+  it("defaults plain dotfiles to text preview even with an unknown MIME", () => {
+    const app = mountPreview();
+    app.renderFilePreview({ path: ".gitignore", mime: "application/octet-stream", previewKind: "unsupported", content: "node_modules/" });
+
+    expect(app.filePreview.mode).toBe("text");
+    expect(app.querySelector("[data-file-preview-editor] .cm-editor")).toBeTruthy();
+  });
+
+  it("defaults images to raw preview when no inline data URL is present", () => {
+    const app = mountPreview();
+    app.renderFilePreview({ path: "large.png", mime: "image/png", previewKind: "image" });
+
+    expect(app.filePreview.mode).toBe("image");
+    expect(app.querySelector(".fp-body img")?.getAttribute("src")).toContain("/files/raw?");
+  });
+
+  it("ignores stale unsupported preview state for previewable files", () => {
+    const app = mountPreview();
+    localStorage.setItem("pi-web:file-preview:workspace-1:large.png", JSON.stringify({ mode: "unsupported" }));
+    app.renderFilePreview({ path: "large.png", mime: "image/png", previewKind: "image" });
+
+    expect(app.filePreview.mode).toBe("image");
+    expect(app.querySelector(".fp-body img")).toBeTruthy();
+  });
+
   it("renders audio, video, PDF, and sandboxed HTML previews", () => {
     const app = mountPreview();
     app.renderFilePreview({ path: "voice.mp3", mime: "audio/mpeg", previewKind: "audio" });

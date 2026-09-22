@@ -14,6 +14,7 @@ describe("file preview model", () => {
     expect(fileDisplayKind({ path: "movie.mp4", mime: "video/mp4", previewKind: "video" })).toBe("video");
     expect(fileDisplayKind({ path: "manual.pdf", mime: "application/pdf", previewKind: "pdf" })).toBe("pdf");
     expect(fileDisplayKind({ path: "report.docx", mime: "application/vnd.openxmlformats-officedocument.wordprocessingml.document" })).toBe("unsupported");
+    expect(fileDisplayKind({ path: ".gitignore", mime: "application/octet-stream", previewKind: "unsupported" })).toBe("text");
   });
 
   it("detects Markdown, HTML, and media paths case-insensitively", () => {
