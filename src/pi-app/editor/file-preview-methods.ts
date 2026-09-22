@@ -79,7 +79,7 @@ export const filePreviewMethods = {
       body.classList.add("markdown-body");
       body.innerHTML = renderMarkdownBody(`${file.content || ""}${file.truncated ? "\n\n[truncated]" : ""}`);
       resolveMarkdownImages(body, file, state.workspaceId);
-      resolveMarkdownLinks(this, body, file);
+      resolveMarkdownLinks(body, file);
       return;
     }
     if (kind === "html" && mode === "preview") {
@@ -199,7 +199,9 @@ export const filePreviewMethods = {
     }
     const result = await getWorkspaceGitDiff(workspaceId, state.file.path);
     if (this.filePreview !== state || this.dataset.activeWorkspaceId !== workspaceId) return;
-    state.diff = result.diff || result.content || "";
+    if (result.supported === false) return;
+    state.diffSupported = true;
+    state.diff = result.patch || result.diff || result.content || "";
     state.mode = "diff";
     this.renderFilePreviewBody();
   },
@@ -322,7 +324,7 @@ function updatePreviewActions(preview, state) {
   save.title = state.saveStatus && state.saveStatus !== "saved" ? state.saveStatus : "";
   toggle.hidden = !canToggle;
   if (diff) {
-    diff.hidden = !file.originalContent || mode === "diff";
+    diff.hidden = (!file.originalContent && !state.diffSupported) || mode === "diff";
     diff.textContent = mode === "diff" ? "文件" : "Diff";
   }
   const switchToText = mode === "markdown" || mode === "image" || mode === "preview";
@@ -407,7 +409,7 @@ function isRelativeWorkspaceImageSource(source) {
     && !source.startsWith("//") && !source.startsWith("#") && !source.startsWith("?");
 }
 
-function resolveMarkdownLinks(app, body, file) {
+function resolveMarkdownLinks(body, file) {
   if (!file?.path) return;
   const baseURL = new URL(workspaceFileURLPath(file.path), "https://pi-web-workspace.local/");
   body.querySelectorAll("a[href]").forEach((anchor) => {
@@ -425,7 +427,9 @@ function resolveMarkdownLinks(app, body, file) {
     anchor.addEventListener("click", (event) => {
       event.preventDefault();
       const page = resolved.hash.match(/^#page=(\d+)$/i)?.[1];
-      void app.openFilePath?.(path, undefined, page ? Number(page) : undefined);
+      window.dispatchEvent(new CustomEvent("pi-workspace-file:open", {
+        detail: { path, page: page ? Number(page) : undefined },
+      }));
     });
   });
 }

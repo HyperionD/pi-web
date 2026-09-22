@@ -198,8 +198,11 @@ class PiApp extends HTMLElement {
       if (workspaceId) void this.loadWorkspaceMeta(workspaceId, { selectedPath });
     });
     window.addEventListener("pi-workspace-file:open", (event) => {
-      const path = (event as CustomEvent)?.detail?.path;
-      if (path) void this.openFilePath?.(path);
+      const detail = (event as CustomEvent)?.detail || {};
+      if (detail.path) {
+        if (detail.page === undefined) void this.openFilePath?.(detail.path);
+        else void this.openFilePath?.(detail.path, undefined, detail.page);
+      }
     });
     window.addEventListener("keydown", (event) => this.shortcut(event));
     window.addEventListener("click", (event) => {
