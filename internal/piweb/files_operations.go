@@ -21,10 +21,10 @@ func ReadWorkspaceFileChunk(root, rel string, offset, maxBytes int64) (FileConte
 		return FileContent{}, err
 	}
 	defer file.Close()
-	return readWorkspaceFileChunkFromHandle(rel, filepath.Join(root, cleanRel), file, offset, maxBytes)
+	return readWorkspaceFileChunkFromHandle(root, rel, filepath.Join(root, cleanRel), file, offset, maxBytes)
 }
 
-func readWorkspaceFileChunkFromHandle(rel, displayPath string, file *os.File, offset, maxBytes int64) (FileContent, error) {
+func readWorkspaceFileChunkFromHandle(root, rel, displayPath string, file *os.File, offset, maxBytes int64) (FileContent, error) {
 	info, err := file.Stat()
 	if err != nil {
 		return FileContent{}, err
@@ -67,15 +67,21 @@ func readWorkspaceFileChunkFromHandle(rel, displayPath string, file *os.File, of
 	nextOffset := offset + int64(len(data))
 	truncated := nextOffset < info.Size() && (previewKind == "text" || previewKind == "html" || mimeType == "image/svg+xml")
 	cleanRel := filepath.ToSlash(filepath.Clean(strings.TrimPrefix(rel, "/")))
+	originalContent, gitStatus := "", ""
+	if offset == 0 {
+		originalContent, gitStatus = GitOriginalFileContent(root, cleanRel)
+	}
 	return FileContent{
-		Path:        cleanRel,
-		Content:     string(data),
-		MIME:        mimeType,
-		PreviewKind: previewKind,
-		Language:    previewLanguage(cleanRel, mimeType),
-		Version:     fileVersion(info),
-		Size:        info.Size(),
-		Offset:      offset,
+		Path:            cleanRel,
+		Content:         string(data),
+		OriginalContent: originalContent,
+		GitStatus:       gitStatus,
+		MIME:            mimeType,
+		PreviewKind:     previewKind,
+		Language:        previewLanguage(cleanRel, mimeType),
+		Version:         fileVersion(info),
+		Size:            info.Size(),
+		Offset:          offset,
 		NextOffset: func() int64 {
 			if truncated {
 				return nextOffset
