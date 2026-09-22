@@ -30,6 +30,7 @@ const generatedFiles = new Set([
   'flyfish-viewer-assets.json',
   'flyfish-viewer-manifest.json',
 ]);
+const forbiddenResourceSegments = new Set(['cad', '3d', 'typst']);
 const renameExchangeScript = `
 import ctypes
 import os
@@ -152,11 +153,19 @@ function getAssetPaths(manifest, rendererIds) {
   return [...new Set(paths)];
 }
 
+function isForbiddenResourcePath(path) {
+  return path.split('/').some((segment) => forbiddenResourceSegments.has(segment));
+}
+
 function getOfficeAssetPaths(manifest) {
   const paths = getAssetPaths(manifest, officeRendererIds);
   if (paths.length === 0 || ![...officeRendererIds].every((rendererId) =>
     manifest.rendererAssetManifests.some((item) => item.rendererId === rendererId))) {
     throw new Error('The standard asset manifest is missing an Office renderer group.');
+  }
+  const forbiddenPaths = paths.filter(isForbiddenResourcePath);
+  if (forbiddenPaths.length) {
+    throw new Error(`Refusing forbidden non-Office asset path: ${forbiddenPaths.join(', ')}`);
   }
   return paths;
 }
@@ -222,12 +231,32 @@ async function stageSelectedAssets(sourceDir, stageDir, versions) {
 
 async function atomicExchange(left, right) {
   if (process.platform !== 'linux') {
-    throw new Error('Atomic replacement requires Linux renameat2 support when the target exists.');
+    throw new Error('Atomic replacement requires Linux renameat2 support.');
   }
   try {
     await execFileAsync(process.env.PYTHON || 'python3', ['-c', renameExchangeScript, left, right]);
   } catch (error) {
     throw new Error(`Atomic asset replacement is unavailable: ${error.stderr || error.message}`, { cause: error });
+  }
+}
+
+async function verifyStagingSupport(operationRoot) {
+  if (process.platform !== 'linux') {
+    throw new Error('Office asset staging requires Linux, Python 3, and renameat2 support.');
+  }
+  const left = join(operationRoot, 'rename-probe-left');
+  const right = join(operationRoot, 'rename-probe-right');
+  await mkdir(left);
+  await mkdir(right);
+  try {
+    await atomicExchange(left, right);
+  } catch (error) {
+    throw new Error(`Office asset staging requires Linux, Python 3, and renameat2 support: ${error.message}`, {
+      cause: error,
+    });
+  } finally {
+    await rm(left, { recursive: true, force: true });
+    await rm(right, { recursive: true, force: true });
   }
 }
 
@@ -250,20 +279,14 @@ async function replaceTarget(stageDir, targetDir, { exchange = atomicExchange, r
     return;
   }
 
-  let exchanged = false;
+  await exchange(stageDir, targetDir);
   try {
-    await exchange(stageDir, targetDir);
-    exchanged = true;
     await remove(stageDir, { recursive: true, force: true });
   } catch (error) {
-    if (exchanged) {
-      try {
-        await exchange(stageDir, targetDir);
-      } catch (rollbackError) {
-        throw new AggregateError([error, rollbackError], 'Asset replacement failed and rollback failed.');
-      }
-    }
-    throw error;
+    const details = error instanceof Error ? error.message : String(error);
+    throw new Error(`Asset replacement succeeded, but cleanup of the previous target failed: ${details}`, {
+      cause: error,
+    });
   }
 }
 
@@ -319,6 +342,7 @@ async function prepareAssets(targetInput) {
   const sourceDir = join(operationRoot, 'source');
   const stageDir = join(operationRoot, 'staged');
   try {
+    await verifyStagingSupport(operationRoot);
     await runAssetCli(sourceDir);
     await stageSelectedAssets(sourceDir, stageDir, versions);
     await replaceTarget(stageDir, targetDir);
@@ -331,6 +355,7 @@ async function prepareAssets(targetInput) {
 export {
   atomicExchange,
   getAssetPaths,
+  getOfficeAssetPaths,
   replaceTarget,
   safeRelativePath,
   validateManifest,

@@ -7,6 +7,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
+  getOfficeAssetPaths,
   replaceTarget,
   safeRelativePath,
   validateManifest,
@@ -106,6 +107,19 @@ test('validates every renderer defaultPath before selecting Office assets', () =
   }
 });
 
+test('rejects forbidden CAD, 3D, and Typst paths in a constructed CLI manifest', () => {
+  const rendererIds = ['pdf', 'office-word-openxml', 'spreadsheet-openxml', 'office-presentation'];
+  for (const forbiddenPath of ['wasm/cad/libredwg-web.wasm', 'vendor/3d/model.worker.js', 'vendor/typst/typst.wasm']) {
+    const manifest = {
+      rendererAssetManifests: rendererIds.map((rendererId, index) => ({
+        rendererId,
+        assets: [{ defaultPath: index === 0 ? forbiddenPath : `vendor/${rendererId}/worker.js` }],
+      })),
+    };
+    assert.throws(() => getOfficeAssetPaths(manifest), /forbidden non-Office asset path/i, forbiddenPath);
+  }
+});
+
 test('atomically replaces an existing target without leaving the old tree', async () => {
   const workspace = await mkdtemp(join(tmpdir(), 'pi-web-file-viewer-'));
   const target = join(workspace, 'target');
@@ -146,22 +160,31 @@ test('preserves both trees when atomic replacement fails', async () => {
   }
 });
 
-test('rolls back the exchange when cleanup fails', async () => {
+test('keeps the complete new tree when cleanup partially removes the old stage and fails', async () => {
   const workspace = await mkdtemp(join(tmpdir(), 'pi-web-file-viewer-'));
   const target = join(workspace, 'target');
   const stage = join(workspace, 'stage');
   try {
     await mkdir(target);
     await writeFile(join(target, 'old.txt'), 'old');
+    await mkdir(join(target, 'old-directory'));
+    await writeFile(join(target, 'old-directory', 'old.txt'), 'old');
     await mkdir(stage);
     await writeFile(join(stage, 'new.txt'), 'new');
+    await mkdir(join(stage, 'nested'));
+    await writeFile(join(stage, 'nested', 'complete.txt'), 'complete');
 
     await assert.rejects(replaceTarget(stage, target, {
-      remove: async () => { throw new Error('injected cleanup failure'); },
-    }), /injected cleanup failure/);
+      remove: async (path) => {
+        await rm(join(path, 'old.txt'));
+        throw new Error('injected cleanup failure after partial delete');
+      },
+    }), (error) => /cleanup.*injected cleanup failure after partial delete/i.test(error.message));
 
-    assert.equal(await readFile(join(target, 'old.txt'), 'utf8'), 'old');
-    assert.equal(await readFile(join(stage, 'new.txt'), 'utf8'), 'new');
+    assert.equal(await readFile(join(target, 'new.txt'), 'utf8'), 'new');
+    assert.equal(await readFile(join(target, 'nested', 'complete.txt'), 'utf8'), 'complete');
+    await assert.rejects(readFile(join(target, 'old.txt'), 'utf8'), { code: 'ENOENT' });
+    await assert.rejects(readFile(join(target, 'old-directory', 'old.txt'), 'utf8'), { code: 'ENOENT' });
   } finally {
     await rm(workspace, { recursive: true, force: true });
   }

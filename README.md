@@ -119,7 +119,9 @@ bun run build:single
 bun run prepare:file-viewer-assets
 ```
 
-该命令原子更新 `static/file-viewer/`，只包含 PDF、DOCX、XLSX、PPTX 及其共享字体/WASM 资源，并在 `manifest.json` 中记录包版本和 SHA-256。当前固定资源集约 12 MiB；生成后再运行 `bun run build:single` 将其嵌入单二进制。
+资源 staging 需要 Linux、Python 3 和内核 `renameat2` 支持。脚本会在修改 target 前预检这些依赖；非支持平台或缺少依赖时安全失败，不会替换现有 `static/file-viewer/`。该命令原子更新 `static/file-viewer/`，只包含 PDF、DOCX、XLSX、PPTX 及其共享字体/WASM 资源，并在 `manifest.json` 中记录包版本和 SHA-256。当前固定资源集约 12 MiB。
+
+`bun run build:single` 会在前端资源嵌入后自动执行 staging，再编译 `dist/pi-web`；通常无需单独预先运行 staging 命令。
 
 后端说明见 [backend/README.md](backend/README.md)。
 

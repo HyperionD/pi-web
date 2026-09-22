@@ -90,3 +90,34 @@ $ git diff --check
 ```
 
 以上命令均以退出码 0 完成。
+
+## Task 1 fix round 3
+
+### 根因与修复
+
+- `replaceTarget` 完成目录交换后，清理旧 target 失败不再 rollback；新 target 已经是完整新树，错误会保留 cleanup failure 信息并通过 `cause` 关联原错误。
+- 新增部分删除后抛错的回归测试，验证新 target 的根文件和嵌套文件完整保留，旧树不会被错误恢复。
+- Office 资源选择拒绝直接构造 manifest 中的 `cad`、`3d`、`typst` 路径，测试不依赖真实 CLI 输出。
+- staging 在运行 CLI 前预检 Linux、Python 3 和 `renameat2`；README 明确非支持环境安全失败，并说明 `build:single` 会自动 staging。
+
+### TDD 红阶段证据
+
+```text
+$ bun test scripts/prepare-file-viewer-assets.test.mjs --test-name-pattern 'forbidden CAD|complete new tree'
+2 fail
+- Missing expected exception: wasm/cad/libredwg-web.wasm
+- cleanup failure error did not include cleanup context; target had been rolled back
+```
+
+### 验证
+
+```text
+$ bun test scripts/prepare-file-viewer-assets.test.mjs
+9 pass, 0 fail
+
+$ bun run lint
+$ bun run typecheck
+$ git diff --check
+```
+
+以上命令均以退出码 0 完成。
