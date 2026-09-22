@@ -13,6 +13,16 @@ const fallbackChoiceJson = [
   }),
   "```",
 ].join("\n");
+const fallbackInputJson = [
+  "```json",
+  JSON.stringify({
+    type: "piweb_input",
+    id: "feedback",
+    question: "What happened?",
+    multiline: true,
+  }),
+  "```",
+].join("\n");
 
 function bootstrapOkResponse(url) {
   const body = String(url).endsWith("/app-config")
@@ -81,6 +91,24 @@ describe("pi-app toast notifications", () => {
 
     expect(document.querySelector(".session-toast.choice").textContent).toContain("需要反馈");
     expect(document.querySelector(".session-toast.success")).toBeNull();
+  });
+
+  it("shows a feedback toast for an input request from a background session", async () => {
+    const app = await connectPiApp();
+    const row = document.createElement("button");
+    row.className = "session-row";
+    row.dataset.session = "s2";
+    row.dataset.workspace = "w1";
+    row.dataset.title = "background";
+    app.append(row);
+
+    app.handleDurableBackgroundSessionEvent({
+      type: "assistant.segment.committed",
+      sessionId: "s2",
+      payload: { text: fallbackInputJson },
+    }, { row, client: { stop: vi.fn() } });
+
+    expect(document.querySelector(".session-toast.choice").textContent).toContain("需要反馈");
   });
 
   it("allows the next response to show completion after feedback is submitted", async () => {

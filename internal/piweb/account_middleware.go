@@ -105,7 +105,7 @@ func memberAccountRoute(r *http.Request) bool {
 	if path == "/api/account/me" || path == "/api/account/logout" {
 		return true
 	}
-	if r.Method == "GET" && (path == "/api/workspaces" || path == "/api/app-config") {
+	if r.Method == "GET" && (path == "/api/workspaces" || path == "/api/app-config" || path == "/api/prompt-presets") {
 		return true
 	}
 	parts := strings.Split(strings.Trim(path, "/"), "/")

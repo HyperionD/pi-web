@@ -8,6 +8,7 @@
 @import "./styles/parts/tool-cards.css";
 @import "./styles/parts/tree-preview-status.css";
 @import "./styles/parts/prompt-composer.css";
+@import "./styles/parts/prompt-presets.css";
 @import "./styles/parts/workspace-picker.css";
 @import "./styles/parts/responsive-themes.css";
 @import "./styles/parts/settings-modal.css";

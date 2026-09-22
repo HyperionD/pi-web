@@ -23,6 +23,10 @@ import {
   getWorkspaceRuntimeQuota,
   getWorkspaceRuntimeStatus,
   getWorkspaceSettings,
+  getPromptPresets,
+  createPromptPreset,
+  updatePromptPreset,
+  deletePromptPreset,
   getWorkspaces,
   health,
   listFolders,
@@ -62,6 +66,7 @@ describe("api adapter", () => {
   it("fetches workspaces from the configured backend", async () => {
     const result = await getWorkspaces();
     expect(result.url).toBe("http://backend.test/api/workspaces");
+    expect(result.options.credentials).toBe("include");
   });
 
   it("defaults to same-origin API paths for the embedded app", async () => {
@@ -169,6 +174,21 @@ describe("api adapter", () => {
     expect(personalStatus.url).toBe("http://backend.test/api/workspaces/w1/runtime-status?sessionID=session%2F1");
   });
 
+  it("reads and mutates system prompt presets", async () => {
+    const presets = await getPromptPresets();
+    expect(presets.url).toBe("http://backend.test/api/prompt-presets");
+    const created = await createPromptPreset({ label: "Debug", skill: "", prompt: "Analyze", order: 10 });
+    expect(created.options.method).toBe("POST");
+    expect(JSON.parse(created.options.body)).toEqual({ label: "Debug", skill: "", prompt: "Analyze", order: 10 });
+    const updated = await updatePromptPreset("preset/1", { enabled: false });
+    expect(updated.url).toBe("http://backend.test/api/prompt-presets/preset%2F1");
+    expect(updated.options.method).toBe("PATCH");
+    expect(JSON.parse(updated.options.body)).toEqual({ enabled: false });
+    const deleted = await deletePromptPreset("preset/1");
+    expect(deleted.url).toBe("http://backend.test/api/prompt-presets/preset%2F1");
+    expect(deleted.options.method).toBe("DELETE");
+  });
+
   it("reads and saves workspace settings and files", async () => {
     const settings = await getWorkspaceSettings("w1");
     expect(settings.url).toBe("http://backend.test/api/workspaces/w1/settings");
@@ -248,6 +268,16 @@ describe("api adapter", () => {
     const shell = await runShellCommand("w/1", "pwd");
     expect(shell.url).toBe("http://backend.test/api/workspaces/w%2F1/shell");
     expect(JSON.parse(shell.options.body)).toEqual({ command: "pwd" });
+  });
+
+  it("accepts successful empty responses", async () => {
+    globalThis.fetch = vi.fn(async () => ({
+      ok: true,
+      status: 204,
+      statusText: "No Content",
+      json: async () => { throw new Error("empty response"); },
+    }));
+    await expect(deletePromptPreset("preset-1")).resolves.toBeUndefined();
   });
 
   it("surfaces backend errors", async () => {

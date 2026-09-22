@@ -8,7 +8,8 @@ import {
   sendSessionCommand,
   steerSession,
 } from "../../lib/api";
-import { fallbackChoicePrompt } from "./fallback-choices";
+import { fallbackChoicePrompt, fallbackInputPrompt } from "./fallback-choices";
+import { formatPromptPreset } from "./prompt-presets";
 import { maxUploadBytesToMiB } from "../workspace/app-config-methods";
 import {
   commandDescription,
@@ -407,6 +408,21 @@ export const inputMethods = {
         actionTarget.closest(".fallback-choice-list"),
       );
     }
+    if (action === "fallback-input-submit") {
+      this.submitFallbackInput(
+        actionTarget.dataset.inputId,
+        actionTarget.closest(".fallback-input-panel")?.querySelector("[data-fallback-input]")?.value,
+        actionTarget.closest(".fallback-input-panel"),
+      );
+    }
+    if (action === "open-prompt-presets") {
+      void this.openPromptPresetManager?.();
+      return;
+    }
+    if (action === "prompt-preset") {
+      const preset = (this.promptPresets || []).find((item) => item.id === actionTarget?.dataset.promptPresetId);
+      if (preset?.enabled) this.fillPrompt(formatPromptPreset(preset));
+    }
     if (action === "open-settings") this.openSettingsModal?.();
     if (action === "close-settings") this.closeSettingsModal?.();
     if (action === "close-session-stats") this.closeSessionStats();
@@ -429,10 +445,17 @@ export const inputMethods = {
   },
 
   async submitFallbackChoice(choiceId, value, panel) {
-    const prompt = fallbackChoicePrompt(choiceId, value);
+    await this.submitFallbackResponse(fallbackChoicePrompt(choiceId, value), panel);
+  },
+
+  async submitFallbackInput(inputId, value, panel) {
+    await this.submitFallbackResponse(fallbackInputPrompt(inputId, value), panel);
+  },
+
+  async submitFallbackResponse(prompt, panel) {
     if (!prompt || !this.apiConnected || !this.dataset.activeSessionId) return;
     panel?.classList.add("answered");
-    panel?.querySelectorAll("button, input").forEach((item) => item.disabled = true);
+    panel?.querySelectorAll("button, input, textarea").forEach((item) => item.disabled = true);
     this.finalizeStreamingMessages();
     this.appendLoadingMessage();
     const sessionId = this.dataset.activeSessionId;

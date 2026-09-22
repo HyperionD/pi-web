@@ -9,6 +9,27 @@ export type AppConfigPatch = {
   workspace?: { allowedRoots?: string[]; maxUploadBytes?: number } | null;
 };
 
+export type PromptPreset = {
+  id: string;
+  label: string;
+  skill: string;
+  prompt: string;
+  enabled: boolean;
+  order: number;
+  createdAt?: string;
+  updatedAt?: string;
+};
+
+export type PromptPresetInput = {
+  label: string;
+  skill?: string;
+  prompt: string;
+  enabled?: boolean;
+  order?: number;
+};
+
+export type PromptPresetPatch = Partial<PromptPresetInput>;
+
 export type WorkspaceSkill = {
   name: string;
   description: string;
@@ -43,7 +64,7 @@ export type FolderListing = {
 async function request(path: string, options: RequestInit = {}) {
   const response = await fetch(`${apiBase()}${path}`, {
     ...options,
-    credentials: "same-origin",
+    credentials: "include",
     headers: {
       "Content-Type": "application/json",
       ...options.headers,
@@ -59,6 +80,7 @@ async function request(path: string, options: RequestInit = {}) {
     (error as any).status = response.status;
     throw error;
   }
+  if (response.status === 204 || response.status === 205) return undefined;
   return response.json();
 }
 
@@ -90,6 +112,33 @@ export function saveAppConfig(config: AppConfigPatch, adminPassword = "") {
     method: "PATCH",
     headers: adminPassword ? { "X-Admin-Password": adminPassword } : undefined,
     body: JSON.stringify(config),
+  });
+}
+
+export function getPromptPresets(): Promise<{ presets: PromptPreset[] }> {
+  return request("/api/prompt-presets");
+}
+
+export function createPromptPreset(preset: PromptPresetInput, adminPassword = "") {
+  return request("/api/prompt-presets", {
+    method: "POST",
+    headers: adminPassword ? { "X-Admin-Password": adminPassword } : undefined,
+    body: JSON.stringify(preset),
+  });
+}
+
+export function updatePromptPreset(id: string, patch: PromptPresetPatch, adminPassword = "") {
+  return request(`/api/prompt-presets/${encodeURIComponent(id)}`, {
+    method: "PATCH",
+    headers: adminPassword ? { "X-Admin-Password": adminPassword } : undefined,
+    body: JSON.stringify(patch),
+  });
+}
+
+export function deletePromptPreset(id: string, adminPassword = "") {
+  return request(`/api/prompt-presets/${encodeURIComponent(id)}`, {
+    method: "DELETE",
+    headers: adminPassword ? { "X-Admin-Password": adminPassword } : undefined,
   });
 }
 

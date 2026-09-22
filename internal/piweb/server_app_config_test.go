@@ -32,6 +32,19 @@ func TestAppConfigAPIWorksWithoutWorkspace(t *testing.T) {
 	}
 }
 
+func TestAppConfigAPIPatchAllowsAuthenticatedAdminWithoutPassword(t *testing.T) {
+	server, admin := accountServer(t)
+	request := httptest.NewRequest(http.MethodPatch, "/api/app-config", strings.NewReader(`{"brand":"admin-brand"}`))
+	request.AddCookie(admin)
+	response := httptest.NewRecorder()
+
+	server.Handler().ServeHTTP(response, request)
+
+	if response.Code != http.StatusOK {
+		t.Fatalf("PATCH status=%d body=%s", response.Code, response.Body.String())
+	}
+}
+
 func TestAppConfigAPIPatchRejectsMalformedJSON(t *testing.T) {
 	server := newAppConfigAPIServer(t)
 	request := httptest.NewRequest(http.MethodPatch, "/api/app-config", strings.NewReader(`{"brand":`))
