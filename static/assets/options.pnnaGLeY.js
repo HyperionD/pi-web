@@ -1,0 +1,1 @@
+const a=e=>e==="light"||e==="dark"||e==="system"?e:"system",t=()=>typeof globalThis.matchMedia=="function"&&globalThis.matchMedia("(prefers-color-scheme: dark)").matches,s=(e,r=t())=>{const o=a(e);return o==="system"?r?"dark":"light":o},i=(e,r=t())=>s(e,r)==="dark"?"light":"dark",l=e=>e==="compact"?"compact":"comfortable";export{l as a,a as n,s as r,i as t};
