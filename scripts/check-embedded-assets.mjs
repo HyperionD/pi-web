@@ -1,7 +1,7 @@
 import { readdir, readFile } from "node:fs/promises";
 import path from "node:path";
 
-const ignoredNames = new Set(["pi-web", "README.txt"]);
+const ignoredNames = new Set(["pi-web", "README.txt", "file-viewer"]);
 
 async function listFiles(root, directory = "") {
   const entries = await readdir(path.join(root, directory), { withFileTypes: true });

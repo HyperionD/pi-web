@@ -40,7 +40,8 @@
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit",
     "check": "bun run typecheck && bun run test && bun run backend:test && bun run build && bun run check:embedded-assets",
-    "test:e2e": "set -a; . ./.env.test; set +a; playwright test"
+    "test:e2e": "set -a; . ./.env.test; set +a; playwright test",
+    "test:e2e:office": "set -a; . ./.env.test; set +a; playwright test e2e/file-preview-office.spec.ts"
   },
   "dependencies": {
     "@astrojs/react": "^5.0.5",
