@@ -7,7 +7,95 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"unicode/utf8"
 )
+
+func ReadWorkspaceFileChunk(root, rel string, offset, maxBytes int64) (FileContent, error) {
+	directory, cleanRel, err := openRootedWorkspacePath(root, rel)
+	if err != nil {
+		return FileContent{}, err
+	}
+	defer directory.Close()
+	file, err := directory.Open(cleanRel)
+	if err != nil {
+		return FileContent{}, err
+	}
+	defer file.Close()
+	return readWorkspaceFileChunkFromHandle(rel, filepath.Join(root, cleanRel), file, offset, maxBytes)
+}
+
+func readWorkspaceFileChunkFromHandle(rel, displayPath string, file *os.File, offset, maxBytes int64) (FileContent, error) {
+	info, err := file.Stat()
+	if err != nil {
+		return FileContent{}, err
+	}
+	if info.IsDir() {
+		return FileContent{}, errors.New("path is a directory")
+	}
+	if offset < 0 || offset > info.Size() {
+		return FileContent{}, errors.New("invalid file offset")
+	}
+	limit := maxBytes
+	if limit <= 0 {
+		limit = 256 * 1024
+	}
+	probe, err := readFileProbe(file)
+	if err != nil {
+		return FileContent{}, err
+	}
+	mimeType := detectPreviewMIME(displayPath, probe)
+	previewKind := previewKindForMIME(mimeType)
+	data := []byte{}
+	if previewKind == "text" || previewKind == "html" || mimeType == "image/svg+xml" {
+		if _, err := file.Seek(offset, io.SeekStart); err != nil {
+			return FileContent{}, err
+		}
+		data, err = io.ReadAll(io.LimitReader(file, limit))
+		if err != nil {
+			return FileContent{}, err
+		}
+		if utf8.Valid(data) {
+			for len(data) > 0 && offset+int64(len(data)) < info.Size() && !utf8.Valid(data) {
+				data = data[:len(data)-1]
+			}
+		} else {
+			for len(data) > 0 && !utf8.Valid(data) {
+				data = data[:len(data)-1]
+			}
+		}
+	}
+	nextOffset := offset + int64(len(data))
+	truncated := nextOffset < info.Size() && (previewKind == "text" || previewKind == "html" || mimeType == "image/svg+xml")
+	cleanRel := filepath.ToSlash(filepath.Clean(strings.TrimPrefix(rel, "/")))
+	return FileContent{
+		Path:        cleanRel,
+		Content:     string(data),
+		MIME:        mimeType,
+		PreviewKind: previewKind,
+		Language:    previewLanguage(cleanRel, mimeType),
+		Version:     fileVersion(info),
+		Size:        info.Size(),
+		Offset:      offset,
+		NextOffset: func() int64 {
+			if truncated {
+				return nextOffset
+			}
+			return 0
+		}(),
+		Truncated: truncated,
+	}, nil
+}
+
+func readFileProbe(file *os.File) ([]byte, error) {
+	if _, err := file.Seek(0, io.SeekStart); err != nil {
+		return nil, err
+	}
+	probe, err := io.ReadAll(io.LimitReader(file, 512))
+	if err != nil {
+		return nil, err
+	}
+	return probe, nil
+}
 
 func ReadWorkspaceFile(root, rel string, maxBytes int64) (FileContent, error) {
 	directory, cleanRel, err := openRootedWorkspacePath(root, rel)
@@ -50,7 +138,7 @@ func readWorkspaceFileFromHandle(root, rel, displayPath string, file *os.File, m
 	previewKind := previewKindForMIME(mimeType)
 	content := ""
 	dataURL := ""
-	if previewKind == "text" || mimeType == "image/svg+xml" {
+	if previewKind == "text" || previewKind == "html" || mimeType == "image/svg+xml" {
 		content = string(data)
 	}
 	if previewKind == "image" && !truncated {
@@ -70,6 +158,9 @@ func readWorkspaceFileFromHandle(root, rel, displayPath string, file *os.File, m
 		DataURL:         dataURL,
 		MIME:            mimeType,
 		PreviewKind:     previewKind,
+		Language:        previewLanguage(filepath.ToSlash(filepath.Clean(strings.TrimPrefix(rel, "/"))), mimeType),
+		Version:         fileVersion(info),
+		Size:            info.Size(),
 		Truncated:       truncated,
 	}, nil
 }

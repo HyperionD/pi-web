@@ -135,6 +135,11 @@ type FileContent struct {
 	DataURL         string `json:"dataUrl,omitempty"`
 	MIME            string `json:"mime,omitempty"`
 	PreviewKind     string `json:"previewKind"`
+	Language        string `json:"language,omitempty"`
+	Version         string `json:"version,omitempty"`
+	Size            int64  `json:"size,omitempty"`
+	Offset          int64  `json:"offset,omitempty"`
+	NextOffset      int64  `json:"nextOffset,omitempty"`
 	Truncated       bool   `json:"truncated,omitempty"`
 }
 

@@ -66,14 +66,23 @@ func isLikelyText(data []byte) bool {
 }
 
 func previewKindForMIME(mimeType string) string {
-	if mimeType == "image/svg+xml" {
+	if mimeType == "image/svg+xml" || strings.HasPrefix(mimeType, "image/") {
 		return "image"
+	}
+	if mimeType == "text/html" {
+		return "html"
 	}
 	if isTextPreviewMIME(mimeType) {
 		return "text"
 	}
-	if strings.HasPrefix(mimeType, "image/") {
-		return "image"
+	if strings.HasPrefix(mimeType, "audio/") {
+		return "audio"
+	}
+	if strings.HasPrefix(mimeType, "video/") {
+		return "video"
+	}
+	if mimeType == "application/pdf" {
+		return "pdf"
 	}
 	return "unsupported"
 }
