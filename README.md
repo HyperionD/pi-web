@@ -111,6 +111,16 @@ bun run build:single
 
 `bun run build:single` 会先构建 Astro，再刷新 `static/` 嵌入资源并生成 `dist/pi-web`。发布前应在干净工作区执行检查，并确认生成的静态资源已与代码同步。
 
+### Office viewer 资源
+
+离线 Office 预览资源由固定版本的 npm 包按范围生成，不要复制 demo 的完整 `public/` 目录：
+
+```bash
+bun run prepare:file-viewer-assets
+```
+
+该命令原子更新 `static/file-viewer/`，只包含 PDF、DOCX、XLSX、PPTX 及其共享字体/WASM 资源，并在 `manifest.json` 中记录包版本和 SHA-256。当前固定资源集约 12 MiB；生成后再运行 `bun run build:single` 将其嵌入单二进制。
+
 后端说明见 [backend/README.md](backend/README.md)。
 
 ## License

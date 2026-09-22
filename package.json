@@ -23,6 +23,7 @@
     "dev": "astro dev --host 0.0.0.0",
     "build": "astro build",
     "check:embedded-assets": "node scripts/check-embedded-assets.mjs",
+    "prepare:file-viewer-assets": "node scripts/prepare-file-viewer-assets.mjs",
     "check:session-stream": "node scripts/check-session-single-stream.mjs",
     "test:session-stream-check": "node --test scripts/check-session-single-stream.test.mjs",
     "embed:assets": "find static -mindepth 1 ! -name README.txt -exec rm -rf {} + && cp -R dist/. static/",
@@ -43,6 +44,9 @@
   },
   "dependencies": {
     "@astrojs/react": "^5.0.5",
+    "@file-viewer/assets-standard": "3.1.2",
+    "@file-viewer/preset-office": "3.1.2",
+    "@file-viewer/web": "3.1.2",
     "@codemirror/commands": "^6.10.3",
     "@codemirror/lang-css": "^6.3.1",
     "@codemirror/lang-go": "^6.0.1",
