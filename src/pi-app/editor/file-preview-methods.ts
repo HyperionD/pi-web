@@ -71,7 +71,7 @@ export const filePreviewMethods = {
       body.textContent = "loading preview…";
       return;
     }
-    if (isOfficePreviewPath(file.path)) {
+    if (file.previewKind !== "error" && isOfficePreviewPath(file.path)) {
       const host = document.createElement("div");
       host.dataset.filePreviewOffice = "";
       body.append(host);

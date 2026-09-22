@@ -52,6 +52,7 @@ function dispatchEditorChange(app, text: string) {
 
 describe("file preview CodeMirror editor", () => {
   beforeEach(() => {
+    vi.clearAllMocks();
     vi.spyOn(window, "alert").mockImplementation(() => undefined);
     vi.spyOn(window, "confirm").mockReturnValue(true);
   });
@@ -95,6 +96,14 @@ describe("file preview CodeMirror editor", () => {
 
     app.renderFilePreview({ path: "README.md", mime: "text/markdown", previewKind: "text", content: "# readme" });
     expect(destroy).toHaveBeenCalledOnce();
+  });
+
+  it("keeps the API error view for an Office path when file loading fails", () => {
+    const app = mountPreview();
+    app.renderFilePreview({ path: "report.docx", previewKind: "error", content: "file missing" });
+
+    expect(app.querySelector(".fp-body")?.textContent).toContain("file missing");
+    expect(officePreview.mountOfficePreview).not.toHaveBeenCalled();
   });
 
   it("shows a download-friendly error when the Office viewer cannot load", async () => {
