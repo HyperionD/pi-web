@@ -1,12 +1,17 @@
 import { createHash } from 'node:crypto';
 import { execFile } from 'node:child_process';
-import { copyFile, lstat, mkdir, mkdtemp, readFile, readdir, rename, rm, writeFile } from 'node:fs/promises';
+import { copyFile, lstat, mkdir, mkdtemp, readFile, readdir, realpath, rename, rm, writeFile } from 'node:fs/promises';
 import { dirname, join, relative, resolve, sep } from 'node:path';
+import { tmpdir } from 'node:os';
 import { promisify } from 'node:util';
 import { fileURLToPath } from 'node:url';
 
 const execFileAsync = promisify(execFile);
-const projectRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+const scriptPath = fileURLToPath(import.meta.url);
+const projectRoot = resolve(dirname(scriptPath), '..');
+const staticRoot = resolve(projectRoot, 'static');
+const defaultTarget = resolve(staticRoot, 'file-viewer');
+const tempRoot = resolve(tmpdir());
 const assetCli = join(projectRoot, 'node_modules', '.bin', 'file-viewer-assets-standard');
 const packageNames = [
   '@file-viewer/assets-standard',
@@ -25,12 +30,40 @@ const generatedFiles = new Set([
   'flyfish-viewer-assets.json',
   'flyfish-viewer-manifest.json',
 ]);
+const renameExchangeScript = `
+import ctypes
+import os
+import platform
+import sys
+
+numbers = {'x86_64': 316, 'amd64': 316, 'aarch64': 276, 'arm64': 276, 'ppc64le': 357}
+number = numbers.get(platform.machine())
+if number is None:
+    raise SystemExit('renameat2 is unsupported on this architecture')
+libc = ctypes.CDLL(None, use_errno=True)
+libc.syscall.restype = ctypes.c_long
+result = libc.syscall(
+    ctypes.c_long(number),
+    ctypes.c_int(-100), ctypes.c_char_p(os.fsencode(sys.argv[1])),
+    ctypes.c_int(-100), ctypes.c_char_p(os.fsencode(sys.argv[2])),
+    ctypes.c_uint(2),
+)
+if result != 0:
+    error = ctypes.get_errno()
+    raise OSError(error, os.strerror(error))
+`;
 
 const sha256 = (content) => createHash('sha256').update(content).digest('hex');
+const isWithin = (parent, candidate) => candidate !== parent && candidate.startsWith(`${parent}${sep}`);
 
 function safeRelativePath(root, candidate) {
-  const normalized = candidate.replaceAll(sep, '/');
-  if (!normalized || normalized.startsWith('/') || normalized.split('/').includes('..')) {
+  if (typeof candidate !== 'string' || candidate.includes('\0')) {
+    throw new Error(`Unsafe asset path: ${candidate}`);
+  }
+  const normalized = candidate.replaceAll('\\', '/');
+  const segments = normalized.split('/');
+  if (!normalized || normalized.startsWith('/') || /^[A-Za-z]:\//.test(normalized)
+    || segments.some((segment) => !segment || segment === '.' || segment === '..')) {
     throw new Error(`Unsafe asset path: ${candidate}`);
   }
   const absolute = resolve(root, normalized);
@@ -39,6 +72,38 @@ function safeRelativePath(root, candidate) {
     throw new Error(`Asset path escapes staging root: ${candidate}`);
   }
   return normalized;
+}
+
+function validateManifestPath(candidate, label) {
+  if (typeof candidate !== 'string' || candidate.length === 0 || candidate.includes('\0')) {
+    throw new Error(`Invalid manifest defaultPath at ${label}`);
+  }
+  if (candidate.includes('\\')) {
+    throw new Error(`Invalid manifest defaultPath at ${label}`);
+  }
+  const segments = candidate.split('/');
+  const pathSegments = candidate.endsWith('/') ? segments.slice(0, -1) : segments;
+  if (candidate.startsWith('/') || /^[A-Za-z]:\//.test(candidate)
+    || pathSegments.length === 0
+    || pathSegments.some((segment) => !segment || segment === '.' || segment === '..')) {
+    throw new Error(`Invalid manifest defaultPath at ${label}`);
+  }
+  return candidate;
+}
+
+function validateManifest(manifest) {
+  if (!manifest || !Array.isArray(manifest.rendererAssetManifests)) {
+    throw new Error('The standard asset manifest has no renderer asset manifests.');
+  }
+  for (const [rendererIndex, renderer] of manifest.rendererAssetManifests.entries()) {
+    if (!renderer || typeof renderer.rendererId !== 'string' || !Array.isArray(renderer.assets)) {
+      throw new Error(`Invalid renderer asset manifest at index ${rendererIndex}.`);
+    }
+    for (const [assetIndex, asset] of renderer.assets.entries()) {
+      validateManifestPath(asset?.defaultPath, `${renderer.rendererId}[${assetIndex}]`);
+    }
+  }
+  return manifest;
 }
 
 async function listFiles(root, current = root) {
@@ -81,6 +146,7 @@ async function runAssetCli(sourceDir) {
 }
 
 function getAssetPaths(manifest, rendererIds) {
+  validateManifest(manifest);
   const renderers = manifest.rendererAssetManifests.filter(({ rendererId }) => !rendererIds || rendererIds.has(rendererId));
   const paths = renderers.flatMap(({ assets }) => assets.map(({ defaultPath }) => defaultPath));
   return [...new Set(paths)];
@@ -117,7 +183,9 @@ async function stageSelectedAssets(sourceDir, stageDir, versions) {
     join(projectRoot, 'node_modules/@file-viewer/assets-standard/viewer/flyfish-viewer-assets.json'),
     'utf8',
   ));
-  if (sourceManifest.packageName !== '@file-viewer/assets-standard' || sourceManifest.packageVersion !== versions['@file-viewer/assets-standard']) {
+  validateManifest(sourceManifest);
+  if (sourceManifest.packageName !== '@file-viewer/assets-standard'
+    || sourceManifest.packageVersion !== versions['@file-viewer/assets-standard']) {
     throw new Error('Installed standard asset manifest does not match package.json.');
   }
   const assetPaths = getOfficeAssetPaths(sourceManifest);
@@ -152,29 +220,89 @@ async function stageSelectedAssets(sourceDir, stageDir, versions) {
   }, null, 2)}\n`);
 }
 
-async function replaceTarget(stageDir, targetDir) {
+async function atomicExchange(left, right) {
+  if (process.platform !== 'linux') {
+    throw new Error('Atomic replacement requires Linux renameat2 support when the target exists.');
+  }
+  try {
+    await execFileAsync(process.env.PYTHON || 'python3', ['-c', renameExchangeScript, left, right]);
+  } catch (error) {
+    throw new Error(`Atomic asset replacement is unavailable: ${error.stderr || error.message}`, { cause: error });
+  }
+}
+
+async function replaceTarget(stageDir, targetDir, { exchange = atomicExchange, remove = rm } = {}) {
   const parentDir = dirname(targetDir);
   await mkdir(parentDir, { recursive: true });
-  const backupDir = `${targetDir}.previous-${process.pid}`;
-  let movedPrevious = false;
+  let targetExists = false;
   try {
-    try {
-      const info = await lstat(targetDir);
-      if (info.isSymbolicLink() || !info.isDirectory()) {
-        throw new Error(`Asset target must be a directory: ${targetDir}`);
-      }
-      await rm(backupDir, { recursive: true, force: true });
-      await rename(targetDir, backupDir);
-      movedPrevious = true;
-    } catch (error) {
-      if (error.code !== 'ENOENT') throw error;
+    const info = await lstat(targetDir);
+    targetExists = true;
+    if (info.isSymbolicLink() || !info.isDirectory()) {
+      throw new Error(`Asset target must be a directory: ${targetDir}`);
     }
-    await rename(stageDir, targetDir);
   } catch (error) {
-    if (movedPrevious) await rename(backupDir, targetDir);
+    if (error.code !== 'ENOENT') throw error;
+  }
+
+  if (!targetExists) {
+    await rename(stageDir, targetDir);
+    return;
+  }
+
+  let exchanged = false;
+  try {
+    await exchange(stageDir, targetDir);
+    exchanged = true;
+    await remove(stageDir, { recursive: true, force: true });
+  } catch (error) {
+    if (exchanged) {
+      try {
+        await exchange(stageDir, targetDir);
+      } catch (rollbackError) {
+        throw new AggregateError([error, rollbackError], 'Asset replacement failed and rollback failed.');
+      }
+    }
     throw error;
   }
-  if (movedPrevious) await rm(backupDir, { recursive: true, force: true });
+}
+
+async function existingAncestor(path) {
+  let current = path;
+  while (true) {
+    try {
+      const info = await lstat(current);
+      if (info.isSymbolicLink()) throw new Error(`Asset target path cannot contain a symbolic link: ${path}`);
+      return current;
+    } catch (error) {
+      if (error.code !== 'ENOENT') throw error;
+      const parent = dirname(current);
+      if (parent === current) throw new Error(`Asset target parent does not exist: ${path}`);
+      current = parent;
+    }
+  }
+}
+
+async function validateTarget(targetInput) {
+  const target = resolve(targetInput || defaultTarget);
+  const relativeToTemp = relative(tempRoot, target);
+  const firstTempSegment = relativeToTemp.split(sep)[0];
+  const isApprovedTempTarget = isWithin(tempRoot, target)
+    && /^pi-web-file-viewer-[A-Za-z0-9._-]+$/.test(firstTempSegment);
+  if (target !== defaultTarget && !isApprovedTempTarget) {
+    throw new Error(`Unsafe asset target: ${target}. Use ${defaultTarget} or a dedicated pi-web-file-viewer-* temp directory.`);
+  }
+
+  const anchor = await existingAncestor(target);
+  const canonicalAnchor = await realpath(anchor);
+  if (target === defaultTarget) {
+    if (!isWithin(projectRoot, canonicalAnchor) && canonicalAnchor !== projectRoot) {
+      throw new Error(`Unsafe asset target: ${target}`);
+    }
+  } else if (!isWithin(tempRoot, canonicalAnchor) && canonicalAnchor !== tempRoot) {
+    throw new Error(`Unsafe asset target: ${target}`);
+  }
+  return target;
 }
 
 function parseTargetArgument(args) {
@@ -184,8 +312,8 @@ function parseTargetArgument(args) {
 }
 
 async function prepareAssets(targetInput) {
+  const targetDir = await validateTarget(targetInput);
   const versions = await readPinnedVersions();
-  const targetDir = resolve(targetInput || join(projectRoot, 'static/file-viewer'));
   await mkdir(dirname(targetDir), { recursive: true });
   const operationRoot = await mkdtemp(join(dirname(targetDir), '.pi-web-file-viewer-'));
   const sourceDir = join(operationRoot, 'source');
@@ -200,4 +328,21 @@ async function prepareAssets(targetInput) {
   }
 }
 
-await prepareAssets(parseTargetArgument(process.argv.slice(2)));
+export {
+  atomicExchange,
+  getAssetPaths,
+  replaceTarget,
+  safeRelativePath,
+  validateManifest,
+  validateManifestPath,
+  validateTarget,
+};
+
+if (process.argv[1] && resolve(process.argv[1]) === scriptPath) {
+  try {
+    await prepareAssets(parseTargetArgument(process.argv.slice(2)));
+  } catch (error) {
+    console.error(error instanceof Error ? error.message : error);
+    process.exitCode = 1;
+  }
+}
