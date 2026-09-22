@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 )
 
 const maxSearchFileBytes = 256 * 1024
@@ -51,6 +52,62 @@ func shouldSkipFile(name string) bool {
 		return true
 	}
 	return false
+}
+
+func ListWorkspaceFiles(root, rel string) ([]WorkspaceFileEntry, error) {
+	root = filepath.Clean(root)
+	trimmed := strings.Trim(strings.TrimSpace(rel), "/")
+	var directory *os.Root
+	cleanRel := "."
+	var err error
+	if trimmed == "" || trimmed == "." {
+		directory, err = os.OpenRoot(root)
+	} else {
+		directory, cleanRel, err = openRootedWorkspacePath(root, trimmed)
+	}
+	if err != nil {
+		return nil, err
+	}
+	defer directory.Close()
+	folder, err := directory.Open(cleanRel)
+	if err != nil {
+		return nil, err
+	}
+	defer folder.Close()
+	info, err := folder.Stat()
+	if err != nil {
+		return nil, err
+	}
+	if !info.IsDir() {
+		return nil, errors.New("path is not a directory")
+	}
+	entries, err := folder.ReadDir(-1)
+	if err != nil {
+		return nil, err
+	}
+	result := make([]WorkspaceFileEntry, 0, len(entries))
+	for _, entry := range entries {
+		if shouldSkipFile(entry.Name()) {
+			continue
+		}
+		entryInfo, err := entry.Info()
+		if err != nil {
+			continue
+		}
+		entryPath := filepath.ToSlash(filepath.Join(trimmed, entry.Name()))
+		entryType := "file"
+		if entry.IsDir() {
+			entryType = "dir"
+		}
+		result = append(result, WorkspaceFileEntry{
+			Name:     entry.Name(),
+			Path:     entryPath,
+			Type:     entryType,
+			Size:     entryInfo.Size(),
+			Modified: entryInfo.ModTime().UTC().Format(time.RFC3339Nano),
+		})
+	}
+	return result, nil
 }
 
 func SearchWorkspaceFiles(root, query string) ([]string, error) {

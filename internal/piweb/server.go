@@ -225,6 +225,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("POST /api/workspaces/{workspaceID}/sessions", s.requireWorkspaceAccess(s.createSession))
 	s.mux.HandleFunc("DELETE /api/workspaces/{workspaceID}/sessions", s.requireWorkspaceAccess(s.deleteWorkspaceSessions))
 	s.mux.HandleFunc("GET /api/workspaces/{workspaceID}/files", s.requireWorkspaceAccess(s.workspaceFiles))
+	s.mux.HandleFunc("GET /api/workspaces/{workspaceID}/files/list", s.requireWorkspaceAccess(s.workspaceFileList))
 	s.mux.HandleFunc("GET /api/workspaces/{workspaceID}/files/raw", s.requireWorkspaceAccess(s.workspaceFileAsset))
 	s.mux.HandleFunc("GET /api/workspaces/{workspaceID}/files/search", s.requireWorkspaceAccess(s.searchWorkspaceFiles))
 	s.mux.HandleFunc("GET /api/workspaces/{workspaceID}/commands", s.requireWorkspaceAccess(s.workspaceCommands))

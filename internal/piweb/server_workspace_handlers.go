@@ -320,6 +320,21 @@ func (s *Server) workspaceFiles(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"files": files})
 }
+
+func (s *Server) workspaceFileList(w http.ResponseWriter, r *http.Request) {
+	root, err := s.store.WorkspacePath(r.PathValue("workspaceID"))
+	if err != nil {
+		writeStoreError(w, err)
+		return
+	}
+	entries, err := ListWorkspaceFiles(root, r.URL.Query().Get("path"))
+	if err != nil {
+		writeStoreError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"entries": entries})
+}
+
 func (s *Server) searchWorkspaceFiles(w http.ResponseWriter, r *http.Request) {
 	matches, err := s.store.SearchFiles(r.PathValue("workspaceID"), r.URL.Query().Get("q"))
 	if err != nil {

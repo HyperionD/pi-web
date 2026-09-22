@@ -33,6 +33,14 @@ type FileNode struct {
 	Children []FileNode `json:"children,omitempty"`
 }
 
+type WorkspaceFileEntry struct {
+	Name     string `json:"name"`
+	Path     string `json:"path"`
+	Type     string `json:"type"`
+	Size     int64  `json:"size,omitempty"`
+	Modified string `json:"modified,omitempty"`
+}
+
 type Message struct {
 	ID                 string             `json:"id,omitempty"`
 	Kind               string             `json:"kind"`

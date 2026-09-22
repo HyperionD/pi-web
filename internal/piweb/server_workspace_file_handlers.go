@@ -6,7 +6,10 @@ import (
 	"io"
 	"mime"
 	"net/http"
+	"net/url"
 	"os"
+	"path/filepath"
+	"strconv"
 	"strings"
 )
 
@@ -56,19 +59,81 @@ func (s *Server) workspaceFileAsset(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err)
 		return
 	}
-	w.Header().Set("Content-Type", detectPreviewMIME(full, probe[:n]))
+	contentType := detectPreviewMIME(full, probe[:n])
+	download := r.URL.Query().Get("download") == "1"
+	if !download && strings.HasPrefix(contentType, "image/") && info.Size() > 10*1024*1024 {
+		writeError(w, http.StatusRequestEntityTooLarge, errors.New("image is too large for preview (>10MB)"))
+		return
+	}
+	w.Header().Set("Content-Type", contentType)
+	w.Header().Set("Content-Disposition", fileContentDisposition(info.Name(), download))
 	w.Header().Set("X-Content-Type-Options", "nosniff")
-	w.Header().Set("Content-Security-Policy", "sandbox; default-src 'none'; img-src data: blob:; style-src 'unsafe-inline'")
+	if contentType == "text/html" || contentType == "image/svg+xml" {
+		w.Header().Set("Content-Security-Policy", "sandbox; default-src 'none'; img-src data: blob:; style-src 'unsafe-inline'")
+	}
 	http.ServeContent(w, r, info.Name(), info.ModTime(), file)
 }
 
+func fileContentDisposition(name string, download bool) string {
+	disposition := "inline"
+	if download {
+		disposition = "attachment"
+	}
+	base := filepath.Base(name)
+	fallback := strings.Map(func(r rune) rune {
+		if r < 0x20 || r == 0x7f || strings.ContainsRune("\\\";", r) {
+			return '_'
+		}
+		return r
+	}, base)
+	if fallback == "" || fallback == "." || fallback == ".." {
+		fallback = "download"
+	}
+	return disposition + `; filename="` + fallback + `"; filename*=UTF-8''` + url.PathEscape(base)
+}
+
 func (s *Server) readWorkspaceFile(w http.ResponseWriter, r *http.Request) {
-	file, err := s.store.ReadFile(r.PathValue("workspaceID"), r.URL.Query().Get("path"))
+	path := r.URL.Query().Get("path")
+	offset, limit, err := parseFileReadQuery(r)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	var file FileContent
+	if offset == 0 && limit == 256*1024 {
+		file, err = s.store.ReadFile(r.PathValue("workspaceID"), path)
+	} else {
+		file, err = s.store.ReadFileChunk(r.PathValue("workspaceID"), path, offset, limit)
+	}
 	if err != nil {
 		writeStoreError(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, file)
+}
+
+func parseFileReadQuery(r *http.Request) (int64, int64, error) {
+	const defaultLimit int64 = 256 * 1024
+	parse := func(name string, fallback int64) (int64, error) {
+		value := r.URL.Query().Get(name)
+		if value == "" {
+			return fallback, nil
+		}
+		parsed, err := strconv.ParseInt(value, 10, 64)
+		if err != nil || parsed < 0 {
+			return 0, errors.New("invalid " + name)
+		}
+		return parsed, nil
+	}
+	offset, err := parse("offset", 0)
+	if err != nil {
+		return 0, 0, err
+	}
+	limit, err := parse("limit", defaultLimit)
+	if err != nil || limit == 0 || limit > defaultLimit {
+		return 0, 0, errors.New("invalid limit")
+	}
+	return offset, limit, nil
 }
 func (s *Server) writeWorkspaceFile(w http.ResponseWriter, r *http.Request) {
 	var req WriteFileRequest
