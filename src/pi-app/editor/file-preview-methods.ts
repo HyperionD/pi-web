@@ -1,4 +1,5 @@
 import { getWorkspaceFile, getWorkspaceFileAssetURL, saveWorkspaceFile } from "../../lib/api";
+import { fileDisplayKind, isHTMLPath, isMarkdownPath } from "../../lib/file-preview-model";
 import { renderMarkdownBody } from "../../lib/renderers";
 import { CodeMirrorFileEditor, codeMirrorLanguageName, editableFileState, isTextFile } from "./file-editor";
 
@@ -64,10 +65,31 @@ export const filePreviewMethods = {
       body.textContent = "loading preview…";
       return;
     }
+    const kind = fileDisplayKind(file);
     if (mode === "markdown" && isMarkdownFile(file)) {
       body.classList.add("markdown-body");
       body.innerHTML = renderMarkdownBody(`${file.content || ""}${file.truncated ? "\n\n[truncated]" : ""}`);
       resolveMarkdownImages(body, file, state.workspaceId);
+      return;
+    }
+    if (kind === "html" && mode === "preview") {
+      body.append(htmlPreviewNode(file));
+      return;
+    }
+    if (kind === "image" && mode === "image" && file.dataUrl) {
+      body.append(imagePreviewNode(file));
+      return;
+    }
+    if (kind === "audio") {
+      body.append(mediaPreviewNode(file, "audio", state.workspaceId));
+      return;
+    }
+    if (kind === "video") {
+      body.append(mediaPreviewNode(file, "video", state.workspaceId));
+      return;
+    }
+    if (kind === "pdf") {
+      body.append(pdfPreviewNode(file, state.workspaceId));
       return;
     }
     if (mode === "text" && isTextFile(file)) {
@@ -75,11 +97,42 @@ export const filePreviewMethods = {
       body.append(node);
       return;
     }
-    if (mode === "image" && file.dataUrl) {
-      body.append(imagePreviewNode(file));
-      return;
-    }
     body.textContent = fallbackMessage(file);
+  },
+
+  async loadMoreFilePreview() {
+    const state = this.filePreview;
+    const workspaceId = this.dataset.activeWorkspaceId;
+    const file = state?.file;
+    const offset = Number(file?.nextOffset || 0);
+    if (!state || !workspaceId || state.workspaceId !== workspaceId || !file?.path || !file.truncated || !offset) return;
+    const next = await getWorkspaceFile(workspaceId, file.path, offset);
+    if (this.filePreview !== state || this.dataset.activeWorkspaceId !== workspaceId || state.file.path !== next.path) return;
+    state.file = {
+      ...state.file,
+      ...next,
+      content: `${state.file.content || ""}${next.content || ""}`,
+      originalContent: state.file.originalContent || next.originalContent,
+    };
+    state.cleanContent = state.file.content || "";
+    state.dirty = false;
+    this.renderFilePreviewBody();
+  },
+
+  downloadFilePreview() {
+    const workspaceId = this.dataset.activeWorkspaceId;
+    const file = this.filePreview?.file;
+    if (!workspaceId || !file?.path) return;
+    const anchor = document.createElement("a");
+    anchor.href = getWorkspaceFileAssetURL(workspaceId, file.path, { download: true });
+    anchor.download = file.path.split("/").pop() || "download";
+    anchor.hidden = true;
+    document.body.append(anchor);
+    try {
+      anchor.click();
+    } finally {
+      anchor.remove();
+    }
   },
 
   closeFilePreview(skipConfirmation = false) {
@@ -95,7 +148,9 @@ export const filePreviewMethods = {
     if (!this.filePreview?.file || !this.confirmCleanFilePreview?.()) return;
     this.filePreview.mode = isMarkdownFile(this.filePreview.file)
       ? this.filePreview.mode === "markdown" ? "text" : "markdown"
-      : this.filePreview.mode === "image" ? "text" : "image";
+      : isHTMLFile(this.filePreview.file)
+        ? this.filePreview.mode === "preview" ? "text" : "preview"
+        : this.filePreview.mode === "image" ? "text" : "image";
     this.filePreview.cleanContent = this.filePreview.file.content || "";
     this.filePreview.originalContent = gitOriginalContent(this.filePreview.file);
     this.filePreview.dirty = false;
@@ -193,7 +248,7 @@ function updatePreviewActions(preview, state) {
   const mode = state.mode;
   const eligibility = editableFileState(file);
   const canEdit = eligibility.editable;
-  const canToggle = isMarkdownFile(file) || file.mime === "image/svg+xml" && file.dataUrl && file.content;
+  const canToggle = isMarkdownFile(file) || isHTMLFile(file) || file.mime === "image/svg+xml" && file.dataUrl && file.content;
   const save = preview.querySelector("[data-action='save-file-preview']");
   const toggle = preview.querySelector("[data-action='toggle-file-preview-mode']");
   const workspaceChanged = state.saveStatus === "workspace changed";
@@ -204,7 +259,7 @@ function updatePreviewActions(preview, state) {
     : state.dirty ? "save *" : state.saveStatus === "saved" ? "saved" : "save";
   save.title = state.saveStatus && state.saveStatus !== "saved" ? state.saveStatus : "";
   toggle.hidden = !canToggle;
-  const switchToText = mode === "markdown" || mode === "image";
+  const switchToText = mode === "markdown" || mode === "image" || mode === "preview";
   toggle.textContent = switchToText ? "文本" : "预览";
   toggle.setAttribute("aria-label", switchToText ? "切换到文本模式" : "切换到预览模式");
   toggle.title = switchToText ? "切换到文本模式" : "切换到预览模式";
@@ -216,15 +271,21 @@ function gitOriginalContent(file) {
 }
 
 function defaultPreviewMode(file) {
-  if (file.previewKind === "image" && file.dataUrl) return "image";
-  if (isMarkdownFile(file)) return "markdown";
+  const kind = fileDisplayKind(file);
+  if (kind === "image" && file.dataUrl) return "image";
+  if (kind === "markdown") return "markdown";
+  if (kind === "html") return "preview";
+  if (["audio", "video", "pdf"].includes(kind)) return kind;
   if (isTextFile(file)) return "text";
   return "unsupported";
 }
 
 function isMarkdownFile(file) {
-  const path = String(file?.path || "").toLowerCase();
-  return isTextFile(file) && (file?.mime === "text/markdown" || path.endsWith(".md") || path.endsWith(".markdown"));
+  return isTextFile(file) && (file?.mime === "text/markdown" || isMarkdownPath(file?.path || ""));
+}
+
+function isHTMLFile(file) {
+  return fileDisplayKind(file) === "html" || file?.mime === "text/html" || isHTMLPath(file?.path || "");
 }
 
 function textPreviewNode(app, state) {
@@ -289,6 +350,30 @@ function imagePreviewNode(file) {
   image.src = file.dataUrl;
   image.alt = file.path || "file preview";
   return image;
+}
+
+function mediaPreviewNode(file, kind, workspaceId) {
+  const media = document.createElement(kind);
+  media.controls = true;
+  media.preload = "metadata";
+  media.src = getWorkspaceFileAssetURL(workspaceId, file.path);
+  media.setAttribute("aria-label", file.path || `${kind} preview`);
+  return media;
+}
+
+function pdfPreviewNode(file, workspaceId) {
+  const frame = document.createElement("iframe");
+  frame.src = getWorkspaceFileAssetURL(workspaceId, file.path);
+  frame.title = file.path || "PDF preview";
+  return frame;
+}
+
+function htmlPreviewNode(file) {
+  const frame = document.createElement("iframe");
+  frame.setAttribute("sandbox", "");
+  frame.srcdoc = file.content || "";
+  frame.title = file.path || "HTML preview";
+  return frame;
 }
 
 function fallbackMessage(file) {

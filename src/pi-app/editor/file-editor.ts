@@ -175,7 +175,7 @@ export function editableFileState(file: FileLike): EditableFileState {
 }
 
 export function isTextFile(file: FileLike) {
-  return file.previewKind === "text" || file.mime === "image/svg+xml";
+  return file.previewKind === "text" || file.previewKind === "html" || file.mime === "image/svg+xml";
 }
 
 export function codeMirrorLanguageName(file: FileLike) {

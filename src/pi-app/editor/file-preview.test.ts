@@ -305,6 +305,57 @@ describe("file preview CodeMirror editor", () => {
     expect(event.defaultPrevented).toBe(true);
   });
 
+  it("renders audio, video, PDF, and sandboxed HTML previews", () => {
+    const app = mountPreview();
+    app.renderFilePreview({ path: "voice.mp3", mime: "audio/mpeg", previewKind: "audio" });
+    expect(app.querySelector(".fp-body audio")).toBeTruthy();
+    expect(app.querySelector(".fp-body audio")?.getAttribute("src")).toContain("/files/raw?");
+
+    app.renderFilePreview({ path: "movie.mp4", mime: "video/mp4", previewKind: "video" });
+    expect(app.querySelector(".fp-body video")).toBeTruthy();
+
+    app.renderFilePreview({ path: "manual.pdf", mime: "application/pdf", previewKind: "pdf" });
+    const pdf = app.querySelector(".fp-body iframe");
+    expect(pdf).toBeTruthy();
+    expect(pdf?.getAttribute("src")).toContain("/files/raw?");
+    expect(pdf?.hasAttribute("sandbox")).toBe(false);
+
+    app.renderFilePreview({ path: "index.html", mime: "text/html", previewKind: "html", content: "<h1>Hello</h1>" });
+    const html = app.querySelector(".fp-body iframe");
+    expect(html?.getAttribute("srcdoc")).toContain("<h1>Hello</h1>");
+    expect(html?.getAttribute("sandbox")).toBe("");
+  });
+
+  it("loads the next text chunk without replacing the current file", async () => {
+    const app = mountPreview();
+    vi.mocked(api.getWorkspaceFile)
+      .mockResolvedValueOnce({
+        path: "large.txt",
+        mime: "text/plain",
+        previewKind: "text",
+        content: "first",
+        size: 10,
+        offset: 0,
+        nextOffset: 5,
+        truncated: true,
+      })
+      .mockResolvedValueOnce({
+        path: "large.txt",
+        mime: "text/plain",
+        previewKind: "text",
+        content: "second",
+        size: 10,
+        offset: 5,
+        truncated: false,
+      });
+    await app.openFilePath("large.txt");
+    await app.loadMoreFilePreview();
+
+    expect(api.getWorkspaceFile).toHaveBeenLastCalledWith("workspace-1", "large.txt", 5);
+    expect(app.filePreview.file.content).toBe("firstsecond");
+    expect(app.filePreview.file.truncated).toBe(false);
+  });
+
   it("keeps image, large, and unsupported files on preview fallback paths", () => {
     const app = mountPreview();
     app.renderFilePreview({ path: "logo.png", mime: "image/png", previewKind: "image", dataUrl: "data:image/png;base64,aa" });
