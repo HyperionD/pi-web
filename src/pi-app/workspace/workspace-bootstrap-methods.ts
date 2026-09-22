@@ -133,6 +133,7 @@ export const workspaceBootstrapMethods = {
       if (!isCurrentBootstrap() || !ownsBootstrapState()) return;
       this.apiConnected = true;
       this.setConnection("ok");
+      void this.loadPromptPresets?.();
 
       const workspaceList = this.renderFilteredWorkspaces(workspaces || []);
       const stored = readStoredActiveSession();

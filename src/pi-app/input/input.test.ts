@@ -21,6 +21,24 @@ describe("pi-app prompt input", () => {
     renderApp();
   });
 
+  it("fills a selected system prompt preset without sending it", async () => {
+    const app = document.querySelector("pi-app");
+    await customElements.whenDefined("pi-app");
+    app.connectedCallback();
+    app.promptPresets = [{ id: "debug", label: "问题处理", skill: "systematic-debugging", prompt: "分析这个问题", enabled: true, order: 1 }];
+    const submitPrompt = vi.spyOn(app, "submitPrompt");
+    const button = document.createElement("button");
+    button.dataset.action = "prompt-preset";
+    button.dataset.promptPresetId = "debug";
+    app.append(button);
+
+    app.handleAppClick({ target: button });
+
+    expect(app.prompt.value).toBe("/skill systematic-debugging\n\n分析这个问题");
+    expect(submitPrompt).not.toHaveBeenCalled();
+    app.clearPromptDraft();
+  });
+
   it("renders image attachments in user messages", async () => {
     const app = document.querySelector("pi-app");
     await customElements.whenDefined("pi-app");

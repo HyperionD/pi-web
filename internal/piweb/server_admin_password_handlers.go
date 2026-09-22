@@ -64,6 +64,9 @@ func (s *Server) setupAdminPassword(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) requireAdminPassword(r *http.Request) error {
 	if s.config.UserManagement {
+		if user, ok := requestAccount(r); ok && user.Role == "admin" {
+			return nil
+		}
 		return verifyDatabaseAdminPassword(r.Header.Get(adminPasswordHeader))
 	}
 	return VerifyAdminPassword(r.Header.Get(adminPasswordHeader))

@@ -29,7 +29,23 @@ const fallbackChoiceSystemPrompt = `Pi Web UI fallback choice protocol:
     "options":[{"label":"Option A","value":"A","description":"What A means"}],
     "allowCustom":false
   }
-- Keep id stable, short, and unique. Use at most 8 options. Use inert plain text only.`
+- Keep id stable, short, and unique. Use at most 8 options. Use inert plain text only.
+- When you need free-form user input or feedback, output a fenced json block with top-level type "piweb_input".
+- Stop after emitting the input block and wait for the user's follow-up.
+- When the user later sends:
+  输入回复：
+  id: <id>
+  value: <value>
+  continue using that value as the user's answer.
+- Input schema:
+  {
+    "type":"piweb_input",
+    "id":"stable-input-id",
+    "question":"Question text",
+    "placeholder":"Optional hint",
+    "multiline":true
+  }
+- Use multiline true for explanations, feedback, or any response that may contain line breaks.`
 
 type Runner struct {
 	mu             sync.Mutex

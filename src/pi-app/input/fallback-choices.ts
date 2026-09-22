@@ -22,10 +22,28 @@ export function parseFallbackChoices(text = "") {
   return choices.filter((choice) => choice.options.length > 0);
 }
 
+export function parseFallbackInputs(text = "") {
+  const inputs = [];
+  for (const match of text.matchAll(CHOICE_FENCE)) {
+    try {
+      const parsed = JSON.parse(match[1]);
+      if (parsed?.type !== "piweb_input" || !parsed.id || !parsed.question) continue;
+      inputs.push({
+        id: String(parsed.id).slice(0, 120),
+        question: String(parsed.question).slice(0, 1000),
+        placeholder: parsed.placeholder ? String(parsed.placeholder).slice(0, 200) : "",
+        multiline: parsed.multiline !== false,
+      });
+    } catch {}
+  }
+  return inputs;
+}
+
 export function stripFallbackChoices(text = "") {
   return text.replace(CHOICE_FENCE, (block, json) => {
     try {
-      return JSON.parse(json)?.type === "piweb_choice" ? "" : block;
+      const type = JSON.parse(json)?.type;
+      return type === "piweb_choice" || type === "piweb_input" ? "" : block;
     } catch {
       return block;
     }
@@ -37,9 +55,22 @@ export function fallbackChoicePrompt(id, value) {
   return `选项回复：\nid: ${id}\nvalue: ${value}`;
 }
 
+export function fallbackInputPrompt(id, value) {
+  if (!id || !String(value).trim()) return "";
+  return `输入回复：\nid: ${id}\nvalue: ${String(value).trim()}`;
+}
+
 export function parseFallbackChoiceAnswer(text = "") {
+  return parseFallbackAnswer(text, "选项回复：");
+}
+
+export function parseFallbackInputAnswer(text = "") {
+  return parseFallbackAnswer(text, "输入回复：");
+}
+
+function parseFallbackAnswer(text, prefix) {
   const id = text.match(/^id:\s*(.+)$/m)?.[1]?.trim();
-  if (!text.startsWith("选项回复：") || !id) return undefined;
+  if (!text.startsWith(prefix) || !id) return undefined;
   return id.slice(0, 120);
 }
 
@@ -69,7 +100,7 @@ export function streamVisibleChoiceText(text = "") {
       break;
     }
     const block = pending.slice(fenceStart, fenceEnd + 3);
-    if (!parseFallbackChoices(block).length) visible += block;
+    if (!parseFallbackChoices(block).length && !parseFallbackInputs(block).length) visible += block;
     pending = pending.slice(fenceEnd + 3);
   }
   return { visible, pending };

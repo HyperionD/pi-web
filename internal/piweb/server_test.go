@@ -15,6 +15,33 @@ import (
 	"testing/fstest"
 )
 
+func TestCORSAllowsAdminPasswordHeader(t *testing.T) {
+	server := NewServer(Config{UserManagement: true}, NewMockStore(), NewBroker())
+	request := httptest.NewRequest(http.MethodOptions, "/api/prompt-presets", nil)
+	request.Header.Set("Origin", "http://localhost:4321")
+	request.Header.Set("Access-Control-Request-Headers", "X-Admin-Password")
+	response := httptest.NewRecorder()
+	server.Handler().ServeHTTP(response, request)
+	if response.Code != http.StatusNoContent {
+		t.Fatalf("preflight status = %d", response.Code)
+	}
+	if !strings.Contains(response.Header().Get("Access-Control-Allow-Headers"), "X-Admin-Password") {
+		t.Fatalf("allowed headers = %q", response.Header().Get("Access-Control-Allow-Headers"))
+	}
+	if response.Header().Get("Access-Control-Allow-Credentials") != "true" {
+		t.Fatal("preflight did not allow credentials")
+	}
+
+	standalone := NewServer(Config{}, NewMockStore(), NewBroker())
+	standaloneRequest := httptest.NewRequest(http.MethodOptions, "/api/prompt-presets", nil)
+	standaloneRequest.Header.Set("Origin", "http://localhost:4321")
+	standaloneResponse := httptest.NewRecorder()
+	standalone.Handler().ServeHTTP(standaloneResponse, standaloneRequest)
+	if standaloneResponse.Header().Get("Access-Control-Allow-Origin") != "http://localhost:4321" {
+		t.Fatalf("standalone origin = %q", standaloneResponse.Header().Get("Access-Control-Allow-Origin"))
+	}
+}
+
 func TestHealthEndpoint(t *testing.T) {
 	server := NewServer(Config{}, NewMockStore(), NewBroker())
 	req := httptest.NewRequest(http.MethodGet, "/api/health", nil)

@@ -77,7 +77,9 @@ export const appConfigMethods = {
   },
 
   async requestAdminPassword() {
-    if (this.adminPasswordConfigured !== true) return "";
+    const isAuthenticatedAdmin = document.body.dataset.userManagement === "true"
+      && document.body.dataset.accountRole === "admin";
+    if (isAuthenticatedAdmin || this.adminPasswordConfigured !== true) return "";
     const password = window.prompt("请输入管理员密码");
     return password || undefined;
   },

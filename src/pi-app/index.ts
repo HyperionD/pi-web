@@ -21,6 +21,7 @@ import { toastMethods } from "./status/toast-methods";
 import { transcriptWindowMethods } from "./transcript/transcript-window-methods";
 import { oauthMethods } from "./workspace/oauth-methods";
 import { appConfigMethods } from "./workspace/app-config-methods";
+import { promptPresetMethods } from "./workspace/prompt-preset-methods";
 import { settingsMethods } from "./workspace/settings-methods";
 import { skillMethods } from "./workspace/skill-methods";
 import { workspaceMethods } from "./workspace/workspace-methods";
@@ -449,6 +450,7 @@ Object.assign(
   settingsMethods,
   skillMethods,
   appConfigMethods,
+  promptPresetMethods,
   oauthMethods,
 );
 

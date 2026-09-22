@@ -76,4 +76,7 @@ func TestPiRPCArgsUseRPCMode(t *testing.T) {
 	if !strings.Contains(joined, "选项回复：") {
 		t.Fatalf("missing Chinese choice protocol: %#v", args)
 	}
+	if !strings.Contains(joined, `"type":"piweb_input"`) || !strings.Contains(joined, "输入回复：") {
+		t.Fatalf("missing input feedback protocol: %#v", args)
+	}
 }

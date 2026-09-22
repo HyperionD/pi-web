@@ -2,7 +2,7 @@ import { Notyf, NotyfEvent } from "notyf";
 import { getSessionState } from "../../lib/api";
 import { escapeHtml } from "../../lib/renderers";
 import { createSessionStreamClient } from "../sessions/session-stream-client";
-import { parseFallbackChoices } from "../input/fallback-choices";
+import { parseFallbackChoices, parseFallbackInputs } from "../input/fallback-choices";
 
 const TOAST_MESSAGES = {
   success: {
@@ -364,7 +364,9 @@ export const toastMethods = {
       this.dismissBackgroundSessionWatch(event.sessionId, watch);
       return;
     }
-    if (event.type === "assistant.segment.committed" && parseFallbackChoices(event.payload?.text).length) {
+    if (event.type === "assistant.segment.committed" && (
+      parseFallbackChoices(event.payload?.text).length || parseFallbackInputs(event.payload?.text).length
+    )) {
       this.notifyChoiceRequested(context);
       return;
     }

@@ -1,0 +1,78 @@
+---
+import { Plus, Trash2, X } from "@lucide/astro";
+---
+
+<div class="prompt-preset-manager" data-prompt-preset-manager hidden>
+  <div class="prompt-preset-overlay" data-prompt-preset-overlay></div>
+  <form
+    class="prompt-preset-dialog"
+    data-prompt-preset-form
+    role="dialog"
+    aria-modal="true"
+    aria-labelledby="prompt-preset-title"
+    tabindex="-1"
+  >
+    <div class="prompt-preset-head">
+      <div>
+        <strong id="prompt-preset-title">预设提示词</strong>
+        <small>系统级配置 · 所有用户和工作区共用</small>
+      </div>
+      <button type="button" data-prompt-preset-close aria-label="关闭预设提示词设置">
+        <X size={15} strokeWidth={1.75} aria-hidden="true" />
+      </button>
+    </div>
+    <div class="prompt-preset-body">
+      <aside class="prompt-preset-sidebar">
+        <div class="prompt-preset-list-head">
+          <strong>预设列表</strong>
+          <button type="button" data-prompt-preset-new aria-label="新增预设" title="新增预设">
+            <Plus size={13} strokeWidth={1.75} aria-hidden="true" />
+          </button>
+        </div>
+        <div class="prompt-preset-list" data-prompt-preset-list></div>
+        <div class="prompt-preset-empty" data-prompt-preset-empty hidden>暂无预设提示词</div>
+      </aside>
+      <section class="prompt-preset-editor" aria-live="polite">
+        <div class="prompt-preset-editor-empty" data-prompt-preset-editor-empty>
+          选择一个预设进行编辑，或新增预设。
+        </div>
+        <div data-prompt-preset-editor hidden>
+          <label>
+            显示名称
+            <input data-prompt-preset-label maxlength="120" autocomplete="off" required />
+          </label>
+          <label>
+            Skill（可选）
+            <select data-prompt-preset-skill>
+              <option value="">无 Skill</option>
+            </select>
+          </label>
+          <small class="prompt-preset-hint">
+            填写后会自动组合为 <code>/skill &lt;名称&gt;</code>；留空则只填入提示词。
+          </small>
+          <label>
+            提示词
+            <textarea data-prompt-preset-prompt maxlength="32768" rows="9" required></textarea>
+          </label>
+          <label class="prompt-preset-checkbox">
+            <input data-prompt-preset-enabled type="checkbox" /> 在输入区显示
+          </label>
+          <div class="prompt-preset-editor-actions">
+            <button type="button" class="danger" data-prompt-preset-delete>
+              <Trash2 size={13} strokeWidth={1.75} aria-hidden="true" /> 删除
+            </button>
+          </div>
+        </div>
+      </section>
+    </div>
+    <div class="prompt-preset-foot">
+      <span data-prompt-preset-status role="status" aria-live="polite">
+        只有管理员可以修改系统级预设。
+      </span>
+      <div>
+        <button type="button" data-prompt-preset-cancel>取消</button>
+        <button type="submit" class="primary" data-prompt-preset-save disabled>保存</button>
+      </div>
+    </div>
+  </form>
+</div>

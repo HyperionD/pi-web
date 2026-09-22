@@ -204,6 +204,10 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("POST /api/admin/password", s.setupAdminPassword)
 	s.mux.HandleFunc("GET /api/app-config", s.appConfig)
 	s.mux.HandleFunc("PATCH /api/app-config", s.patchAppConfig)
+	s.mux.HandleFunc("GET /api/prompt-presets", s.promptPresets)
+	s.mux.HandleFunc("POST /api/prompt-presets", s.promptPresets)
+	s.mux.HandleFunc("PATCH /api/prompt-presets/{id}", s.promptPreset)
+	s.mux.HandleFunc("DELETE /api/prompt-presets/{id}", s.promptPreset)
 	s.mux.HandleFunc("GET /api/auth/providers", s.authProviders)
 	s.mux.HandleFunc("GET /api/auth/oauth/providers", s.oauthProviders)
 	s.mux.HandleFunc("POST /api/auth/oauth/start", s.startOAuthLogin)
@@ -316,10 +320,14 @@ func (s *Server) withCORS(next http.Handler) http.Handler {
 				w.Header().Set("Access-Control-Allow-Credentials", "true")
 				w.Header().Add("Vary", "Origin")
 			}
+		} else if origin := r.Header.Get("Origin"); origin != "" {
+			w.Header().Set("Access-Control-Allow-Origin", origin)
+			w.Header().Set("Access-Control-Allow-Credentials", "true")
+			w.Header().Add("Vary", "Origin")
 		} else {
 			w.Header().Set("Access-Control-Allow-Origin", "*")
 		}
-		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Last-Event-ID")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Last-Event-ID, X-Admin-Password")
 		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
 		if r.Method == http.MethodOptions {
 			w.WriteHeader(http.StatusNoContent)

@@ -27,6 +27,8 @@ describe("app config methods", () => {
 
   afterEach(() => {
     cleanupPiAppFixture();
+    delete document.body.dataset.userManagement;
+    delete document.body.dataset.accountRole;
   });
 
   it("preserves unknown keys in valid app config responses", () => {
@@ -90,6 +92,19 @@ describe("app config methods", () => {
       method: "PATCH",
       headers: { "X-Admin-Password": "secret" },
     });
+  });
+
+  it("does not prompt an authenticated administrator for admin password", async () => {
+    const app = await connectPiApp();
+    Object.assign(app, appConfigMethods);
+    document.body.dataset.userManagement = "true";
+    document.body.dataset.accountRole = "admin";
+    app.adminPasswordConfigured = true;
+    const prompt = vi.spyOn(window, "prompt");
+
+    await expect(app.requestAdminPassword()).resolves.toBe("");
+
+    expect(prompt).not.toHaveBeenCalled();
   });
 
   it("loads the admin password status and shows the first-use gate", async () => {

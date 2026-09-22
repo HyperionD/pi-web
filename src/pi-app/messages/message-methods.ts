@@ -2,6 +2,8 @@ import { escapeHtml, renderBannerBody, renderPiBody, renderUserBody } from "../.
 import {
   parseFallbackChoiceAnswer,
   parseFallbackChoices,
+  parseFallbackInputAnswer,
+  parseFallbackInputs,
   stripFallbackChoices,
 } from "../input/fallback-choices";
 import { TERMINAL_SPINNER_HTML } from "../constants";
@@ -40,7 +42,7 @@ export const messageMethods = {
     const choiceIds = new Set();
     for (const message of messages) {
       if (message.kind !== "user") continue;
-      const choiceId = parseFallbackChoiceAnswer(message.text);
+      const choiceId = parseFallbackChoiceAnswer(message.text) || parseFallbackInputAnswer(message.text);
       if (choiceId) choiceIds.add(choiceId);
     }
     return choiceIds;
@@ -56,7 +58,9 @@ export const messageMethods = {
     } else {
       this.appendTranscriptMessage(message, { stickToBottom: true });
     }
-    if (message.kind === "user") this.disableAnsweredChoice(parseFallbackChoiceAnswer(message.text));
+    if (message.kind === "user") {
+      this.disableAnsweredChoice(parseFallbackChoiceAnswer(message.text) || parseFallbackInputAnswer(message.text));
+    }
     if (message.kind === "pi") this.notifyPiMessageCommitted?.(message);
     this.scrollTerm();
   },
@@ -101,7 +105,8 @@ export const messageMethods = {
   notifyPiMessageCommitted(message) {
     if (message.kind !== "pi") return;
     const choices = parseFallbackChoices(message.text);
-    if (!this.deferTranscriptRender && choices.length) {
+    const inputs = parseFallbackInputs(message.text);
+    if (!this.deferTranscriptRender && (choices.length || inputs.length)) {
       this.notifyChoiceRequested?.();
       return;
     }
@@ -150,7 +155,11 @@ export const messageMethods = {
   hasActiveTranscriptItem() {
     const latestMessage = this.transcriptItems?.at(-1)?.message;
     const projectedActive = latestMessage?.kind === "pi" && latestMessage.status === "streaming";
-    const selector = [".msg.streaming[data-kind='pi']", ".fallback-choice-list"].join(", ");
+    const selector = [
+      ".msg.streaming[data-kind='pi']",
+      ".fallback-choice-list",
+      ".fallback-input-panel",
+    ].join(", ");
     const historyActive = this.termInner?.querySelector?.(selector);
     const tailActive = this.streamingTail?.querySelector?.(selector);
     return !!(projectedActive || historyActive || tailActive);
@@ -216,6 +225,7 @@ export const messageMethods = {
   assistantMessageNode(message) {
     const streaming = message.status === "streaming";
     const choices = streaming ? [] : parseFallbackChoices(message.text);
+    const inputs = streaming ? [] : parseFallbackInputs(message.text);
     const text = stripFallbackChoices(message.text);
     const messageRow = this.simpleMessage("pi", "agent >", "");
     const body = messageRow.querySelector(".body");
@@ -225,12 +235,13 @@ export const messageMethods = {
       body.append(document.createTextNode(message.text || ""));
       return messageRow;
     }
-    body.innerHTML = renderPiBody(choices.length ? text : message.text);
-    if (!choices.length) return messageRow;
+    body.innerHTML = renderPiBody(choices.length || inputs.length ? text : message.text);
+    if (!choices.length && !inputs.length) return messageRow;
 
     const fragment = document.createDocumentFragment();
     fragment.append(messageRow);
     for (const choice of choices) fragment.append(this.choicePanel(choice));
+    for (const input of inputs) fragment.append(this.inputPanel(input));
     return fragment;
   },
 
@@ -298,11 +309,26 @@ export const messageMethods = {
     for (const choiceId of this.answeredChoiceIds || []) this.disableRenderedChoice(choiceId);
   },
 
+  inputPanel(input) {
+    const panel = document.createElement("div");
+    panel.className = "fallback-input-panel";
+    panel.dataset.inputId = input.id;
+    panel.innerHTML = [
+      `<div class="choice-head"><span>input</span><strong></strong></div>`,
+      `<textarea rows="4" data-fallback-input placeholder="${escapeHtml(input.placeholder)}"></textarea>`,
+      `<button type="button" data-action="fallback-input-submit" data-input-id="${escapeHtml(input.id)}">Send</button>`,
+    ].join("");
+    panel.querySelector("strong").textContent = input.question;
+    panel.querySelector("textarea")?.setAttribute("aria-label", input.question);
+    if (!input.multiline) panel.querySelector("textarea").rows = 1;
+    return panel;
+  },
+
   disableRenderedChoice(choiceId) {
-    const panels = [...this.termInner?.querySelectorAll(".fallback-choice-list") ?? []];
-    const panel = panels.find((item) => item.dataset.choiceId === choiceId);
+    const panels = [...this.termInner?.querySelectorAll(".fallback-choice-list, .fallback-input-panel") ?? []];
+    const panel = panels.find((item) => item.dataset.choiceId === choiceId || item.dataset.inputId === choiceId);
     panel?.classList.add("answered");
-    panel?.querySelectorAll("button, input").forEach((item) => item.disabled = true);
+    panel?.querySelectorAll("button, input, textarea").forEach((item) => item.disabled = true);
   },
 
   async copyCodeBlock(button) {
