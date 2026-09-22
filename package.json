@@ -27,7 +27,7 @@
     "check:session-stream": "node scripts/check-session-single-stream.mjs",
     "test:session-stream-check": "node --test scripts/check-session-single-stream.test.mjs",
     "embed:assets": "find static -mindepth 1 ! -name README.txt -exec rm -rf {} + && cp -R dist/. static/",
-    "build:binary": "bun run build && bun run embed:assets && CGO_ENABLED=0 go build -trimpath -ldflags \"-s -w -X main.version=v$(node -p 'require(\"./package.json\").version')\" -o dist/pi-web .",
+    "build:binary": "bun run build && bun run embed:assets && bun run prepare:file-viewer-assets && CGO_ENABLED=0 go build -trimpath -ldflags \"-s -w -X main.version=v$(node -p 'require(\"./package.json\").version')\" -o dist/pi-web .",
     "build:single": "bun run build:binary",
     "preview": "astro preview --host 0.0.0.0",
     "lint": "eslint .",

@@ -32,6 +32,18 @@ async function assetExists(path) {
   }
 }
 
+test('build:binary stages Office assets after embedding generated frontend assets', async () => {
+  const packageJson = JSON.parse(await readFile(join(projectRoot, 'package.json'), 'utf8'));
+  const buildBinary = packageJson.scripts?.['build:binary'] || '';
+  const embedIndex = buildBinary.indexOf('bun run embed:assets');
+  const prepareIndex = buildBinary.indexOf('bun run prepare:file-viewer-assets');
+  const goBuildIndex = buildBinary.indexOf('go build');
+
+  assert.ok(embedIndex >= 0, 'build:binary must embed frontend assets');
+  assert.ok(prepareIndex > embedIndex, 'Office assets must be staged after embed:assets');
+  assert.ok(goBuildIndex > prepareIndex, 'Go binary must be built after Office assets are staged');
+});
+
 test('stages only the Office renderer asset set and records verifiable hashes', async () => {
   const target = await mkdtemp(join(tmpdir(), 'pi-web-file-viewer-'));
 

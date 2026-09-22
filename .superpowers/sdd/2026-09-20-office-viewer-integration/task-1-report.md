@@ -60,3 +60,33 @@ $ bun run typecheck
 ```
 
 `lint` 和 `typecheck` 均以退出码 0 完成；Task 1 测试 7 个用例全部通过，覆盖原子交换/失败回滚、target safety、路径遍历、禁止资源及 manifest SHA-256 校验。
+
+## Task 1 fix round 2
+
+### 根因与修复
+
+review 指出 `build:single`/`build:binary` 在未显式执行 staging 时会静默生成不含 Office 资源的单二进制。原构建顺序为 `build → embed:assets → go build`，而 `embed:assets` 会清理并重建 `static/`，因此 staging 若未随后执行，Office 资源不会进入 Go embed 边界。
+
+- 将 `bun run prepare:file-viewer-assets` 放在 `embed:assets` 之后、`go build` 之前。
+- 增加构建顺序契约测试，锁定资源 staging 位于最终嵌入和 Go 编译之间。
+
+### TDD 红阶段证据
+
+```text
+$ bun test scripts/prepare-file-viewer-assets.test.mjs --test-name-pattern 'build:binary stages'
+FAIL build:binary stages Office assets after embedding generated frontend assets
+AssertionError: Office assets must be staged after embed:assets
+```
+
+### 验证
+
+```text
+$ bun test scripts/prepare-file-viewer-assets.test.mjs
+8 pass, 0 fail
+
+$ bun run lint
+$ bun run typecheck
+$ git diff --check
+```
+
+以上命令均以退出码 0 完成。
