@@ -1,5 +1,6 @@
 import { getWorkspaceFile, getWorkspaceFileAssetURL, getWorkspaceFileWatchURL, getWorkspaceGitDiff, saveWorkspaceFile } from "../../lib/api"
 import { fileDisplayKind, isHTMLPath, isMarkdownPath, previewStateKey } from "../../lib/file-preview-model";
+import { isOfficePreviewPath, mountOfficePreview } from "../../lib/office-preview";
 import { renderMarkdownBody } from "../../lib/renderers";
 import { CodeMirrorFileEditor, codeMirrorLanguageName, editableFileState, isTextFile } from "./file-editor";
 
@@ -68,6 +69,31 @@ export const filePreviewMethods = {
     updatePreviewActions(preview, state);
     if (file.previewKind === "loading") {
       body.textContent = "loading preview…";
+      return;
+    }
+    if (isOfficePreviewPath(file.path)) {
+      const host = document.createElement("div");
+      host.dataset.filePreviewOffice = "";
+      body.append(host);
+      const abortController = new AbortController();
+      state.officeAbortController = abortController;
+      void mountOfficePreview(host, {
+        workspaceId: state.workspaceId,
+        path: file.path,
+        version: file.version,
+      }, { signal: abortController.signal }).then((handle) => {
+        if (this.filePreview !== state || abortController.signal.aborted) {
+          handle.destroy();
+          return;
+        }
+        state.officeHandle = handle;
+        return handle.ready;
+      }).catch((error) => {
+        if (this.filePreview !== state || abortController.signal.aborted) return;
+        state.officeHandle?.destroy?.();
+        state.officeHandle = undefined;
+        renderOfficeError(body, error);
+      });
       return;
     }
     const kind = fileDisplayKind(file);
@@ -271,8 +297,14 @@ export const filePreviewMethods = {
   },
 
   destroyFilePreviewEditor() {
+    this.filePreview?.officeAbortController?.abort?.();
+    this.filePreview?.officeHandle?.destroy?.();
     this.filePreview?.editor?.destroy?.();
-    if (this.filePreview) this.filePreview.editor = undefined;
+    if (this.filePreview) {
+      this.filePreview.officeAbortController = undefined;
+      this.filePreview.officeHandle = undefined;
+      this.filePreview.editor = undefined;
+    }
   },
 
   hasDirtyFilePreview() {
@@ -480,6 +512,14 @@ function htmlPreviewNode(file) {
   frame.srcdoc = file.content || "";
   frame.title = file.path || "HTML preview";
   return frame;
+}
+
+function renderOfficeError(body, error) {
+  body.replaceChildren();
+  const message = document.createElement("div");
+  message.dataset.filePreviewError = "";
+  message.textContent = `Office 文件预览失败：${errorMessage(error)}`;
+  body.append(message);
 }
 
 function diffPreviewNode(diff) {

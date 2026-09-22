@@ -150,6 +150,18 @@
   border: 0;
   background: var(--bg-0);
 }
+.file-preview-panel [data-file-preview-office] {
+  width: 100%;
+  min-height: 520px;
+  height: 100%;
+}
+.file-preview-panel [data-file-preview-error] {
+  padding: 16px;
+  border: 1px solid var(--danger);
+  border-radius: var(--radius-1);
+  color: var(--danger);
+  background: var(--bg-0);
+}
 
 .session-stats-panel {
   position: absolute;

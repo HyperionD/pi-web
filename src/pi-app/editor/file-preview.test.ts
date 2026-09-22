@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import * as api from "../../lib/api";
+import * as officePreview from "../../lib/office-preview";
 import "../index";
 
 vi.mock("../../lib/api", async () => {
@@ -12,6 +13,11 @@ vi.mock("../../lib/api", async () => {
   };
 });
 
+vi.mock("../../lib/office-preview", async () => {
+  const actual = await vi.importActual<typeof import("../../lib/office-preview")>("../../lib/office-preview");
+  return { ...actual, mountOfficePreview: vi.fn() };
+});
+
 function mountPreview() {
   document.body.innerHTML = `
     <pi-app data-active-workspace-id="workspace-1">
@@ -22,6 +28,7 @@ function mountPreview() {
             <div class="fp-actions">
               <div class="fp-save-slot"><button type="button" data-action="save-file-preview" hidden>save</button></div>
               <div class="fp-mode-actions">
+                <button type="button" data-action="download-file-preview">download</button>
                 <button type="button" data-action="toggle-file-preview-mode" hidden>text</button>
                 <button type="button" data-action="close-file-preview">×</button>
               </div>
@@ -70,6 +77,50 @@ describe("file preview CodeMirror editor", () => {
     expect(app.querySelector("[data-file-preview-editor]")).toBeFalsy();
     expect(app.querySelector("[data-action='toggle-file-preview-mode']").textContent).toBe("文本");
     expect(app.querySelector("[data-action='save-file-preview']").hidden).toBe(true);
+  });
+
+  it("routes Office files to the lazy viewer and destroys it on file switch", async () => {
+    const app = mountPreview();
+    const destroy = vi.fn();
+    vi.mocked(officePreview.mountOfficePreview).mockResolvedValue({ ready: Promise.resolve(), destroy });
+
+    app.renderFilePreview({ path: "docs/report.docx", mime: "application/vnd.openxmlformats-officedocument.wordprocessingml.document", previewKind: "unsupported" });
+    await Promise.resolve();
+    expect(app.querySelector("[data-file-preview-office]")).toBeTruthy();
+    expect(officePreview.mountOfficePreview).toHaveBeenCalledWith(
+      expect.any(HTMLElement),
+      expect.objectContaining({ workspaceId: "workspace-1", path: "docs/report.docx" }),
+      expect.any(Object),
+    );
+
+    app.renderFilePreview({ path: "README.md", mime: "text/markdown", previewKind: "text", content: "# readme" });
+    expect(destroy).toHaveBeenCalledOnce();
+  });
+
+  it("shows a download-friendly error when the Office viewer cannot load", async () => {
+    const app = mountPreview();
+    vi.mocked(officePreview.mountOfficePreview).mockRejectedValueOnce(new Error("worker missing"));
+
+    app.renderFilePreview({ path: "report.xlsx", previewKind: "unsupported" });
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(app.querySelector("[data-file-preview-error]")?.textContent).toContain("worker missing");
+    expect(app.querySelector("[data-action='download-file-preview']")).toBeTruthy();
+  });
+
+  it("destroys a stale Office handle when mounting finishes after a file switch", async () => {
+    const app = mountPreview();
+    let resolveMount!: (handle: { ready: Promise<void>; destroy: () => void }) => void;
+    const destroy = vi.fn();
+    vi.mocked(officePreview.mountOfficePreview).mockReturnValueOnce(new Promise((resolve) => { resolveMount = resolve; }));
+
+    app.renderFilePreview({ path: "report.pptx", previewKind: "unsupported" });
+    app.renderFilePreview({ path: "README.md", mime: "text/markdown", previewKind: "text", content: "# readme" });
+    resolveMount({ ready: Promise.resolve(), destroy });
+    await Promise.resolve();
+
+    expect(destroy).toHaveBeenCalledOnce();
   });
 
   it("keeps the mode toggle beside the close button", () => {
