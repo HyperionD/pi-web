@@ -141,7 +141,7 @@ export function downloadWorkspaceFile(
 ): Promise<{ blob: Blob; filename: string }> {
   return transferRequest<Blob>(
     "GET",
-    `/api/workspaces/${encodeURIComponent(workspaceId)}/files/raw?path=${encodeURIComponent(path)}`,
+    `/api/workspaces/${encodeURIComponent(workspaceId)}/files/raw?path=${encodeURIComponent(path)}&download=1`,
     { responseType: "blob", onProgress },
   ).then(({ response, xhr }) => ({ blob: response, filename: transferFilename(xhr, path) }));
 }

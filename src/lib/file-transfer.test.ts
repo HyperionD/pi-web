@@ -203,6 +203,9 @@ describe("file transfer transport", () => {
     };
 
     await expect(downloadWorkspaceFile("w1", "docs/hello.txt", progress)).resolves.toEqual({ blob, filename: "hello.txt" });
+    expect(FakeXMLHttpRequest.instances[0].url).toBe(
+      "http://backend.test/api/workspaces/w1/files/raw?path=docs%2Fhello.txt&download=1",
+    );
     expect(progress).toHaveBeenCalledWith(8, 20);
     expect(FakeXMLHttpRequest.instances[0].responseType).toBe("blob");
   });

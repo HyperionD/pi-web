@@ -279,12 +279,30 @@ export function saveWorkspaceSettings(workspaceId, scope, settings, location = u
   });
 }
 
-export function getWorkspaceFile(workspaceId, path) {
-  return request(`/api/workspaces/${encodeURIComponent(workspaceId)}/files/read?path=${encodeURIComponent(path)}`);
+export function getWorkspaceFile(workspaceId, path, offset = 0, limit = 256 * 1024) {
+  const query = [`path=${encodeURIComponent(path)}`];
+  if (offset > 0) query.push(`offset=${encodeURIComponent(offset)}`);
+  if (limit !== 256 * 1024) query.push(`limit=${encodeURIComponent(limit)}`);
+  return request(`/api/workspaces/${encodeURIComponent(workspaceId)}/files/read?${query.join("&")}`);
 }
 
-export function getWorkspaceFileAssetURL(workspaceId, path) {
-  return `${apiBase()}/api/workspaces/${encodeURIComponent(workspaceId)}/files/raw?path=${encodeURIComponent(path)}`;
+export function getWorkspaceFileAssetURL(workspaceId, path, options: { download?: boolean; cacheKey?: string } = {}) {
+  const query = [`path=${encodeURIComponent(path)}`];
+  if (options.download) query.push("download=1");
+  if (options.cacheKey) query.push(`v=${encodeURIComponent(options.cacheKey)}`);
+  return `${apiBase()}/api/workspaces/${encodeURIComponent(workspaceId)}/files/raw?${query.join("&")}`;
+}
+
+export function getWorkspaceFileWatchURL(workspaceId, path) {
+  return `${apiBase()}/api/workspaces/${encodeURIComponent(workspaceId)}/files/watch?path=${encodeURIComponent(path)}`;
+}
+
+export function getWorkspaceFileList(workspaceId, path = "") {
+  return request(`/api/workspaces/${encodeURIComponent(workspaceId)}/files/list?path=${encodeURIComponent(path)}`);
+}
+
+export function getWorkspaceGitDiff(workspaceId, path) {
+  return request(`/api/workspaces/${encodeURIComponent(workspaceId)}/git/diff?path=${encodeURIComponent(path)}`);
 }
 
 export function saveWorkspaceFile(workspaceId, path, content) {

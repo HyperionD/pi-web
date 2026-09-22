@@ -17,6 +17,10 @@ import {
   setSessionModel,
   getWorkspaceCommands,
   getWorkspaceFile,
+  getWorkspaceFileAssetURL,
+  getWorkspaceFileList,
+  getWorkspaceFileWatchURL,
+  getWorkspaceGitDiff,
   getWorkspaceFiles,
   getWorkspaceModels,
   getWorkspaceRuntimeModel,
@@ -203,6 +207,21 @@ describe("api adapter", () => {
     expect(saved.url).toBe("http://backend.test/api/workspaces/w1/files/write?path=src%2Fmain.go");
     expect(saved.options.method).toBe("PUT");
     expect(JSON.parse(saved.options.body)).toEqual({ content: "package main" });
+  });
+
+  it("builds chunked preview, list, watch, diff, and download URLs", async () => {
+    const chunk = await getWorkspaceFile("w/1", "docs/read me.md", 262144);
+    expect(chunk.url).toBe("http://backend.test/api/workspaces/w%2F1/files/read?path=docs%2Fread%20me.md&offset=262144");
+    const list = await getWorkspaceFileList("w/1", "docs");
+    expect(list.url).toBe("http://backend.test/api/workspaces/w%2F1/files/list?path=docs");
+    expect(getWorkspaceFileWatchURL("w/1", "docs/read me.md")).toBe(
+      "http://backend.test/api/workspaces/w%2F1/files/watch?path=docs%2Fread%20me.md",
+    );
+    expect(getWorkspaceFileAssetURL("w/1", "report.pdf", { download: true, cacheKey: "2" })).toBe(
+      "http://backend.test/api/workspaces/w%2F1/files/raw?path=report.pdf&download=1&v=2",
+    );
+    const diff = await getWorkspaceGitDiff("w/1", "src/main.go");
+    expect(diff.url).toBe("http://backend.test/api/workspaces/w%2F1/git/diff?path=src%2Fmain.go");
   });
 
   it("uploads workspace files as multipart without overriding Content-Type", async () => {
