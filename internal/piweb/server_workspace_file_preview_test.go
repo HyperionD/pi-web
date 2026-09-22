@@ -67,6 +67,44 @@ func TestWorkspaceFileListEndpointReturnsJSONEntries(t *testing.T) {
 	}
 }
 
+func TestWorkspaceOfficeFileAssetUsesInlineMimeAndSafeHeaders(t *testing.T) {
+	t.Setenv("PI_CODING_AGENT_SESSION_DIR", t.TempDir())
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "report.docx"), []byte("office-bytes"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	store := NewWebStore(filepath.Join(t.TempDir(), "web.db"))
+	workspace, err := store.OpenWorkspace(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	saveAllowedRootsForTest(t, root)
+	server := NewServer(Config{}, store, NewBroker())
+
+	request := httptest.NewRequest(http.MethodGet, "/api/workspaces/"+workspace.ID+"/files/raw?path=report.docx", nil)
+	response := httptest.NewRecorder()
+	server.Handler().ServeHTTP(response, request)
+	if response.Code != http.StatusOK || response.Body.String() != "office-bytes" {
+		t.Fatalf("office response = %d %q", response.Code, response.Body.String())
+	}
+	if response.Header().Get("Content-Type") != "application/vnd.openxmlformats-officedocument.wordprocessingml.document" {
+		t.Fatalf("content type = %q", response.Header().Get("Content-Type"))
+	}
+	if !strings.HasPrefix(response.Header().Get("Content-Disposition"), "inline") || response.Header().Get("X-Content-Type-Options") != "nosniff" {
+		t.Fatalf("unsafe office headers: %#v", response.Header())
+	}
+	if response.Header().Get("Content-Length") != "12" || response.Header().Get("Accept-Ranges") != "bytes" {
+		t.Fatalf("missing office transport headers: %#v", response.Header())
+	}
+
+	traversal := httptest.NewRequest(http.MethodGet, "/api/workspaces/"+workspace.ID+"/files/raw?path=../report.docx", nil)
+	traversalResponse := httptest.NewRecorder()
+	server.Handler().ServeHTTP(traversalResponse, traversal)
+	if traversalResponse.Code != http.StatusForbidden && traversalResponse.Code != http.StatusBadRequest {
+		t.Fatalf("traversal response = %d", traversalResponse.Code)
+	}
+}
+
 func TestWorkspaceFileAssetSupportsRangeAndDownloadDisposition(t *testing.T) {
 	t.Setenv("PI_CODING_AGENT_SESSION_DIR", t.TempDir())
 	root := t.TempDir()
