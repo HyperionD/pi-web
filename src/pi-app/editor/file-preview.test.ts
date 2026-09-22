@@ -7,6 +7,7 @@ vi.mock("../../lib/api", async () => {
   return {
     ...actual,
     getWorkspaceFile: vi.fn(),
+    getWorkspaceGitDiff: vi.fn(),
     saveWorkspaceFile: vi.fn(),
   };
 });
@@ -50,6 +51,7 @@ describe("file preview CodeMirror editor", () => {
 
   afterEach(() => {
     vi.restoreAllMocks();
+    localStorage.clear();
     document.body.innerHTML = "";
   });
 
@@ -112,6 +114,50 @@ describe("file preview CodeMirror editor", () => {
     });
 
     expect(app.querySelector(".fp-body.markdown-body img")?.getAttribute("src")).toBe("https://example.com/logo.png");
+  });
+
+  it("loads a Git diff view for a previewed file", async () => {
+    const app = mountPreview();
+    vi.mocked(api.getWorkspaceGitDiff).mockResolvedValue({ diff: "-old\\n+new" });
+    app.renderFilePreview({ path: "src/app.ts", mime: "text/plain", previewKind: "text", content: "new", originalContent: "old" });
+
+    await app.toggleFilePreviewDiff();
+
+    expect(api.getWorkspaceGitDiff).toHaveBeenCalledWith("workspace-1", "src/app.ts");
+    expect(app.filePreview.mode).toBe("diff");
+    expect(app.querySelector(".fp-body pre")?.textContent).toBe("-old\\n+new");
+  });
+
+  it("opens relative Markdown file links in the active workspace", async () => {
+    const app = mountPreview();
+    vi.mocked(api.getWorkspaceFile).mockResolvedValueOnce({
+      path: "docs/guide.md",
+      mime: "text/markdown",
+      previewKind: "text",
+      content: "# Guide",
+    });
+    app.renderFilePreview({
+      path: "README.md",
+      mime: "text/markdown",
+      previewKind: "text",
+      content: "[Guide](docs/guide.md)",
+    });
+
+    const link = app.querySelector<HTMLAnchorElement>(".fp-body.markdown-body a");
+    expect(link).toBeTruthy();
+    link!.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
+    await Promise.resolve();
+
+    expect(api.getWorkspaceFile).toHaveBeenCalledWith("workspace-1", "docs/guide.md");
+  });
+
+  it("restores the selected preview mode from local storage", () => {
+    const app = mountPreview();
+    localStorage.setItem("pi-web:file-preview:workspace-1:README.md", JSON.stringify({ mode: "text" }));
+    app.renderFilePreview({ path: "README.md", mime: "text/markdown", previewKind: "text", content: "# Hello" });
+
+    expect(app.filePreview.mode).toBe("text");
+    expect(app.querySelector("[data-file-preview-editor] .cm-editor")).toBeTruthy();
   });
 
   it("switches Markdown between rendered preview and text editing", () => {

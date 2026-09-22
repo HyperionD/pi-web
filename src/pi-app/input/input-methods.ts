@@ -379,6 +379,7 @@ export const inputMethods = {
     if (action === "open-file") this.openFile(actionTarget);
     if (action === "close-file-preview") this.closeFilePreview();
     if (action === "download-file-preview") this.downloadFilePreview?.();
+    if (action === "toggle-file-preview-diff") void this.toggleFilePreviewDiff?.();
     if (action === "toggle-file-preview-mode") this.toggleFilePreviewMode();
     if (action === "save-file-preview") this.saveFilePreview();
     if (action === "collapse-sidebar") this.collapseSidebar(true);
