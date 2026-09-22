@@ -22,6 +22,71 @@ func SafeJoin(root, rel string) (string, error) {
 	return full, nil
 }
 
+type GitFileDiffResult struct {
+	Supported bool   `json:"supported"`
+	Status    string `json:"status"`
+	Patch     string `json:"patch,omitempty"`
+}
+
+func GitFileDiff(root, rel string) (GitFileDiffResult, error) {
+	cleanRel, err := safeGitRelativePath(root, rel)
+	if err != nil {
+		return GitFileDiffResult{}, err
+	}
+	if _, err := exec.Command("git", "-C", root, "rev-parse", "--show-toplevel").Output(); err != nil {
+		return GitFileDiffResult{Supported: false, Status: "clean"}, nil
+	}
+	statusBytes, err := exec.Command("git", "-C", root, "status", "--porcelain=v1", "-z", "--", cleanRel).Output()
+	if err != nil {
+		return GitFileDiffResult{}, err
+	}
+	status := "clean"
+	if len(statusBytes) >= 2 {
+		status = gitStatusKind(string(statusBytes[:2]))
+	}
+	if status == "clean" {
+		return GitFileDiffResult{Supported: true, Status: status}, nil
+	}
+	var patch []byte
+	if status == "untracked" {
+		full, err := SafeJoin(root, cleanRel)
+		if err != nil {
+			return GitFileDiffResult{}, err
+		}
+		patch, err = gitDiffCommand(root, "--no-index", "--", "/dev/null", full)
+	} else {
+		patch, err = gitDiffCommand(root, "HEAD", "--", cleanRel)
+	}
+	if err != nil {
+		return GitFileDiffResult{}, err
+	}
+	return GitFileDiffResult{Supported: true, Status: status, Patch: string(patch)}, nil
+}
+
+func safeGitRelativePath(root, rel string) (string, error) {
+	full, err := SafeJoin(root, rel)
+	if err != nil {
+		return "", err
+	}
+	cleanRel, err := filepath.Rel(filepath.Clean(root), full)
+	if err != nil {
+		return "", err
+	}
+	return filepath.ToSlash(cleanRel), nil
+}
+
+func gitDiffCommand(root string, args ...string) ([]byte, error) {
+	commandArgs := append([]string{"-C", root, "diff", "--no-ext-diff", "--no-color"}, args...)
+	output, err := exec.Command("git", commandArgs...).CombinedOutput()
+	if err == nil {
+		return output, nil
+	}
+	if exitErr, ok := err.(*exec.ExitError); ok && exitErr.ExitCode() == 1 {
+		return output, nil
+	}
+	return nil, err
+}
+
 func GitOriginalFileContent(root, rel string) (string, string) {
 	cleanRel := filepath.ToSlash(filepath.Clean(strings.TrimPrefix(rel, "/")))
 	if cleanRel == "." || cleanRel == "" {

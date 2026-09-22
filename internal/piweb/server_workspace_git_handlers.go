@@ -13,6 +13,20 @@ func (s *Server) gitStatus(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, http.StatusOK, status)
 }
+func (s *Server) gitDiff(w http.ResponseWriter, r *http.Request) {
+	root, err := s.store.WorkspacePath(r.PathValue("workspaceID"))
+	if err != nil {
+		writeStoreError(w, err)
+		return
+	}
+	diff, err := GitFileDiff(root, r.URL.Query().Get("path"))
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, diff)
+}
+
 func (s *Server) gitHistory(w http.ResponseWriter, r *http.Request) {
 	root, err := s.store.WorkspacePath(r.PathValue("workspaceID"))
 	if err != nil {
