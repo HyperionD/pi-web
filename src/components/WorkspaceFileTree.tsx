@@ -4,6 +4,7 @@ import {
   createWorkspaceFile,
   deleteWorkspaceFile,
   downloadWorkspaceFile,
+  getWorkspaceFileList,
   renameWorkspaceFile,
   searchWorkspaceFiles,
   uploadWorkspaceFile,
@@ -42,11 +43,15 @@ export default function WorkspaceFileTree({ initialFiles = [], initialStatusMap 
   const transferTimer = useRef<number | null>(null);
   const mounted = useRef(true);
   const transferGeneration = useRef(0);
+  const loadingDirectories = useRef(new Set<string>());
+  const loadedDirectories = useRef(new Set<string>());
 
   useEffect(() => {
     const onUpdate = (event: Event) => {
       const detail = (event as CustomEvent<WorkspaceTreeUpdate>).detail || {};
       setFiles(detail.files || []);
+      loadingDirectories.current.clear();
+      loadedDirectories.current.clear();
       setStatusMap(detail.statusMap || {});
       setSelectedPath(detail.selectedPath || "");
     };
@@ -165,6 +170,8 @@ export default function WorkspaceFileTree({ initialFiles = [], initialStatusMap 
                   else next.add(id);
                   return next;
                 });
+                const node = findRawNode(files, id);
+                if (node?.type === "dir" && !node.children) void loadDirectory(id);
               }}
             >
               {FileTreeRow}
@@ -192,6 +199,26 @@ export default function WorkspaceFileTree({ initialFiles = [], initialStatusMap 
       </div>
     </TreeContext.Provider>
   );
+
+  async function loadDirectory(path: string) {
+    const workspaceId = activeWorkspaceId();
+    if (!workspaceId || loadingDirectories.current.has(path) || loadedDirectories.current.has(path)) return;
+    loadingDirectories.current.add(path);
+    try {
+      const result = await getWorkspaceFileList(workspaceId, path);
+      const children: RawFileNode[] = (result.entries || []).map((entry: { name: string; path: string; type: string }) => ({
+        name: entry.name,
+        path: entry.path,
+        type: entry.type === "dir" ? "dir" : "file",
+      }));
+      setFiles((current) => path ? mergeDirectoryChildren(current, path, children) : children);
+      loadedDirectories.current.add(path);
+    } catch (error) {
+      showTemporaryError(error);
+    } finally {
+      loadingDirectories.current.delete(path);
+    }
+  }
 
   async function runAction(action: string, target: MenuTarget) {
     setMenu(null);
@@ -460,6 +487,22 @@ function fileTreeSearchMatch(node: FileTreeNode, term: string, contentMatches: R
   return Boolean(
     query && (node.path.toLowerCase().includes(query) || node.name.toLowerCase().includes(query) || contentMatches.has(node.path)),
   );
+}
+
+function findRawNode(nodes: RawFileNode[], path: string): RawFileNode | undefined {
+  for (const node of nodes) {
+    if ((node.path || node.name) === path) return node;
+    const nested = node.children && findRawNode(node.children, path);
+    if (nested) return nested;
+  }
+  return undefined;
+}
+
+function mergeDirectoryChildren(nodes: RawFileNode[], path: string, children: RawFileNode[]): RawFileNode[] {
+  return nodes.map((node) => {
+    if ((node.path || node.name) === path) return { ...node, children };
+    return node.children ? { ...node, children: mergeDirectoryChildren(node.children, path, children) } : node;
+  });
 }
 
 function showTemporaryError(error: unknown) {
