@@ -37,7 +37,6 @@ export const filePreviewMethods = {
     this.closeGitDetail?.(false);
     this.closeFilePreviewWatch?.();
     this.destroyFilePreviewEditor?.();
-    preview.hidden = false;
     this.toggleFilePreviewPanel?.(true);
     const workspaceId = this.dataset.activeWorkspaceId;
     const savedState = readPreviewState(workspaceId, file.path);

@@ -104,7 +104,7 @@ describe("pi-app transcript virtualization", () => {
       .toContain("new user message");
   });
 
-  it("keeps the streaming assistant text node stable between durable deltas", async () => {
+  it("renders assistant markdown between durable deltas", async () => {
     const app = await connectPiApp();
     app.durableEvents = true;
     app.dataset.activeSessionId = "s1";
@@ -119,19 +119,56 @@ describe("pi-app transcript virtualization", () => {
       payload: { kind: "pi" },
     });
     const body = app.querySelector(".transcript-item .body");
-    const initialChild = body.firstChild;
 
     app.applyDurableEvent({
       seq: "2",
       sessionId: "s1",
       type: "assistant.segment.delta",
       entityId: "assistant:run-1:1",
-      payload: { kind: "pi", delta: "summary" },
+      payload: { kind: "pi", delta: "**summary**" },
     });
     await new Promise((resolve) => requestAnimationFrame(resolve));
 
-    expect(body.firstChild).toBe(initialChild);
+    expect(body.querySelector("strong").textContent).toBe("summary");
     expect(body.textContent).toBe("summary");
+  });
+
+  it("shows output rate for durable assistant deltas", async () => {
+    const app = await connectPiApp();
+    app.durableEvents = true;
+    app.dataset.activeSessionId = "s1";
+    app.transcriptState = emptyTranscriptState("s1");
+    app.renderDurableTranscript();
+
+    app.applyDurableEvent({
+      seq: "1",
+      sessionId: "s1",
+      type: "assistant.segment.started",
+      entityId: "assistant:run-1:1",
+      payload: { kind: "pi" },
+    });
+    const clock = vi.spyOn(Date, "now").mockReturnValue(1000);
+
+    app.applyDurableEvent({
+      seq: "2",
+      sessionId: "s1",
+      type: "assistant.segment.delta",
+      entityId: "assistant:run-1:1",
+      payload: { kind: "pi", delta: "a".repeat(100) },
+    });
+    app.flushDurableTranscriptRender();
+    clock.mockReturnValue(2000);
+    app.applyDurableEvent({
+      seq: "3",
+      sessionId: "s1",
+      type: "assistant.segment.delta",
+      entityId: "assistant:run-1:1",
+      payload: { kind: "pi", delta: "b".repeat(100) },
+    });
+    app.flushDurableTranscriptRender();
+
+    expect(app.querySelector("[data-output-rate]").textContent).toBe("50.0 t/s");
+    clock.mockRestore();
   });
 
   it("keeps the streaming thinking text node stable between durable deltas", async () => {

@@ -22,6 +22,7 @@ import SettingsDialog from "./components/SettingsDialog.astro";
 import SkillManager from "./components/SkillManager.astro";
 import PromptPresetManager from "./components/PromptPresetManager.astro";
 import AccountNav from "./components/AccountNav.astro";
+import UserManagement from "./components/UserManagement.astro";
 import { escapeHtml, renderBannerBody, renderPiBody, renderUserBody } from "./lib/renderers";
 import { formatToolArgs, toolIconHtml } from "./pi-app/messages/tool-message-methods";
 import { isLargeToolBody, renderToolBody } from "./pi-app/messages/tool-output-rendering";
@@ -54,8 +55,6 @@ const sessionHidden = !sessionVisible;
 const emptyHidden = !emptyVisible;
 const compactionHidden = !showCompaction;
 const treeHidden = !treeOpen;
-const statusColor = showDisconnect ? "var(--danger)" : "var(--fg-3)";
-const statusTitle = showDisconnect ? "已断开连接" : "连接中";
 
 function toolStatus(msg) {
   if (msg.status === "running") return `${TERMINAL_SPINNER_HTML}<span style="color:var(--accent)">running</span>`;
@@ -68,7 +67,7 @@ function toolStatus(msg) {
 <pi-app class="app" data-route="workspace" data-tree={treeOpen ? "on" : "off"} data-sidebar={sidebarCollapsed ? "collapsed" : "open"} data-session={emptyVisible ? "empty" : "active"} data-active-session-id={activeSessionID} data-active-workspace-id={activeWorkspaceID}>
   <header class="topbar">
     <button class="sb-expand-btn" type="button" data-action="expand-sidebar" aria-label="显示侧栏" style={sidebarCollapsed ? "display:inline-flex" : "display:none"}><ChevronRight size={16} strokeWidth={1.75} aria-hidden="true" /></button>
-    <button class="hamburger" type="button" data-action="open-drawer" aria-label="打开侧栏"><Menu size={16} strokeWidth={1.75} aria-hidden="true" /></button>
+    <button class="hamburger" type="button" data-action="open-drawer" aria-label="打开侧栏" aria-expanded="false"><Menu size={16} strokeWidth={1.75} aria-hidden="true" /></button>
     <span class="brand" aria-label="pi.dev / web">
       <span data-brand>pi.dev / web</span><span class="cursor-block"></span>
     </span>
@@ -78,7 +77,6 @@ function toolStatus(msg) {
     </span>
     <div class="actions">
       <AccountNav />
-      <span class="iconbtn statusbtn" style={`color:${statusColor}`} title={statusTitle}>●</span>
     </div>
   </header>
 
@@ -101,11 +99,13 @@ function toolStatus(msg) {
           <div class="sb-head"><span>工作区</span><span class="sb-head-actions"><button class="add" type="button" data-action="route-picker" aria-haspopup="dialog" aria-expanded="false"><Plus size={12} strokeWidth={1.75} aria-hidden="true" /> 打开</button><button class="refresh" type="button" data-action="refresh-workspaces" title="刷新工作区" aria-label="刷新工作区"><RefreshCw size={12} strokeWidth={1.75} aria-hidden="true" /></button><button class="sb-collapse" type="button" data-action="collapse-sidebar" title="收起侧栏" aria-label="收起侧栏"><ChevronLeft size={14} strokeWidth={1.75} aria-hidden="true" /></button></span></div>
           {workspaces.map((workspace) => {
             const isActiveWorkspace = workspace.id === activeWorkspaceID;
+            const hasActiveSession = (workspace.sessions || []).some((session) => session.active || session.live);
+            const isWorkspaceRunning = Boolean(workspace.live || hasActiveSession);
             return (
-              <div class="workspace-group" data-workspace-group={workspace.id}>
+              <div class:list={["workspace-group", isActiveWorkspace && "open"]} data-workspace-group={workspace.id}>
                 <button type="button" class:list={["ws-row", isActiveWorkspace && "open"]} data-action="toggle-workspace" data-workspace={workspace.id} aria-expanded={isActiveWorkspace ? "true" : "false"}>
-                  <span class="ws-stack"><span class="ws-name"><span class:list={["dot", workspace.live && "live"]}></span><span class="label">{workspace.name}</span></span><span class="ws-path">{workspace.path}</span></span>
-                  <span class="ws-meta">{workspace.sessionCount}</span>
+                  <span class="ws-stack"><span class="ws-name"><span class="label">{workspace.name}</span></span><span class="ws-path">{workspace.path}</span></span>
+                  <span class="ws-meta"><span class="ws-count">{workspace.sessionCount}</span><span class="ws-count-label">个会话</span><span class="ws-status" hidden={!isWorkspaceRunning}>运行中</span></span>
                 </button>
                 <div class="sessions" hidden={!isActiveWorkspace}>
                   {(workspace.sessions || []).map((session) => (
@@ -136,8 +136,8 @@ function toolStatus(msg) {
         </aside>
         <div class="sb-footer">
           <div class="sb-footer-status">
-            <span class="status-dot"></span><span>连接中</span>
-            <span class="sb-footer-actions"><a href="/users" data-account-admin hidden title="用户管理" aria-label="用户管理"><Users size={14} strokeWidth={1.75} aria-hidden="true" /></a><button class="sb-prompt-presets" type="button" data-action="open-prompt-presets" title="预设提示词" aria-label="打开预设提示词设置"><Sparkles size={14} strokeWidth={1.75} aria-hidden="true" /></button><button class="sb-skill-manager" type="button" data-action="open-skill-manager" title="技能管理" aria-label="打开技能管理" disabled={!activeWorkspaceID}><Puzzle size={14} strokeWidth={1.75} aria-hidden="true" /></button><button class="sb-settings" type="button" data-action="open-settings" title="设置" aria-label="打开设置"><Settings size={14} strokeWidth={1.75} aria-hidden="true" /></button></span>
+            <span class="status-dot" data-connection-status-dot data-status="reconnecting" aria-hidden="true"></span><span data-connection-status-label aria-live="polite">连接中</span>
+            <span class="sb-footer-actions"><button type="button" class="sb-account-admin" data-account-admin hidden title="用户管理" aria-label="用户管理" aria-haspopup="dialog"><Users size={14} strokeWidth={1.75} aria-hidden="true" /></button><button class="sb-prompt-presets" type="button" data-action="open-prompt-presets" title="预设提示词" aria-label="打开预设提示词设置"><Sparkles size={14} strokeWidth={1.75} aria-hidden="true" /></button><button class="sb-skill-manager" type="button" data-action="open-skill-manager" title="技能管理" aria-label="打开技能管理" disabled={!activeWorkspaceID}><Puzzle size={14} strokeWidth={1.75} aria-hidden="true" /></button><button class="sb-settings" type="button" data-action="open-settings" title="设置" aria-label="打开设置"><Settings size={14} strokeWidth={1.75} aria-hidden="true" /></button></span>
           </div>
         </div>
       </aside>
@@ -152,7 +152,7 @@ function toolStatus(msg) {
             msg.kind === "banner" ? <pre class="ascii-banner" set:html={renderBannerBody(msg.text)}></pre> :
             msg.kind === "user" ? <div class="msg"><div class="prefix user">您 &gt;</div><div class="body markdown-body" set:html={renderUserBody(msg.text)}></div></div> :
             msg.kind === "think" ? <div class="msg"><div class="prefix think">—</div><div class="body" style="flex:1"><div class="thinking-block"><span class="label">thinking</span>{msg.text}</div></div></div> :
-            msg.kind === "pi" ? <div class="msg"><div class="prefix pi">agent &gt;</div><div class="body markdown-body" set:html={renderPiBody(msg.text)}></div></div> :
+            msg.kind === "pi" ? <div class="msg" data-raw-text={msg.text}><div class="prefix pi">agent &gt;</div><div class="body markdown-body" set:html={renderPiBody(msg.text)}></div></div> :
             msg.kind === "tool" ? <div class="tool-card" data-tool={msg.tool} data-tool-call-id={msg.id || undefined} data-status={msg.status || ""}>
               <div class="tc-head">
                 <span class="tc-glyph" set:html={toolIconHtml(msg)}></span><span class="tc-name">{msg.tool}</span><span class="tc-args">{formatToolArgs(msg.tool, msg.args)}</span><span class="tc-meta" set:html={toolStatus(msg)}></span>
@@ -173,7 +173,7 @@ function toolStatus(msg) {
 
     <div class="file-preview-panel" data-file-preview hidden>
       <div class="fp-resizer" role="separator" aria-orientation="vertical" aria-label="调整文件预览大小" aria-valuemin="320" aria-valuemax="720" aria-valuenow="560" title="拖动以调整大小"></div>
-      <div class="fp-dialog" role="region" aria-labelledby="file-preview-title">
+      <div class="fp-dialog" role="dialog" aria-modal="true" aria-labelledby="file-preview-title" tabindex="-1">
         <div class="fp-head">
           <div><strong id="file-preview-title" class="fp-path">文件</strong><small></small></div>
           <div class="fp-actions"><div class="fp-save-slot"><button type="button" data-action="save-file-preview" hidden>保存</button></div><div class="fp-mode-actions"><button type="button" data-action="download-file-preview" aria-label="下载文件预览" title="下载">下载</button><button type="button" data-action="toggle-file-preview-diff" hidden>Diff</button><button type="button" data-action="toggle-file-preview-mode" hidden aria-label="切换文件预览模式">预览</button><button type="button" data-action="close-file-preview" aria-label="关闭文件预览"><X size={14} strokeWidth={1.75} aria-hidden="true" /></button></div></div>
@@ -181,9 +181,12 @@ function toolStatus(msg) {
         <div class="fp-body"></div>
       </div>
     </div>
-    <aside class="git-detail-panel" data-git-detail-panel aria-label="Git 提交详情" hidden>
-      <div class="fp-resizer" role="separator" aria-orientation="vertical" aria-label="调整 Git 详情大小" aria-valuemin="320" aria-valuemax="720" aria-valuenow="560" title="拖动以调整大小"></div>
-    </aside>
+    <dialog class="user-management-dialog" data-user-management-dialog aria-labelledby="user-management-dialog-title">
+      <UserManagement embedded />
+    </dialog>
+    <div class="git-detail-panel" data-git-detail-panel hidden>
+      <div class="git-detail-dialog" role="dialog" aria-modal="true" aria-label="Git 提交详情" tabindex="-1"></div>
+    </div>
   <div class="prompt-region">
     <section class="session-stats-panel" data-session-stats role="dialog" aria-labelledby="session-stats-title" hidden>
       <div class="session-stats-head">

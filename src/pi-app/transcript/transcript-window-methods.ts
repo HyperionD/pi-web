@@ -152,6 +152,7 @@ export const transcriptWindowMethods = {
     this.streamingTail?.replaceChildren();
     this.streamingRows = {};
     this.loadingMessage = undefined;
+    this.resetOutputRate?.();
   },
 
   resetTranscriptWindow() {

@@ -263,8 +263,10 @@ describe("durable session transport", () => {
     expect(app.querySelectorAll(".msg[data-kind='user']")).toHaveLength(1);
     source.dispatch("session.event", { seq: "2", sessionId: "s1", runId: "run-2", type: "run.started", payload: {} });
     source.dispatch("session.event", { seq: "3", sessionId: "s1", runId: "run-2", type: "assistant.segment.started", entityId: "assistant:run-2:1", payload: { kind: "pi" } });
-    source.dispatch("session.event", { seq: "4", sessionId: "s1", runId: "run-2", type: "assistant.segment.delta", entityId: "assistant:run-2:1", payload: { kind: "pi", delta: "answer" } });
-    source.dispatch("session.event", { seq: "5", sessionId: "s1", runId: "run-2", type: "assistant.segment.committed", entityId: "assistant:run-2:1", payload: { kind: "pi", text: "answer" } });
+    source.dispatch("session.event", { seq: "4", sessionId: "s1", runId: "run-2", type: "assistant.segment.delta", entityId: "assistant:run-2:1", payload: { kind: "pi", delta: "**answer**" } });
+    await new Promise((resolve) => requestAnimationFrame(resolve));
+    expect(app.querySelector(".msg[data-kind='pi'] .body strong").textContent).toBe("answer");
+    source.dispatch("session.event", { seq: "5", sessionId: "s1", runId: "run-2", type: "assistant.segment.committed", entityId: "assistant:run-2:1", payload: { kind: "pi", text: "**answer**" } });
     source.dispatch("session.event", { seq: "6", sessionId: "s1", runId: "run-2", type: "run.finished", payload: {} });
 
     expect(app.querySelector(".msg[data-kind='pi'] .body").textContent).toContain("answer");

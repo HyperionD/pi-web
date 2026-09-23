@@ -8,6 +8,7 @@ import {
 } from "../input/fallback-choices";
 import { TERMINAL_SPINNER_HTML } from "../constants";
 import { createTranscriptStateFromMessages } from "../sessions/transcript-state";
+import { calculateOutputRate, estimateIncrementalOutputTokens, type OutputTokenEstimate } from "./output-rate";
 
 function responseErrorText(detail) {
   if (typeof detail === "string") return detail.trim();
@@ -51,6 +52,9 @@ export const messageMethods = {
   appendMessage(message) {
     if (!this.termInner || !message) return;
     if (this.isDuplicateMessage(message)) return;
+    if (message.kind === "pi" || message.kind === "think") {
+      this.removeCurrentStreamingMessage(message.kind);
+    }
     this.removeLoadingMessage();
     if (this.transcriptState?.sessionId === "legacy") {
       const messages = (this.transcriptItems || []).map((item) => item.message).filter(Boolean);
@@ -78,6 +82,80 @@ export const messageMethods = {
     const messages = [...this.termInner.querySelectorAll(".msg:not(.loading):not(.streaming)")];
     const last = messages.at(-1);
     return last?.dataset.kind === message.kind && (last.dataset.rawText ?? last.querySelector(".body")?.textContent) === message.text;
+  },
+
+  resetOutputRate() {
+    this.outputRateState = undefined;
+    this.querySelectorAll("[data-output-rate]").forEach((indicator) => {
+      indicator.hidden = true;
+      indicator.textContent = "";
+    });
+  },
+
+  addOutputRateIndicator(row) {
+    const prefix = row.querySelector(".prefix");
+    if (!prefix) return;
+    const indicator = document.createElement("span");
+    indicator.className = "output-rate";
+    indicator.dataset.outputRate = "";
+    indicator.hidden = true;
+    prefix.append(indicator);
+  },
+
+  updateOutputRate(row, text, cumulative = false) {
+    const now = Date.now();
+    const state = this.outputRateState || { startedAt: now, text: "", estimate: undefined as OutputTokenEstimate | undefined };
+    const nextText = cumulative ? text : `${state.text}${text}`;
+    state.text = nextText;
+    state.estimate = { text: nextText, tokens: estimateIncrementalOutputTokens(state.estimate, nextText) };
+    this.outputRateState = state;
+    const rate = calculateOutputRate(state.estimate.tokens, state.startedAt, now);
+    const indicator = row?.querySelector("[data-output-rate]");
+    if (!indicator) return;
+    indicator.hidden = rate === null;
+    indicator.textContent = rate === null ? "" : `${rate.toFixed(1)} t/s`;
+  },
+
+  syncOutputRateFromTranscript(messages) {
+    const streamingMessage = [...(messages || [])].reverse().find((message) => message.kind === "pi" && message.status === "streaming");
+    if (!streamingMessage || !streamingMessage.text) {
+      if (this.outputRateState) this.resetOutputRate();
+      return;
+    }
+    const rows = [...this.querySelectorAll(".msg.streaming[data-kind='pi']")];
+    this.updateOutputRate(rows.at(-1), streamingMessage.text || "", true);
+  },
+
+  appendStreamingDelta(kind, delta) {
+    if (!this.termInner || !delta || !["pi", "think"].includes(kind)) return;
+    this.removeLoadingMessage();
+    let row = this.currentStreamingRow(kind);
+    if (!row) {
+      row = this.messageNode({ kind, text: "", status: "streaming" });
+      if (!row || row.nodeType !== Node.ELEMENT_NODE) return;
+      this.streamingRows = { ...(this.streamingRows || {}), [kind]: row };
+      this.appendStreamingNode(row);
+    }
+    const body = row.querySelector(".body");
+    const nextText = `${row.dataset.rawText || ""}${delta}`;
+    row.dataset.rawText = nextText;
+    if (kind === "pi") {
+      if (!body) return;
+      body.innerHTML = renderPiBody(nextText);
+      this.updateOutputRate(row, delta);
+      this.notifyPiMessageCommitted?.({ kind, text: nextText });
+    } else {
+      const thinkingBlock = body?.querySelector(".thinking-block");
+      if (!thinkingBlock) return;
+      thinkingBlock.append(document.createTextNode(String(delta)));
+    }
+    this.scrollTerm();
+  },
+
+  removeCurrentStreamingMessage(kind) {
+    this.streamingRowsForKind(kind).forEach((row) => this.removeStreamingNode(row));
+    this.clearStreamingState(kind);
+    if (kind === "pi") this.resetOutputRate();
   },
 
   currentStreamingRow(kind) {
@@ -172,6 +250,7 @@ export const messageMethods = {
   finalizeStreamingMessages() {
     this.streamingTail?.querySelectorAll(".msg.streaming").forEach((row) => this.removeStreamingNode(row));
     this.streamingRows = {};
+    this.resetOutputRate();
   },
 
   finishRunningTools({ status = "ok", resultMeta = "done", notifyHeight = true } = {}) {
@@ -217,6 +296,7 @@ export const messageMethods = {
 
   thinkingMessageNode(message) {
     const messageRow = this.simpleMessage("think", this.thinkingPrefix(), "");
+    if (message.status === "streaming") messageRow.classList.add("streaming");
     messageRow.querySelector(".body").innerHTML =
       `<div class="thinking-block"><span class="label">thinking</span>${escapeHtml(message.text)}</div>`;
     return messageRow;
@@ -232,7 +312,9 @@ export const messageMethods = {
     messageRow.dataset.rawText = message.text;
     body.classList.add("markdown-body");
     if (streaming) {
-      body.append(document.createTextNode(message.text || ""));
+      messageRow.classList.add("streaming");
+      this.addOutputRateIndicator(messageRow);
+      body.innerHTML = renderPiBody(message.text || "");
       return messageRow;
     }
     body.innerHTML = renderPiBody(choices.length || inputs.length ? text : message.text);

@@ -129,25 +129,29 @@ export const gitHistoryMethods = {
     const inspectorRequestId = this.beginInspectorRequest?.();
     this.querySelectorAll(".git-commit-row").forEach((row) => row.classList.toggle("selected", row.dataset.hash === hash));
     const detail = this.ensureGitDetail();
-    detail.innerHTML = `<div class="git-empty">正在加载提交…</div>`;
+    detail.innerHTML = gitDetailMessageTemplate("正在加载提交…");
+    this.querySelector("[data-git-detail-panel] .git-detail-close")?.focus();
     try {
       const response = await getGitCommit(workspaceId, hash);
       if (!this.inspectorRequestIsCurrent?.(inspectorRequestId, workspaceId)) return;
       this.renderGitCommitDetail(response);
     } catch (error) {
       if (!this.inspectorRequestIsCurrent?.(inspectorRequestId, workspaceId)) return;
-      detail.innerHTML = `<div class="git-empty err">${escapeHtml(error?.message || "提交不可用")}</div>`;
+      detail.innerHTML = gitDetailMessageTemplate(error?.message || "提交不可用", true);
+      this.querySelector("[data-git-detail-panel] .git-detail-close")?.focus();
     }
   },
 
   ensureGitDetail() {
     const panel = this.querySelector("[data-git-detail-panel]");
     let detail = panel?.querySelector("[data-git-detail]");
-    if (detail) return detail;
-    detail = document.createElement("div");
-    detail.className = "git-detail";
-    detail.dataset.gitDetail = "";
-    panel?.append(detail);
+    if (!detail) {
+      detail = document.createElement("div");
+      detail.className = "git-detail";
+      detail.dataset.gitDetail = "";
+      const dialog = panel?.querySelector(".git-detail-dialog") || panel;
+      dialog?.append(detail);
+    }
     this.toggleGitDetailPanel?.(true);
     return detail;
   },
@@ -165,7 +169,7 @@ export const gitHistoryMethods = {
     const files = commit.files || [];
     target.innerHTML = [
       `<div class="git-detail-head">`,
-      `<button type="button" class="git-detail-close" data-action="close-git-detail" aria-label="关闭提交详情" title="关闭提交详情">${LUCIDE_X_ICON}</button>`,
+      gitDetailCloseButtonTemplate(),
       `<strong>${escapeHtml(commit.subject || commit.shortHash || "提交")}</strong>`,
       `<span><code>${escapeHtml(commit.shortHash || "")}</code> · ${escapeHtml(commit.authorName || "未知")} · ${formatGitDate(commit.date)}</span>`,
       refsTemplate(commit.refs),
@@ -175,8 +179,21 @@ export const gitHistoryMethods = {
       detail.truncated ? `<div class="git-truncated">为保证性能，diff 已截断</div>` : "",
       `<pre class="git-diff">${escapeHtml(detail.diff || "无 diff")}</pre>`
     ].join("");
+    target.querySelector(".git-detail-close")?.focus();
   },
 };
+
+function gitDetailCloseButtonTemplate() {
+  return `<button type="button" class="git-detail-close" data-action="close-git-detail" aria-label="关闭提交详情" title="关闭提交详情">${LUCIDE_X_ICON}</button>`;
+}
+
+function gitDetailMessageTemplate(message, isError = false) {
+  const errorClass = isError ? " err" : "";
+  return [
+    `<div class="git-detail-head">${gitDetailCloseButtonTemplate()}<strong>提交详情</strong></div>`,
+    `<div class="git-empty${errorClass}">${escapeHtml(message)}</div>`,
+  ].join("");
+}
 
 function fileTemplate(file) {
   const oldPath = file.oldPath ? `<small>${escapeHtml(file.oldPath)} →</small>` : "";

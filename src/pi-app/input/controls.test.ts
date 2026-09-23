@@ -397,6 +397,7 @@ describe("pi-app controls", () => {
     const app = await connectPiApp();
     const hamburger = app.querySelector(".hamburger");
     const body = app.querySelector(".app-body");
+    expect(hamburger.getAttribute("aria-expanded")).toBe("false");
     hamburger.click();
     expect(body.classList.contains("drawer-open")).toBe(true);
     expect(hamburger.getAttribute("aria-expanded")).toBe("true");
@@ -405,6 +406,28 @@ describe("pi-app controls", () => {
     expect(body.classList.contains("drawer-open")).toBe(false);
     expect(hamburger.getAttribute("aria-expanded")).toBe("false");
     expect(hamburger.getAttribute("aria-label")).toBe("打开侧栏");
+  });
+
+  it("closes the drawer on Escape before cancelling a running session", async () => {
+    const app = await connectPiApp();
+    const body = app.querySelector(".app-body");
+    const hamburger = app.querySelector(".hamburger");
+    const focusTarget = document.createElement("button");
+    app.querySelector(".sidebar").append(focusTarget);
+    const cancel = vi.fn();
+    app.cancelActiveSession = cancel;
+    app.running = true;
+    app.toggleDrawer(true);
+    focusTarget.focus();
+
+    const escape = new KeyboardEvent("keydown", { key: "Escape", cancelable: true });
+    window.dispatchEvent(escape);
+
+    expect(escape.defaultPrevented).toBe(true);
+    expect(body.classList.contains("drawer-open")).toBe(false);
+    expect(cancel).not.toHaveBeenCalled();
+    expect(document.activeElement).toBe(hamburger);
+    expect(hamburger.getAttribute("aria-expanded")).toBe("false");
   });
 
   it("renders a terminal dot spinner and advances its frame", async () => {
@@ -463,7 +486,7 @@ describe("pi-app controls", () => {
     expect(tree.hidden).toBe(false);
   });
 
-  it("keeps the file tree in the sidebar and opens file content on the right", async () => {
+  it("keeps the file tree in the sidebar and opens file content in a modal", async () => {
     const app = await connectPiApp();
     const body = app.querySelector(".app-body");
     const tree = app.querySelector(".tree");
@@ -477,7 +500,7 @@ describe("pi-app controls", () => {
     app.renderFilePreview({ path: "README.md", previewKind: "loading" });
     expect(preview.hidden).toBe(false);
     expect(app.dataset.preview).toBe("on");
-    expect(body.style.gridTemplateColumns).toBe("280px 1fr 560px");
+    expect(body.style.gridTemplateColumns).toBe("280px 1fr");
 
     app.closeFilePreview();
     expect(preview.hidden).toBe(true);
@@ -485,17 +508,15 @@ describe("pi-app controls", () => {
     expect(body.style.gridTemplateColumns).toBe("280px 1fr");
   });
 
-  it("places the right inspector after the content when the sidebar collapses", async () => {
+  it("keeps the workspace grid unchanged when Git details open as a modal", async () => {
     const app = await connectPiApp();
     const body = app.querySelector(".app-body");
 
     app.toggleGitDetailPanel(true);
-    expect(body.style.gridTemplateColumns).toBe("280px 1fr 560px");
-    expect(body.style.getPropertyValue("--inspector-column")).toBe("3");
+    expect(body.style.gridTemplateColumns).toBe("280px 1fr");
 
     app.collapseSidebar(true);
-    expect(body.style.gridTemplateColumns).toBe("1fr 560px");
-    expect(body.style.getPropertyValue("--inspector-column")).toBe("2");
+    expect(body.style.gridTemplateColumns).toBe("1fr");
   });
 
   it("refreshes workspaces from the sidebar refresh button", async () => {

@@ -22,9 +22,9 @@ function mountPreview() {
   document.body.innerHTML = `
     <pi-app data-active-workspace-id="workspace-1">
       <div class="file-preview-panel" data-file-preview hidden>
-        <div class="fp-dialog">
+        <div class="fp-dialog" role="dialog" aria-modal="true" aria-labelledby="file-preview-title" tabindex="-1">
           <div class="fp-head">
-            <div><strong class="fp-path">file</strong><small></small></div>
+            <div><strong id="file-preview-title" class="fp-path">file</strong><small></small></div>
             <div class="fp-actions">
               <div class="fp-save-slot"><button type="button" data-action="save-file-preview" hidden>save</button></div>
               <div class="fp-mode-actions">
@@ -499,6 +499,54 @@ describe("file preview CodeMirror editor", () => {
 
     app.renderFilePreview({ path: "app.bin", mime: "application/octet-stream", previewKind: "unsupported" });
     expect(app.querySelector(".fp-body").textContent).toContain("不支持预览此文件");
+  });
+
+  it("traps focus in the preview modal and restores the trigger on close", () => {
+    const app = mountPreview();
+    const trigger = document.createElement("button");
+    app.append(trigger);
+    trigger.focus();
+    app.renderFilePreview({ path: "a.txt", mime: "text/plain", previewKind: "text", content: "a" });
+    const dialog = app.querySelector(".fp-dialog");
+    const close = app.querySelector("[data-action='close-file-preview']");
+
+    expect(dialog.getAttribute("aria-modal")).toBe("true");
+    expect(document.activeElement).toBe(close);
+    const focusables = [...dialog.querySelectorAll("a[href],button:not([disabled]),input:not([disabled]),select:not([disabled]),textarea:not([disabled]),[tabindex]:not([tabindex='-1'])")]
+      .filter((element) => !element.closest("[hidden]") && element.getAttribute("aria-hidden") !== "true");
+    const first = focusables[0];
+    const last = focusables.at(-1);
+    last.focus();
+    const tab = new KeyboardEvent("keydown", { key: "Tab", cancelable: true });
+    window.dispatchEvent(tab);
+    expect(tab.defaultPrevented).toBe(true);
+    expect(document.activeElement).toBe(first);
+    const shiftTab = new KeyboardEvent("keydown", { key: "Tab", shiftKey: true, cancelable: true });
+    window.dispatchEvent(shiftTab);
+    expect(shiftTab.defaultPrevented).toBe(true);
+    expect(document.activeElement).toBe(last);
+
+    app.closeFilePreview();
+    expect(document.activeElement).toBe(trigger);
+  });
+
+  it("closes preview on Escape before cancelling a running session", () => {
+    const app = mountPreview();
+    const trigger = document.createElement("button");
+    app.append(trigger);
+    trigger.focus();
+    app.renderFilePreview({ path: "a.txt", mime: "text/plain", previewKind: "text", content: "a" });
+    const cancel = vi.fn();
+    app.running = true;
+    app.cancelActiveSession = cancel;
+
+    const escape = new KeyboardEvent("keydown", { key: "Escape", cancelable: true });
+    window.dispatchEvent(escape);
+
+    expect(escape.defaultPrevented).toBe(true);
+    expect(app.querySelector("[data-file-preview]").hidden).toBe(true);
+    expect(cancel).not.toHaveBeenCalled();
+    expect(document.activeElement).toBe(trigger);
   });
 
   it("clears discarded dirty state when closing preview", () => {

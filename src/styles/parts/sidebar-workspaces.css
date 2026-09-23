@@ -238,10 +238,10 @@ button.session-row:not(.new-session-row) {
   border-color: transparent;
 }
 .session-menu {
-  position: absolute;
-  right: 6px;
-  top: 30px;
-  z-index: 20;
+  position: fixed;
+  right: auto;
+  top: auto;
+  z-index: 1000;
   min-width: 124px;
   padding: 6px;
   border: 1px solid var(--accent);

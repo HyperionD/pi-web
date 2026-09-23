@@ -1,3 +1,4 @@
+import { renderPiBody } from "../../lib/renderers";
 import {
   createSession,
   getGitStatus,
@@ -50,12 +51,7 @@ function patchStreamingTranscriptBody(current, message) {
   const body = current.querySelector(".body");
   if (!body) return false;
   if (message.kind === "pi") {
-    const textNode = body.firstChild;
-    if (textNode?.nodeType === Node.TEXT_NODE && body.childNodes.length === 1) {
-      textNode.nodeValue = message.text || "";
-    } else {
-      body.replaceChildren(document.createTextNode(message.text || ""));
-    }
+    body.innerHTML = renderPiBody(message.text || "");
     return true;
   }
   if (message.kind !== "think") return false;
@@ -570,6 +566,7 @@ export const workspaceBootstrapMethods = {
     } else {
       this.patchDurableTranscriptMessages(messages);
     }
+    this.syncOutputRateFromTranscript?.(messages);
     const latestMessage = messages.at(-1);
     if (latestMessage?.kind === "pi") this.notifyPiMessageCommitted?.(latestMessage);
     if (syncMode) this.syncDurableTranscriptMode();

@@ -147,7 +147,9 @@ describe("pi-app workspace navigation", () => {
     expect(recent.querySelector(".ws-stat").innerHTML).toContain("&lt;old&gt;");
     expect(recent.querySelectorAll(".ws-stat")[1].textContent).toContain("● 在线");
     expect(row.classList.contains("has-active-session")).toBe(true);
-    expect(row.querySelector(".ws-name .dot").classList.contains("live")).toBe(true);
+    expect(row.querySelector(".ws-name .dot")).toBeNull();
+    expect(row.querySelector(".ws-status").textContent).toBe("运行中");
+    expect(row.querySelector(".ws-count-label").textContent).toBe("个会话");
     expect(app.querySelector("[data-session='s2']").classList.contains("active")).toBe(true);
     expect(app.querySelector("[data-session='s2']").getAttribute("aria-current")).toBe("true");
   });

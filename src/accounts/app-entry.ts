@@ -16,7 +16,39 @@ async function start() {
     nav.hidden = false;
     nav.querySelector("[data-account-name]")!.textContent = user.username;
     const managementLink = document.querySelector<HTMLElement>("[data-account-admin]");
+    const managementDialog = document.querySelector<HTMLDialogElement>("[data-user-management-dialog]");
     if (managementLink) managementLink.hidden = user.role !== "admin";
+    if (user.role === "admin" && managementLink && managementDialog) {
+      let managementReturnFocus: HTMLElement | null = null;
+      let managementInit: Promise<void> | undefined;
+      const initialManagementMarkup = managementDialog.innerHTML;
+      const ensureManagement = () => {
+        if (!managementInit) {
+          managementInit = import("./users-page")
+            .then(({ initUsersPage }) => initUsersPage(managementDialog, { skipAuth: true }))
+            .catch((error) => {
+              managementInit = undefined;
+              throw error;
+            });
+        }
+        return managementInit;
+      };
+      managementLink.addEventListener("click", () => {
+        managementReturnFocus = document.activeElement instanceof HTMLElement ? document.activeElement : managementLink;
+        if (!managementDialog.open) managementDialog.showModal();
+        void ensureManagement().then(() => managementDialog.querySelector<HTMLInputElement>("[data-user-search]")?.focus()).catch((error) => {
+          managementDialog.innerHTML = initialManagementMarkup;
+          managementDialog.querySelector<HTMLElement>("[data-users-content]")?.removeAttribute("hidden");
+          showAccountError(error, managementDialog.querySelector<HTMLElement>("[data-account-error]") || managementDialog);
+        });
+      });
+      managementDialog.addEventListener("click", (event) => {
+        if (event.target instanceof Element && event.target.closest("[data-user-management-close]")) {
+          managementDialog.close("cancel");
+        }
+      });
+      managementDialog.addEventListener("close", () => managementReturnFocus?.focus());
+    }
     nav.querySelector("[data-account-logout]")!.addEventListener("click", () => {
       void signOut().catch((error) => showAccountError(error, nav));
     });

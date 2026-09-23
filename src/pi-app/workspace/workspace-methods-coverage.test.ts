@@ -56,7 +56,8 @@ describe("workspace folder/render/bootstrap coverage", () => {
     expect(recent.querySelector(".ws-stat").innerHTML).toContain("1m");
     expect(recent.querySelectorAll(".ws-stat")[1].innerHTML).toContain("live");
     expect(app.querySelector("[data-workspace-group='w2'] .sessions").hidden).toBe(false);
-    expect(app.querySelector("[data-workspace-group='w2'] .ws-name .dot").classList.contains("live")).toBe(true);
+    expect(app.querySelector("[data-workspace-group='w2'] .ws-status").textContent).toBe("运行中");
+    expect(app.querySelector("[data-workspace-group='w2'] .ws-count-label").textContent).toBe("个会话");
     expect(app.currentFolder).toBe("/tmp");
     expect(list.querySelector("[data-action='folder-select']").dataset.path).toBe("/tmp");
     expect(list.querySelector("[data-action='folder-select'][data-path='/tmp/child'] .folder-path").textContent).toBe("~/child");
@@ -705,7 +706,7 @@ describe("workspace folder/render/bootstrap coverage", () => {
     expect(panel.querySelector(".git-commit-row")?.textContent).toContain("initial");
   });
 
-  it("opens and closes git commit detail in the right panel", async () => {
+  it("opens git commit detail in a modal without expanding the workspace grid", async () => {
     const app = await connectPiApp();
     const historyPanel = document.createElement("div");
     const detailPanel = app.querySelector("[data-git-detail-panel]");
@@ -733,9 +734,12 @@ describe("workspace folder/render/bootstrap coverage", () => {
 
     expect(historyPanel.querySelector("[data-git-detail]")).toBeNull();
     expect(detailPanel.hidden).toBe(false);
-    expect(detailPanel.querySelector("[data-git-detail]")?.textContent).toContain("initial");
+    const dialog = detailPanel.querySelector(".git-detail-dialog");
+    expect(dialog.getAttribute("role")).toBe("dialog");
+    expect(dialog.getAttribute("aria-modal")).toBe("true");
+    expect(dialog.querySelector("[data-git-detail]")?.textContent).toContain("initial");
     expect(detailPanel.querySelector("[data-action='close-git-detail']")).not.toBeNull();
-    expect(body.style.gridTemplateColumns).toBe("280px 1fr 560px");
+    expect(body.style.gridTemplateColumns).toBe("280px 1fr");
 
     app.closeGitDetail();
     expect(detailPanel.hidden).toBe(true);
@@ -743,7 +747,63 @@ describe("workspace folder/render/bootstrap coverage", () => {
     expect(historyPanel.querySelector(".git-commit-row")?.classList.contains("selected")).toBe(false);
   });
 
-  it("switches the right panel between file and git details", async () => {
+  it("closes the Git modal before cancelling a running session with Escape", async () => {
+    const app = await connectPiApp();
+    const panel = app.querySelector("[data-git-detail-panel]");
+    const cancel = vi.fn();
+    app.running = true;
+    app.cancelActiveSession = cancel;
+    app.ensureGitDetail();
+    expect(panel.hidden).toBe(false);
+
+    window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", cancelable: true }));
+
+    expect(panel.hidden).toBe(true);
+    expect(cancel).not.toHaveBeenCalled();
+    window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", cancelable: true }));
+    expect(cancel).toHaveBeenCalledOnce();
+  });
+
+  it("keeps Git details closable while loading and after a request fails", async () => {
+    const app = await connectPiApp();
+    const panel = app.querySelector("[data-git-detail-panel]");
+    app.dataset.activeWorkspaceId = "w1";
+    let rejectFetch: (reason: Error) => void = () => {};
+    globalThis.fetch = vi.fn(() => new Promise<Response>((_resolve, reject) => { rejectFetch = reject; }));
+
+    const request = app.selectGitCommit("abc123");
+    const loadingClose = panel.querySelector("[data-action='close-git-detail']");
+    rejectFetch(new Error("Git unavailable"));
+    await request;
+
+    expect(loadingClose).not.toBeNull();
+    expect(panel.querySelector(".git-detail").textContent).toContain("Git unavailable");
+    expect(panel.querySelector("[data-action='close-git-detail']")).not.toBeNull();
+  });
+
+  it("traps focus inside the Git dialog and restores the trigger on close", async () => {
+    const app = await connectPiApp();
+    const trigger = document.createElement("button");
+    app.append(trigger);
+    trigger.focus();
+    app.renderGitCommitDetail({
+      commit: { shortHash: "abc123", subject: "initial", authorName: "pi", date: "2026-01-01T00:00:00Z", files: [] },
+      body: "body",
+      diff: "diff",
+    });
+    const closeButton = app.querySelector("[data-action='close-git-detail']");
+    expect(document.activeElement).toBe(closeButton);
+
+    const tab = new KeyboardEvent("keydown", { key: "Tab", cancelable: true });
+    window.dispatchEvent(tab);
+    expect(tab.defaultPrevented).toBe(true);
+    expect(document.activeElement).toBe(closeButton);
+
+    app.closeGitDetail();
+    expect(document.activeElement).toBe(trigger);
+  });
+
+  it("switches between file preview and Git detail modal", async () => {
     const app = await connectPiApp();
     const historyPanel = document.createElement("div");
     const filePanel = app.querySelector("[data-file-preview]");

@@ -70,6 +70,7 @@ class PiApp extends HTMLElement {
   }
   disconnectedCallback() {
     this.destroyFilePreviewEditor?.();
+    this.stopSessionMenuPositionTracking?.();
     this.stopDurableStream?.();
     this.backgroundSessionWatches?.forEach((watch) => {
       watch.client?.stop?.();
@@ -263,8 +264,7 @@ class PiApp extends HTMLElement {
     }
     if (event.type === "session.delta") {
       const kind = event.payload?.kind === "think" ? "think" : "pi";
-      const message = { kind, text: event.payload?.delta || "" };
-      this.appendMessage(message);
+      this.appendStreamingDelta(kind, event.payload?.delta || "");
       return;
     }
     if (event.type === "tool.started") {
@@ -300,15 +300,27 @@ class PiApp extends HTMLElement {
     const indicator = this.querySelector(".statusbtn");
     if (status === "ok") this.apiConnected = true;
     this.syncCompactionControl?.();
-    if (!indicator) return;
     const styles = {
       ok: ["var(--accent)", "已连接"],
       reconnecting: ["var(--fg-3)", "正在重新连接事件流"],
       err: ["var(--danger)", "后端连接已断开"],
     };
-    const [color, title] = styles[status] || styles.err;
-    indicator.style.color = color;
-    indicator.title = title;
+    const state = styles[status] ? status : "err";
+    const [color, title] = styles[state];
+    if (indicator) {
+      indicator.style.color = color;
+      indicator.title = title;
+    }
+    const statusDot = this.querySelector("[data-connection-status-dot]");
+    if (statusDot) {
+      statusDot.dataset.status = state;
+      statusDot.title = title;
+    }
+    const statusLabel = this.querySelector("[data-connection-status-label]");
+    if (statusLabel) {
+      statusLabel.textContent = title;
+      statusLabel.title = title;
+    }
   }
 
   isCurrentSessionEvent(event) {

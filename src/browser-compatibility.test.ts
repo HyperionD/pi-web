@@ -13,6 +13,11 @@ describe("browser compatibility", () => {
     expect(page).toContain('<html lang="zh-CN">');
   });
 
+  it("exposes the mobile drawer's initial collapsed state", () => {
+    const app = readFileSync(new URL("./App.astro", import.meta.url), "utf8");
+    expect(app).toContain('data-action="open-drawer" aria-label="打开侧栏" aria-expanded="false"');
+  });
+
   it("shows an idea-focused placeholder in the prompt composer", () => {
     const app = readFileSync(new URL("./App.astro", import.meta.url), "utf8");
     expect(app).toContain('<textarea class="prompt-textarea" placeholder="输入你的想法" rows="1"');
@@ -28,6 +33,11 @@ describe("browser compatibility", () => {
   it("starts in the empty state when no workspace is rendered", () => {
     const app = readFileSync(new URL("./App.astro", import.meta.url), "utf8");
     expect(app).toContain('const emptyVisible = initialSession === "empty" || !activeWorkspaceID;');
+  });
+
+  it("preserves raw assistant text for fallback choice hydration", () => {
+    const app = readFileSync(new URL("./App.astro", import.meta.url), "utf8");
+    expect(app).toContain('data-raw-text={msg.text}');
   });
 
   it("keeps the slash palette within short mobile viewports", () => {

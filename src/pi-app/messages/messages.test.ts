@@ -87,6 +87,40 @@ describe("pi-app messages", () => {
     expect(app.querySelector(".msg.loading")).toBeNull();
   });
 
+  it("renders legacy assistant markdown while deltas are streaming", async () => {
+    const app = await connectPiApp();
+    app.renderMessages([]);
+
+    app.applyEvent({ type: "session.delta", payload: { kind: "pi", delta: "**partial**" } });
+    expect(app.querySelector(".streaming-tail .msg[data-kind='pi'] strong").textContent).toBe("partial");
+
+    app.applyEvent({ type: "session.delta", payload: { kind: "pi", delta: " and **more**" } });
+    expect(app.querySelector(".streaming-tail .msg[data-kind='pi'] strong").textContent).toBe("partial");
+    expect(app.querySelectorAll(".streaming-tail .msg[data-kind='pi'] strong")[1].textContent).toBe("more");
+
+    app.applyEvent({ type: "session.message", payload: { kind: "pi", text: "**partial** and **more**" } });
+    expect(app.querySelector(".streaming-tail .msg[data-kind='pi']")).toBeNull();
+    expect(app.querySelectorAll(".term-inner .msg[data-kind='pi'] strong")[1].textContent).toBe("more");
+  });
+
+  it("shows estimated output rate while assistant text is streaming", async () => {
+    const app = await connectPiApp();
+    app.renderMessages([]);
+    const clock = vi.spyOn(Date, "now").mockReturnValueOnce(1000).mockReturnValueOnce(2000);
+
+    app.applyEvent({ type: "session.delta", payload: { kind: "pi", delta: "a".repeat(100) } });
+    const rate = app.querySelector("[data-output-rate]");
+    expect(rate.hidden).toBe(true);
+
+    app.applyEvent({ type: "session.delta", payload: { kind: "pi", delta: "b".repeat(100) } });
+    expect(rate.hidden).toBe(false);
+    expect(rate.textContent).toBe("50.0 t/s");
+
+    app.applyEvent({ type: "session.message", payload: { kind: "pi", text: "a".repeat(100) + "b".repeat(100) } });
+    expect(app.querySelector("[data-output-rate]")).toBeNull();
+    clock.mockRestore();
+  });
+
   it("renders user prompts through markdown with preserved line breaks", async () => {
     const app = await connectPiApp();
     const text = [

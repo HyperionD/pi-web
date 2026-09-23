@@ -176,6 +176,23 @@ describe("pi-app core events", () => {
     expect(calls).toContainEqual(["closeFolderPopover"]);
   });
 
+  it("closes user management before cancelling a running session with Escape", async () => {
+    const app = await connectPiApp();
+    const dialog = document.createElement("dialog");
+    dialog.dataset.userManagementDialog = "";
+    dialog.setAttribute("open", "");
+    dialog.close = vi.fn(() => dialog.removeAttribute("open"));
+    app.append(dialog);
+    const cancelActiveSession = vi.fn();
+    app.cancelActiveSession = cancelActiveSession;
+    app.running = true;
+
+    window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", cancelable: true }));
+
+    expect(dialog.open).toBe(false);
+    expect(cancelActiveSession).not.toHaveBeenCalled();
+  });
+
   it("cancels the running session when Escape is pressed", async () => {
     const app = await connectPiApp();
     const cancelActiveSession = vi.fn();
@@ -421,10 +438,25 @@ describe("pi-app core events", () => {
     expect(document.querySelector(".session-toast.warning").textContent).toContain("身份验证警告");
   });
 
-  it("updates connection, mode, and prompt metadata branches", async () => {
+  it("updates the footer connection status without a topbar indicator", async () => {
     const app = await connectPiApp();
+    const statusDot = app.querySelector("[data-connection-status-dot]");
+    const statusLabel = app.querySelector("[data-connection-status-label]");
+
     app.setConnection("ok");
     expect(app.querySelector(".statusbtn")).toBeNull();
+    expect(statusLabel.textContent).toBe("已连接");
+    expect(statusDot.dataset.status).toBe("ok");
+    app.setConnection("reconnecting");
+    expect(statusLabel.textContent).toBe("正在重新连接事件流");
+    expect(statusDot.dataset.status).toBe("reconnecting");
+    app.setConnection("err");
+    expect(statusLabel.textContent).toBe("后端连接已断开");
+    expect(statusDot.dataset.status).toBe("err");
+  });
+
+  it("updates legacy topbar connection indicators when present", async () => {
+    const app = await connectPiApp();
     const indicator = document.createElement("button");
     indicator.className = "statusbtn";
     app.append(indicator);
@@ -432,6 +464,11 @@ describe("pi-app core events", () => {
     expect(indicator.title).toBe("已连接");
     app.setConnection("err");
     expect(indicator.title).toBe("后端连接已断开");
+  });
+
+  it("updates connection mode and prompt metadata branches", async () => {
+    const app = await connectPiApp();
+    app.setConnection("ok");
 
     app.finishRunningTools = vi.fn();
     app.syncLoadingMessage = vi.fn();

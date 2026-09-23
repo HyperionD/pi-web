@@ -37,6 +37,27 @@ describe("pi-app sessions", () => {
     expect(toggle.getAttribute("aria-expanded")).toBe("true");
   });
 
+  it("anchors an opened session menu to the viewport", async () => {
+    const app = await connectPiApp();
+    const row = app.createSessionRow("w1", { id: "s1", title: "demo", lastUsed: "now" });
+    app.append(row);
+    const toggle = row.querySelector("[data-action='session-menu-toggle']");
+    vi.spyOn(toggle, "getBoundingClientRect").mockReturnValue({
+      top: 180, bottom: 204, left: 220, right: 244, width: 24, height: 24,
+      x: 220, y: 180, toJSON: () => ({}),
+    });
+    vi.spyOn(window, "innerWidth", "get").mockReturnValue(320);
+    vi.spyOn(window, "innerHeight", "get").mockReturnValue(240);
+
+    toggle.click();
+
+    const menu = row.querySelector(".session-menu");
+    expect(menu.style.position).toBe("fixed");
+    expect(menu.dataset.placement).toBe("above");
+    expect(menu.style.left).not.toBe("");
+    expect(menu.style.top).not.toBe("");
+  });
+
   it("hides session statistics when switching sessions", async () => {
     const app = await connectPiApp();
     const panel = app.querySelector("[data-session-stats]");

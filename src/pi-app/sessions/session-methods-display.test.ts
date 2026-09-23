@@ -157,6 +157,24 @@ describe("pi-app session method display states", () => {
     expect(app.closeSettingsModal).toHaveBeenCalled();
   });
 
+  it("repositions an open session menu after scrolling or resizing", async () => {
+    const app = await connectPiApp();
+    const row = app.createSessionRow("w1", { id: "s1", title: "one", lastUsed: "now" });
+    app.append(row);
+    const reposition = vi.spyOn(app, "positionSessionMenu");
+
+    app.toggleSessionMenu(row);
+    expect(reposition).toHaveBeenCalledTimes(1);
+    window.dispatchEvent(new Event("resize"));
+    expect(reposition).toHaveBeenCalledTimes(2);
+    window.dispatchEvent(new Event("scroll"));
+    expect(reposition).toHaveBeenCalledTimes(3);
+
+    app.closeSessionMenus();
+    window.dispatchEvent(new Event("resize"));
+    expect(reposition).toHaveBeenCalledTimes(3);
+  });
+
   it("finds a workspace id for a session", async () => {
     const app = await connectPiApp();
     appendSessionShell(app);

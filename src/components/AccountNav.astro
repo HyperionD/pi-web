@@ -4,9 +4,10 @@
 </nav>
 
 <style>
-  .account-nav { display: flex; align-items: center; gap: 12px; font-size: 12px; }
+  .account-nav { display: flex; align-items: center; gap: 10px; color: var(--picture-muted, var(--fg-2)); font-family: var(--font-ui, sans-serif); font-size: 12px; }
   .account-nav[hidden], [hidden] { display: none; }
-  a { color: var(--accent); text-decoration: none; }
-  button { color: var(--fg-2); background: transparent; border: 1px solid var(--border); padding: 5px 8px; cursor: pointer; }
+  a { color: var(--picture-blue, var(--accent)); text-decoration: none; }
+  button { color: var(--picture-muted, var(--fg-2)); background: var(--picture-surface, transparent); border: 1px solid var(--picture-border-strong, var(--border)); border-radius: 7px; padding: 6px 10px; cursor: pointer; font-family: inherit; }
+  button:hover { color: var(--picture-blue, var(--accent)); border-color: #bfdbfe; background: var(--picture-blue-soft, var(--accent-bg)); }
   @media (max-width: 600px) { [data-account-name] { display: none; } .account-nav { gap: 6px; } }
 </style>

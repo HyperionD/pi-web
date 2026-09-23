@@ -34,15 +34,65 @@ function storeInspectorWidth(width) {
   try { localStorage.setItem(INSPECTOR_WIDTH_KEY, String(width)); } catch {}
 }
 
+const DIALOG_FOCUSABLE_SELECTOR = "a[href],button:not([disabled]),input:not([disabled]),select:not([disabled]),textarea:not([disabled]),[tabindex]:not([tabindex='-1'])";
+
+function trapDialogFocus(dialog, event) {
+  if (!dialog || event.key !== "Tab") return false;
+  const focusables = [...dialog.querySelectorAll(DIALOG_FOCUSABLE_SELECTOR)]
+    .filter((element) => !element.closest("[hidden]") && element.getAttribute("aria-hidden") !== "true");
+  if (!focusables.length) {
+    event.preventDefault();
+    dialog.focus();
+    return true;
+  }
+  const first = focusables[0];
+  const last = focusables.at(-1);
+  const activeElement = document.activeElement;
+  if (!dialog.contains(activeElement)) {
+    event.preventDefault();
+    (event.shiftKey ? last : first).focus();
+  } else if ((event.shiftKey && activeElement === first) || (!event.shiftKey && activeElement === last)) {
+    event.preventDefault();
+    (event.shiftKey ? last : first).focus();
+  }
+  return true;
+}
+
 export const layoutMethods = {
   shortcut(event) {
+    if (event.key === "Tab" && this.trapFilePreviewFocus?.(event)) return;
+    if (event.key === "Tab" && this.trapGitDetailFocus?.(event)) return;
     if (event.key === "Tab") this.trapSettingsFocus?.(event);
     if (event.key === "Escape" && (this.promptComposing || event.isComposing || event.keyCode === 229)) return;
     if (event.key === "Escape") {
+      const userManagement = this.querySelector("[data-user-management-dialog]");
+      if (userManagement?.open) {
+        event.preventDefault();
+        this.closeUserManagement?.();
+        return;
+      }
       const popover = this.querySelector("[data-folder-popover]");
       if (popover && !popover.hidden) {
         event.preventDefault();
         this.closeFolderPopover();
+        return;
+      }
+      const gitDetail = this.querySelector("[data-git-detail-panel]");
+      if (gitDetail && !gitDetail.hidden) {
+        event.preventDefault();
+        this.closeGitDetail?.();
+        return;
+      }
+      const filePreview = this.querySelector("[data-file-preview]");
+      if (filePreview && !filePreview.hidden) {
+        event.preventDefault();
+        this.closeFilePreview?.();
+        return;
+      }
+      const body = this.querySelector(".app-body");
+      if (body?.classList.contains("drawer-open")) {
+        event.preventDefault();
+        this.toggleDrawer(false);
         return;
       }
       if (this.running) {
@@ -79,28 +129,58 @@ export const layoutMethods = {
 
   toggleFilePreviewPanel(forceOpen) {
     const panel = this.querySelector("[data-file-preview]");
-    const previewEnabled = forceOpen ?? this.dataset.preview !== "on";
+    if (!panel) return;
+    const wasOpen = !panel.hidden;
+    const previewEnabled = forceOpen ?? !wasOpen;
     this.dataset.preview = previewEnabled ? "on" : "off";
-    panel?.toggleAttribute("hidden", !previewEnabled);
-    this.applyGrid();
+    panel.toggleAttribute("hidden", !previewEnabled);
+    if (previewEnabled && !wasOpen) {
+      this.filePreviewReturnFocus = document.activeElement;
+      (panel.querySelector("[data-action='close-file-preview']") || panel.querySelector(".fp-dialog"))?.focus();
+    } else if (!previewEnabled && wasOpen) {
+      const returnFocus = this.filePreviewReturnFocus;
+      this.filePreviewReturnFocus = undefined;
+      if (returnFocus?.isConnected) returnFocus.focus();
+    }
+  },
+
+  trapFilePreviewFocus(event) {
+    const dialog = this.querySelector("[data-file-preview]:not([hidden]) .fp-dialog");
+    return trapDialogFocus(dialog, event);
   },
 
   toggleGitDetailPanel(forceOpen) {
     const panel = this.querySelector("[data-git-detail-panel]");
-    const detailEnabled = forceOpen ?? this.dataset.gitDetail !== "on";
+    if (!panel) return;
+    const wasOpen = !panel.hidden;
+    const detailEnabled = forceOpen ?? !wasOpen;
     this.dataset.gitDetail = detailEnabled ? "on" : "off";
-    panel?.toggleAttribute("hidden", !detailEnabled);
-    this.applyGrid();
+    panel.toggleAttribute("hidden", !detailEnabled);
+    if (detailEnabled && !wasOpen) {
+      this.gitDetailReturnFocus = document.activeElement;
+      (panel.querySelector(".git-detail-close") || panel.querySelector(".git-detail-dialog"))?.focus();
+    } else if (!detailEnabled && wasOpen) {
+      const returnFocus = this.gitDetailReturnFocus;
+      this.gitDetailReturnFocus = undefined;
+      if (returnFocus?.isConnected) returnFocus.focus();
+    }
+  },
+
+  trapGitDetailFocus(event) {
+    const dialog = this.querySelector("[data-git-detail-panel]:not([hidden]) .git-detail-dialog");
+    return trapDialogFocus(dialog, event);
   },
 
   toggleDrawer(forceOpen) {
     const body = this.querySelector(".app-body");
     if (!body) return;
-    const open = forceOpen ?? !body.classList.contains("drawer-open");
+    const wasOpen = body.classList.contains("drawer-open");
+    const open = forceOpen ?? !wasOpen;
     body.classList.toggle("drawer-open", open);
     const button = this.querySelector('[data-action="open-drawer"]');
     button?.setAttribute("aria-expanded", String(open));
     button?.setAttribute("aria-label", open ? "关闭侧栏" : "打开侧栏");
+    if (!open && wasOpen && this.querySelector(".sidebar")?.contains(document.activeElement)) button?.focus();
   },
 
   collapseSidebar(collapsed) {
@@ -127,14 +207,13 @@ export const layoutMethods = {
   applyGrid(width = Number(this.dataset.sidebarWidth || 280), inspectorWidth = Number(this.dataset.inspectorWidth || 560)) {
     const body = this.querySelector(".app-body");
     if (!body) return;
-    const inspectorOpen = this.dataset.preview === "on" || this.dataset.gitDetail === "on";
     const collapsed = this.dataset.sidebar === "collapsed";
     body.style.setProperty("--inspector-column", collapsed ? "2" : "3");
     this.querySelectorAll(".fp-resizer").forEach((resizer) => {
       resizer.setAttribute("aria-valuenow", String(inspectorWidth));
     });
-    const expandedColumns = inspectorOpen ? `${width}px 1fr ${inspectorWidth}px` : `${width}px 1fr`;
-    const collapsedColumns = inspectorOpen ? `1fr ${inspectorWidth}px` : "1fr";
+    const expandedColumns = `${width}px 1fr`;
+    const collapsedColumns = "1fr";
     body.style.gridTemplateColumns = collapsed ? collapsedColumns : expandedColumns;
   },
 

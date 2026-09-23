@@ -59,7 +59,7 @@ export function installPiAppFixture() {
             </div>
           </aside>
           <div class="sb-footer">
-            <div class="sb-footer-status"><span class="status-dot"></span><span>connecting</span><span class="sb-footer-actions"><a href="/users" data-account-admin hidden>users</a><button type="button" data-action="open-skill-manager">skills</button><button type="button" data-action="open-settings">settings</button></span></div>
+            <div class="sb-footer-status"><span class="status-dot" data-connection-status-dot></span><span data-connection-status-label>connecting</span><span class="sb-footer-actions"><a href="/users" data-account-admin hidden>users</a><button type="button" data-action="open-skill-manager">skills</button><button type="button" data-action="open-settings">settings</button></span></div>
           </div>
           </aside>
         </div>
@@ -71,7 +71,9 @@ export function installPiAppFixture() {
             <div class="fp-body"></div>
           </div>
         </div>
-        <div class="git-detail-panel" data-git-detail-panel hidden></div>
+        <div class="git-detail-panel" data-git-detail-panel hidden>
+          <div class="git-detail-dialog" role="dialog" aria-modal="true" aria-label="Git 提交详情" tabindex="-1"></div>
+        </div>
         <div class="scrim" data-action="close-drawer"></div>
       </section>
       <button class="sb-expand-btn"></button>

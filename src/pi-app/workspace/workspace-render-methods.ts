@@ -65,6 +65,7 @@ export const workspaceRenderMethods = {
     const group = document.createElement("div");
     group.className = "workspace-group";
     group.dataset.workspaceGroup = workspace.id;
+    group.dataset.workspaceLive = workspace.live ? "true" : "false";
     const open = workspace.id === this.dataset.activeWorkspaceId;
     group.classList.toggle("active", open);
     group.classList.toggle("has-active-session", this.workspaceHasActiveSession(workspace));
@@ -88,9 +89,9 @@ export const workspaceRenderMethods = {
       `<button type="button" class="ws-row ${stateClasses}"`,
       ` data-action="toggle-workspace" data-workspace="${escapeHtml(workspace.id)}"`,
       ` aria-expanded="${open}" aria-current="${active ? "true" : "false"}">`,
-      "<span class=\"ws-stack\"><span class=\"ws-name\"><span class=\"dot\"></span>",
-      "<span class=\"label\"></span></span><span class=\"ws-path\"></span></span>",
-      `<span class="ws-meta"><span class="ws-count">${workspace.sessionCount}</span></span></button>`,
+      "<span class=\"ws-stack\"><span class=\"ws-name\"><span class=\"label\"></span></span>",
+      "<span class=\"ws-path\"></span></span>",
+      `<span class="ws-meta"><span class="ws-count">${workspace.sessionCount}</span><span class="ws-count-label">个会话</span><span class="ws-status"${hasActiveSession || workspace.live ? "" : " hidden"}>运行中</span></span></button>`,
       document.body.dataset.accountRole === "user" ? "" : [
         `<button type="button" class="row-action danger" data-action="close-workspace"`,
         ` data-workspace="${escapeHtml(workspace.id)}" title="关闭工作区" aria-label="关闭工作区">${LUCIDE_X_ICON}</button>`,
@@ -102,10 +103,12 @@ export const workspaceRenderMethods = {
   fillWorkspaceGroup(group, workspace) {
     group.querySelector(".label").textContent = workspace.name;
     group.querySelector(".ws-path").textContent = workspace.path;
-    group.querySelector(".ws-name .dot").classList.toggle(
-      "live",
-      !!workspace.live || this.workspaceHasActiveSession(workspace),
-    );
+    const status = group.querySelector(".ws-status");
+    if (status) {
+      const running = !!workspace.live || this.workspaceHasActiveSession(workspace);
+      status.hidden = !running;
+      status.textContent = running ? "运行中" : "";
+    }
     const sessions = group.querySelector(".sessions");
     appendGroupedSessionRows(sessions, workspace.id, workspace.sessions, this.createSessionRow.bind(this));
     sessions.append(this.createNewSessionRow(workspace.id));
@@ -132,6 +135,7 @@ export const workspaceRenderMethods = {
       const row = group.querySelector(".ws-row");
       const open = group.dataset.workspaceGroup === id ? shouldOpen : false;
       if (sessions) sessions.hidden = !open;
+      group.classList.toggle("open", open);
       row?.classList.toggle("open", open);
       row?.setAttribute("aria-expanded", String(open));
     });
@@ -144,13 +148,17 @@ export const workspaceRenderMethods = {
       const row = group.querySelector(".ws-row");
       const active = group.dataset.workspaceGroup === activeWorkspaceId;
       const hasLiveSession = group.querySelector(".session-row.active");
-      const hasActiveSession = !!hasLiveSession;
+      const hasActiveSession = !!hasLiveSession || group.dataset.workspaceLive === "true";
       group.classList.toggle("active", active);
       group.classList.toggle("has-active-session", hasActiveSession);
       row?.classList.toggle("active", active);
       row?.classList.toggle("has-active-session", hasActiveSession);
       row?.setAttribute("aria-current", active ? "true" : "false");
-      row?.querySelector(".ws-name .dot")?.classList.toggle("live", hasActiveSession);
+      const status = row?.querySelector(".ws-status");
+      if (status) {
+        status.hidden = !hasActiveSession;
+        status.textContent = hasActiveSession ? "运行中" : "";
+      }
     });
   },
 };

@@ -1,5 +1,6 @@
 @import "notyf/notyf.min.css";
 @import "./styles/parts/foundation-layout.css";
+@import "./accounts/pages.css";
 @import "./styles/parts/empty-shell.css";
 @import "./styles/parts/sidebar-workspaces.css";
 @import "./styles/parts/session-agent-children.css";
@@ -13,3 +14,4 @@
 @import "./styles/parts/responsive-themes.css";
 @import "./styles/parts/settings-modal.css";
 @import "./styles/parts/skill-manager.css";
+@import "./styles/parts/picture-ui.css";

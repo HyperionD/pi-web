@@ -11,16 +11,15 @@
   .sb-collapse { display: none; }
   .sidebar {
     position: absolute;
-    left: 0; top: 0; bottom: 0;
+    left: -320px; top: 0; bottom: 0;
     width: 320px;
     max-width: 88vw;
-    transform: translateX(-100%);
-    transition: transform var(--dur-base) var(--ease-out);
+    transition: left var(--dur-base) var(--ease-out);
     z-index: var(--z-drawer);
     box-shadow: var(--shadow-drawer);
     border-right: 1px solid var(--border);
   }
-  .app-body.drawer-open .sidebar { transform: translateX(0); }
+  .app-body.drawer-open .sidebar { left: 0; }
   .app-body.drawer-open .scrim { display: block; }
   .topbar .hamburger { display: inline-flex; }
   .topbar .brand { display: none; }
