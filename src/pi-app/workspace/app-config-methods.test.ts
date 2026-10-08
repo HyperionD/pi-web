@@ -311,8 +311,13 @@ describe("app config methods", () => {
 
   it("refreshes attachment guidance immediately after saving the upload limit", async () => {
     const app = await connectPiApp();
-    const guidance = document.createElement("div");
+    const guidance = document.createElement("p");
     guidance.dataset.attachmentGuidance = "";
+    guidance.innerHTML = `
+      <span data-i18n="attachmentGuidancePrefix">较大文件建议上传到工作区。</span>
+      <strong><span data-attachment-max-upload>100</span> MiB</strong>
+      <span data-i18n="attachmentGuidanceSuffix">附件预算说明。</span>
+    `;
     app.append(guidance);
     app.apiConnected = true;
     app.settingsState = { project: {}, global: {}, effective: {}, paths: {} };

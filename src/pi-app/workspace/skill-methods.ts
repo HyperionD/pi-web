@@ -1,3 +1,5 @@
+import { currentUiLocale } from "../../i18n/client";
+import { uiMessage } from "../../i18n/ui";
 import {
   getWorkspaceSkills,
   setWorkspaceSkillEnabled,
@@ -37,9 +39,12 @@ function skillManagerElement(app, selector: string): HTMLElement | null {
   return app.querySelector(`[data-skill-manager] ${selector}`);
 }
 
-function setSkillText(app, selector: string, value: string): void {
+function setSkillText(app, selector: string, value: string, messageKey?: string): void {
   const element = skillManagerElement(app, selector);
-  if (element) element.textContent = value;
+  if (!element) return;
+  if (messageKey) element.dataset.i18n = messageKey;
+  else delete element.dataset.i18n;
+  element.textContent = value;
 }
 
 function skillError(error: unknown): string {
@@ -127,7 +132,7 @@ export const skillMethods = {
     state.loading = true;
     state.error = "";
     state.notice = "";
-    setSkillText(this, "[data-skill-sidebar-status]", "加载中…");
+    setSkillText(this, "[data-skill-sidebar-status]", uiMessage(currentUiLocale(), "loading"), "loading");
     try {
       const response = await getWorkspaceSkills(workspaceId);
       if (this.skillManagerLoadToken !== token || this.dataset.activeWorkspaceId !== workspaceId) return;
@@ -247,8 +252,11 @@ export const skillMethods = {
 
   renderSkillManagerStatus() {
     const state = skillManagerState(this);
+    const sidebarStatus = state.loading
+      ? uiMessage(currentUiLocale(), "loading")
+      : state.error || (state.skills.length ? "已加载" : "无技能");
     setSkillText(this, "[data-skill-count]", `${state.skills.length} 个技能`);
-    setSkillText(this, "[data-skill-sidebar-status]", state.loading ? "加载中…" : state.error || (state.skills.length ? "已加载" : "无技能"));
+    setSkillText(this, "[data-skill-sidebar-status]", sidebarStatus, state.loading ? "loading" : undefined);
     setSkillText(this, "[data-skill-status]", state.error || state.notice);
     const status = skillManagerElement(this, "[data-skill-status]");
     status?.classList.toggle("is-error", Boolean(state.error));

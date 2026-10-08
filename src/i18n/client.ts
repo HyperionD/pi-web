@@ -33,13 +33,18 @@ export function saveUiLocale(locale: UiLocale) {
 
 function applyText(root: ParentNode, locale: UiLocale) {
   for (const element of root.querySelectorAll<HTMLElement>("[data-i18n]")) {
-    element.textContent = uiMessage(locale, element.dataset.i18n as UiMessageKey);
+    const message = uiMessage(locale, element.dataset.i18n as UiMessageKey);
+    const session = element.dataset.i18nSession;
+    element.textContent = session === undefined ? message : message.replace("{session}", () => session);
   }
   for (const element of root.querySelectorAll<HTMLInputElement | HTMLTextAreaElement>("[data-i18n-placeholder]")) {
     element.placeholder = uiMessage(locale, element.dataset.i18nPlaceholder as UiMessageKey);
   }
   for (const element of root.querySelectorAll<HTMLElement>("[data-i18n-aria-label]")) {
-    element.setAttribute("aria-label", uiMessage(locale, element.dataset.i18nAriaLabel as UiMessageKey));
+    const message = uiMessage(locale, element.dataset.i18nAriaLabel as UiMessageKey);
+    const workspace = element.querySelector<HTMLElement>("[data-active-workspace]")?.textContent;
+    const label = workspace === undefined ? message : message.replace("{workspace}", () => workspace);
+    element.setAttribute("aria-label", label);
   }
   for (const element of root.querySelectorAll<HTMLElement>("[data-i18n-title]")) {
     element.setAttribute("title", uiMessage(locale, element.dataset.i18nTitle as UiMessageKey));

@@ -62,6 +62,51 @@ describe("decorateFileTree", () => {
     expect(readme.gitStatus).toBe("added");
   });
 
+  it("keeps empty and unloaded directories expandable without making files expandable", () => {
+    const [empty, unloaded, file] = decorateFileTree([
+      { type: "dir", name: "empty", path: ".worktrees", children: [] },
+      { type: "dir", name: "unloaded", path: "deep" },
+      { type: "file", name: "file.txt", path: "file.txt" },
+    ]);
+
+    expect(empty.children).toEqual([]);
+    expect(unloaded.children).toEqual([]);
+    expect(file.children).toBeUndefined();
+  });
+
+  it("adds unloaded ancestors for backend search hits without mutating the loaded tree", () => {
+    const raw = [{ type: "dir", name: "src", path: "src" }];
+    const [src] = decorateFileTree(raw, { "src/deep/more/needle.txt": "modified" }, "", new Set(),
+      new Set(["src/deep/more/needle.txt", "src/deep/other.txt"]));
+
+    const deep = src.children?.[0];
+    expect(deep?.path).toBe("src/deep");
+    expect(deep?.children?.map((node) => node.path)).toEqual(["src/deep/more", "src/deep/other.txt"]);
+    expect(deep?.children?.[0].children?.[0]).toMatchObject({
+      path: "src/deep/more/needle.txt", kind: "file", gitStatus: "modified",
+    });
+    expect(src.dirtyDescendants).toBe(true);
+    expect(raw).toEqual([{ type: "dir", name: "src", path: "src" }]);
+    expect(decorateFileTree(raw)[0].children).toEqual([]);
+  });
+
+  it("keeps existing search hits unique and preserves their metadata", () => {
+    const [docs] = decorateFileTree([{ type: "dir", name: "docs", path: "docs", children: [
+      { type: "file", name: "guide.md", path: "docs/guide.md", status: "added" },
+    ] }], {}, "docs/guide.md", new Set(), new Set(["docs/guide.md", "docs/nested/guide.md"]));
+
+    expect(docs.children?.map((node) => node.path)).toEqual(["docs/nested", "docs/guide.md"]);
+    expect(docs.children?.[1]).toMatchObject({ gitStatus: "added", selected: true });
+  });
+
+  it("ignores search hit paths that escape the workspace or contain empty segments", () => {
+    const nodes = decorateFileTree([], {}, "", new Set(),
+      new Set(["../secret.txt", "/tmp/secret.txt", "docs//secret.txt", "docs/../secret.txt",
+        "C:/outside.txt", "C:\\outside.txt"]));
+
+    expect(nodes).toEqual([]);
+  });
+
   it("treats unknown statuses as clean", () => {
     const [node] = decorateFileTree([{ type: "file", name: "x", path: "x" }], { x: "ignored" });
     expect(node.gitStatus).toBe("clean");
@@ -74,7 +119,7 @@ describe("decorateFileTree", () => {
       { type: "dir", name: "src", path: "./src", open: true, status: "modified", children: [] },
       { type: "file", name: "README.md" },
     ], { src: "clean", "README.md": "added" });
-    expect(src).toMatchObject({ id: "src", path: "src", children: undefined, expanded: true, gitStatus: "clean" });
+    expect(src).toMatchObject({ id: "src", path: "src", children: [], expanded: true, gitStatus: "clean" });
     expect(readme).toMatchObject({ id: "README.md", path: "README.md", gitStatus: "added" });
     for (const status of ["modified", "added", "untracked", "deleted", "renamed"]) {
       expect(isDirtyStatus(status)).toBe(true);

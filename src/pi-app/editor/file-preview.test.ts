@@ -328,6 +328,25 @@ describe("file preview CodeMirror editor", () => {
     expect(app.querySelector("[data-action='save-file-preview']").textContent).toBe("workspace changed");
   });
 
+  it("updates only tree selection when opening a file instead of replacing loaded directories", async () => {
+    const app = mountPreview();
+    app.workspaceFiles = [{ type: "dir", name: "deep", path: "deep" }];
+    vi.mocked(api.getWorkspaceFile).mockResolvedValueOnce({
+      path: "deep/child.txt", mime: "text/plain", previewKind: "text", content: "child",
+    });
+    const updates: Array<Record<string, unknown>> = [];
+    const onUpdate = (event: Event) => updates.push((event as CustomEvent).detail);
+    window.addEventListener("pi-workspace-tree:update", onUpdate);
+    try {
+      await app.openFilePath("deep/child.txt");
+
+      expect(updates).toEqual([{ selectedPath: "deep/child.txt" }]);
+      expect(app.filePreview.file.path).toBe("deep/child.txt");
+    } finally {
+      window.removeEventListener("pi-workspace-tree:update", onUpdate);
+    }
+  });
+
   it("ignores file previews that finish loading after a workspace switch", async () => {
     const app = mountPreview();
     vi.mocked(api.getWorkspaceFile).mockResolvedValueOnce({

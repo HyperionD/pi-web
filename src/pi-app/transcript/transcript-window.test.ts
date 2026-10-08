@@ -1,5 +1,7 @@
 // @ts-nocheck
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { applyUiLocale } from "../../i18n/client";
+import { UI_LOCALE_STORAGE_KEY } from "../../i18n/locales";
 import { cleanupPiAppFixture, connectPiApp, installPiAppFixture } from "../test-helper";
 
 describe("pi-app transcript window", () => {
@@ -49,11 +51,12 @@ describe("pi-app transcript window", () => {
   });
 
   it("covers tool fallback metadata and output chunks", async () => {
+    localStorage.setItem(UI_LOCALE_STORAGE_KEY, "zh-CN");
     const app = await connectPiApp();
     app.renderMessages([]);
     const card = app.toolCard({ kind: "tool", tool: "read" });
     expect(card.dataset.status).toBe("");
-    expect(app.toolStatus({ status: "err" })).toContain("failed");
+    expect(app.toolStatus({ status: "err" })).toContain("执行失败");
     app.appendTranscriptNode(card, { stickToBottom: true });
     app.appendToolOutput({ tool: "read" });
     await new Promise((resolve) => requestAnimationFrame(resolve));
@@ -241,6 +244,7 @@ describe("pi-app transcript window", () => {
   });
 
   it("always renders tool cards expanded with readable arguments", async () => {
+    localStorage.setItem(UI_LOCALE_STORAGE_KEY, "zh-CN");
     const app = await connectPiApp();
     const card = app.toolCard({ tool: "bash", args: JSON.stringify({ command: "bun test" }), status: "ok", body: "body" });
     const plainArgsCard = app.toolCard({ tool: "bash", args: "pwd", status: "ok" });
@@ -254,7 +258,7 @@ describe("pi-app transcript window", () => {
     expect(card.querySelector(".tc-args").textContent).toBe("bun test");
     expect(plainArgsCard.querySelector(".tc-args").textContent).toBe("pwd");
     expect(card.querySelector(".tc-head").dataset.action).toBeUndefined();
-    expect(errorStatus).toContain("failed");
+    expect(errorStatus).toContain("执行失败");
   });
 
 
@@ -304,6 +308,20 @@ describe("pi-app transcript window", () => {
     app.append(existingButton);
 
     expect(app.ensureTranscriptScrollButton()).toBe(existingButton);
+  });
+
+  it("localizes the dynamically created scroll-to-bottom control", async () => {
+    localStorage.setItem(UI_LOCALE_STORAGE_KEY, "en");
+    const app = await connectPiApp();
+    app.transcriptScrollButton.remove();
+    const button = app.ensureTranscriptScrollButton();
+
+    expect(button.getAttribute("aria-label")).toBe("Scroll to bottom");
+    expect(button.title).toBe("Scroll to bottom");
+
+    applyUiLocale("zh-CN", app);
+    expect(button.getAttribute("aria-label")).toBe("滚动到底部");
+    expect(button.title).toBe("滚动到底部");
   });
 
   it("loads older messages when the user scrolls near the top", async () => {

@@ -30,7 +30,7 @@ export function installPiAppFixture() {
         <div class="folder-popover-head"><strong>选择工作区</strong><button type="button" data-action="folder-close" aria-label="关闭目录选择器">×</button></div>
         <div class="folder-browser" data-folder-browser>
           <div class="folder-list" data-folder-list role="tree" aria-label="文件夹列表"></div>
-          <span data-folder-loading hidden aria-live="polite">加载中…</span>
+          <span data-folder-loading data-i18n="loading" hidden aria-live="polite">加载中…</span>
           <button type="button" class="folder-confirm" data-action="folder-open-current">选择此文件夹</button>
         </div>
       </div>
@@ -76,7 +76,6 @@ export function installPiAppFixture() {
         </div>
         <div class="scrim" data-action="close-drawer"></div>
       </section>
-      <button class="sb-expand-btn"></button>
       <div class="prompt-region">
         <section class="session-stats-panel" data-session-stats role="dialog" hidden>
           <button type="button" data-action="close-session-stats">close</button>
@@ -150,7 +149,7 @@ export function installPiAppFixture() {
               <input data-app-setting="max-upload-mib" type="number" min="1" max="2048" step="1" inputmode="numeric" autocomplete="off" aria-describedby="max-upload-mib-hint" />
               <small id="max-upload-mib-hint">MiB；1–2048，保存后立即生效</small>
             </label>
-            <label>pi-web 应用设置 <input data-app-setting="brand" /></label>
+            <label>pi-web 应用设置 <input data-app-setting="brand" placeholder="pi.dev / web" /></label>
             <small data-app-config-path>—</small>
             <textarea data-app-setting="allowed-roots"></textarea>
             <div data-allowed-roots-list></div>

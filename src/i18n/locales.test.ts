@@ -65,6 +65,86 @@ describe("ui locales", () => {
     expect(localStorage.getItem(UI_LOCALE_STORAGE_KEY)).toBe("zh-CN");
   });
 
+  it("localizes shared workbench labels and controls in English and Chinese", () => {
+    document.body.innerHTML = `
+      <nav data-i18n-aria-label="managementTools">
+        <span data-i18n="userManagementShort">用户</span>
+        <span data-i18n="promptPresetsShort">预设</span>
+        <span data-i18n="skillManagerShort">技能</span>
+        <span data-i18n="settingsShort">设置</span>
+      </nav>
+      <details><summary data-i18n="attachmentLimits">附件限制说明</summary></details>
+      <button data-i18n-aria-label="addAttachment" data-i18n-title="addAttachment"></button>
+      <button data-i18n-aria-label="sendMessage" data-i18n-title="sendMessage">
+        <span data-i18n="sendPrompt">发送</span>
+      </button>
+      <textarea data-i18n-placeholder="promptPlaceholder"></textarea>
+      <span data-i18n="thinking">思考过程</span>
+      <span data-i18n="running">运行中</span>
+      <span data-i18n="executionFailed">执行失败</span>
+      <button data-i18n-aria-label="scrollToBottom" data-i18n-title="scrollToBottom"></button>
+    `;
+
+    applyUiLocale("en", document);
+    expect(document.querySelector("nav").getAttribute("aria-label")).toBe("Management tools");
+    expect([...document.querySelectorAll("nav [data-i18n]")].map((label) => label.textContent))
+      .toEqual(["Users", "Presets", "Skills", "Settings"]);
+    expect(document.querySelector("summary").textContent).toBe("Attachment limits");
+    expect(document.querySelector("button").getAttribute("aria-label")).toBe("Add attachment");
+    expect(document.querySelector("[data-i18n='sendPrompt']").textContent).toBe("Send");
+    expect(document.querySelector("textarea").placeholder).toBe("Type your prompt");
+    expect(document.querySelector("[data-i18n='thinking']").textContent).toBe("Thinking");
+    expect(document.querySelector("[data-i18n='running']").textContent).toBe("Running");
+    expect(document.querySelector("[data-i18n='executionFailed']").textContent).toBe("Execution failed");
+    expect(document.querySelectorAll("button")[2].title).toBe("Scroll to bottom");
+
+    applyUiLocale("zh-CN", document);
+    expect(document.querySelector("nav").getAttribute("aria-label")).toBe("管理工具");
+    expect(document.querySelector("summary").textContent).toBe("附件限制说明");
+    expect(document.querySelector("[data-i18n='sendPrompt']").textContent).toBe("发送");
+    expect(document.querySelector("textarea").placeholder).toBe("输入你的想法");
+    expect(document.querySelector("[data-i18n='executionFailed']").textContent).toBe("执行失败");
+  });
+
+  it("applies workbench state messages in every supported locale", () => {
+    document.body.innerHTML = `
+      <span data-i18n="managementTools"></span>
+      <span data-i18n="sessionWaiting"></span>
+      <span data-i18n="connectionConnected"></span>
+    `;
+    const translations = [
+      { locale: "en", tools: "Management tools", waiting: "Waiting", connected: "Connected" },
+      { locale: "zh-CN", tools: "管理工具", waiting: "等待中", connected: "已连接" },
+      { locale: "ja", tools: "管理ツール", waiting: "待機中", connected: "接続済み" },
+      {
+        locale: "es",
+        tools: "Herramientas de gestión",
+        waiting: "En espera",
+        connected: "Conectado",
+      },
+      {
+        locale: "pt-BR",
+        tools: "Ferramentas de gerenciamento",
+        waiting: "Aguardando",
+        connected: "Conectado",
+      },
+      { locale: "fr", tools: "Outils de gestion", waiting: "En attente", connected: "Connecté" },
+      {
+        locale: "ru",
+        tools: "Инструменты управления",
+        waiting: "Ожидание",
+        connected: "Подключено",
+      },
+      { locale: "de", tools: "Verwaltungswerkzeuge", waiting: "Wartet", connected: "Verbunden" },
+    ] as const;
+
+    for (const translation of translations) {
+      applyUiLocale(translation.locale, document);
+      const labels = [...document.querySelectorAll("span")].map((label) => label.textContent);
+      expect(labels).toEqual([translation.tools, translation.waiting, translation.connected]);
+    }
+  });
+
   it("falls back when storage is unavailable", () => {
     const originalStorage = globalThis.localStorage;
     Object.defineProperty(globalThis, "localStorage", {

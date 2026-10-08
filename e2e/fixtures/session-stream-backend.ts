@@ -148,6 +148,10 @@ export async function installSessionStreamFixture(
       await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ config: { version: 1, brand: "pi.dev / web", workspace: { allowedRoots: [], maxUploadBytes: 104857600 } }, path: "e2e" }) });
       return;
     }
+    if (url.includes("/api/prompt-presets")) {
+      await route.fulfill({ json: { presets: [] } });
+      return;
+    }
     if (url.includes("/api/health")) {
       await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ ok: true, durableEvents: true }) });
       return;

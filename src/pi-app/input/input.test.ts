@@ -6,7 +6,11 @@ function renderApp() {
   document.body.innerHTML = `
     <pi-app data-active-workspace-id="w1">
       <div class="attach-chips" hidden></div>
-      <div data-attachment-guidance></div>
+      <p data-attachment-guidance>
+        <span data-i18n="attachmentGuidancePrefix">较大文件建议上传到工作区。</span>
+        <strong><span data-attachment-max-upload>100</span> MiB</strong>
+        <span data-i18n="attachmentGuidanceSuffix">附件预算说明。</span>
+      </p>
       <div data-attachment-warning aria-live="polite" hidden></div>
       <textarea class="prompt-textarea"></textarea>
       <button class="send-btn" aria-disabled="true">send</button>
@@ -128,6 +132,26 @@ describe("pi-app prompt input", () => {
     app.appConfigState = { config: { workspace: { maxUploadBytes: 256 * 1024 * 1024 } } };
     app.updatePrompt();
     expect(app.querySelector("[data-attachment-guidance]").textContent).toContain("256 MiB");
+  });
+
+  it("updates the upload limit without replacing localized attachment guidance", async () => {
+    const app = document.querySelector("pi-app");
+    await customElements.whenDefined("pi-app");
+    app.connectedCallback();
+    const guidance = app.querySelector("[data-attachment-guidance]");
+    guidance.innerHTML = `
+      <span data-i18n="attachmentGuidancePrefix">较大文件建议先上传到工作区。</span>
+      <strong><span data-attachment-max-upload>100</span> MiB</strong>
+      <span data-i18n="attachmentGuidanceSuffix">图片及附件预算说明。</span>
+    `;
+    app.appConfigState = { config: { workspace: { maxUploadBytes: 256 * 1024 * 1024 } } };
+
+    app.updatePrompt();
+
+    expect(guidance.querySelector("[data-attachment-max-upload]").textContent).toBe("256");
+    expect(guidance.querySelector("[data-i18n='attachmentGuidancePrefix']").textContent)
+      .toContain("较大文件");
+    expect(guidance.textContent).toContain("256 MiB");
   });
 
   it("rejects an image when the conservative prompt request budget would overflow", async () => {

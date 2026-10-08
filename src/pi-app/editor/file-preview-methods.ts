@@ -2,6 +2,8 @@ import { getWorkspaceFile, getWorkspaceFileAssetURL, getWorkspaceFileWatchURL, g
 import { fileDisplayKind, isHTMLPath, isMarkdownPath, previewStateKey } from "../../lib/file-preview-model";
 import { isOfficePreviewPath, mountOfficePreview } from "../../lib/office-preview";
 import { renderMarkdownBody } from "../../lib/renderers";
+import { currentUiLocale } from "../../i18n/client";
+import { uiMessage } from "../../i18n/ui";
 import { CodeMirrorFileEditor, codeMirrorLanguageName, editableFileState, isTextFile } from "./file-editor";
 
 export const filePreviewMethods = {
@@ -17,7 +19,7 @@ export const filePreviewMethods = {
       this.querySelectorAll(".tree-node.selected").forEach((node) => node.classList.remove("selected"));
       button?.classList.add("selected");
       window.dispatchEvent(new CustomEvent("pi-workspace-tree:update", {
-        detail: { files: this.workspaceFiles || [], statusMap: this.workspaceFileStatuses || {}, selectedPath: path },
+        detail: { selectedPath: path },
       }));
       this.renderFilePreview({ path, previewKind: "loading" });
       const file = await getWorkspaceFile(workspaceId, path);
@@ -67,7 +69,10 @@ export const filePreviewMethods = {
     body.classList.remove("markdown-body");
     updatePreviewActions(preview, state);
     if (file.previewKind === "loading") {
-      body.textContent = "loading preview…";
+      const label = document.createElement("span");
+      label.dataset.i18n = "loadingPreview";
+      label.textContent = uiMessage(currentUiLocale(), "loadingPreview");
+      body.append(label);
       return;
     }
     if (file.previewKind !== "error" && isOfficePreviewPath(file.path)) {

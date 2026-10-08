@@ -2,6 +2,8 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { applyUiLocale } from "../../i18n/client";
+import { UI_LOCALE_STORAGE_KEY } from "../../i18n/locales";
 import { cleanupPiAppFixture, connectPiApp, installPiAppFixture } from "../test-helper";
 
 const pickerStyles = readFileSync(resolve(process.cwd(), "src/styles/parts/workspace-picker.css"), "utf8");
@@ -28,6 +30,7 @@ describe("workspace folder/render/bootstrap coverage", () => {
   });
 
   it("renders recent workspaces, sidebar groups, and folder rows", async () => {
+    localStorage.setItem(UI_LOCALE_STORAGE_KEY, "zh-CN");
     const app = await connectPiApp();
     const recent = document.createElement("div");
     const count = document.createElement("span");
@@ -706,6 +709,29 @@ describe("workspace folder/render/bootstrap coverage", () => {
     expect(panel.querySelector(".git-commit-row")?.textContent).toContain("initial");
   });
 
+  it("relocalizes the Git history loading state", async () => {
+    localStorage.setItem(UI_LOCALE_STORAGE_KEY, "en");
+    const app = await connectPiApp();
+    app.dataset.activeWorkspaceId = "w1";
+    const tree = app.querySelector(".tree");
+    const fileTree = document.createElement("div");
+    fileTree.className = "tree-list";
+    const panel = document.createElement("div");
+    panel.dataset.gitPanel = "";
+    tree.append(fileTree, panel);
+    let resolveRequest;
+    globalThis.fetch = vi.fn(() => new Promise((resolve) => { resolveRequest = resolve; }));
+
+    const loading = app.showGitHistory();
+    const status = panel.querySelector("[data-i18n='loadingGitHistory']");
+    expect(status?.textContent).toBe("Loading Git history…");
+
+    applyUiLocale("zh-CN", app);
+    expect(status?.textContent).toBe("正在加载 Git 历史…");
+    resolveRequest(okJson({ commits: [] }));
+    await loading;
+  });
+
   it("opens git commit detail in a modal without expanding the workspace grid", async () => {
     const app = await connectPiApp();
     const historyPanel = document.createElement("div");
@@ -739,11 +765,11 @@ describe("workspace folder/render/bootstrap coverage", () => {
     expect(dialog.getAttribute("aria-modal")).toBe("true");
     expect(dialog.querySelector("[data-git-detail]")?.textContent).toContain("initial");
     expect(detailPanel.querySelector("[data-action='close-git-detail']")).not.toBeNull();
-    expect(body.style.gridTemplateColumns).toBe("280px 1fr");
+    expect(body.style.gridTemplateColumns).toBe("286px 1fr");
 
     app.closeGitDetail();
     expect(detailPanel.hidden).toBe(true);
-    expect(body.style.gridTemplateColumns).toBe("280px 1fr");
+    expect(body.style.gridTemplateColumns).toBe("286px 1fr");
     expect(historyPanel.querySelector(".git-commit-row")?.classList.contains("selected")).toBe(false);
   });
 
@@ -764,7 +790,8 @@ describe("workspace folder/render/bootstrap coverage", () => {
     expect(cancel).toHaveBeenCalledOnce();
   });
 
-  it("keeps Git details closable while loading and after a request fails", async () => {
+  it("relocalizes Git commit loading and keeps details closable after a request fails", async () => {
+    localStorage.setItem(UI_LOCALE_STORAGE_KEY, "en");
     const app = await connectPiApp();
     const panel = app.querySelector("[data-git-detail-panel]");
     app.dataset.activeWorkspaceId = "w1";
@@ -773,6 +800,10 @@ describe("workspace folder/render/bootstrap coverage", () => {
 
     const request = app.selectGitCommit("abc123");
     const loadingClose = panel.querySelector("[data-action='close-git-detail']");
+    const status = panel.querySelector("[data-git-detail] .git-empty");
+    expect(status.textContent).toBe("Loading commit…");
+    applyUiLocale("zh-CN", app);
+    expect(status.textContent).toBe("正在加载提交…");
     rejectFetch(new Error("Git unavailable"));
     await request;
 

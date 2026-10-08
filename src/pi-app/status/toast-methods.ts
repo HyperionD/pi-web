@@ -1,6 +1,8 @@
 import { Notyf, NotyfEvent } from "notyf";
 import { getSessionState } from "../../lib/api";
 import { escapeHtml } from "../../lib/renderers";
+import { currentUiLocale } from "../../i18n/client";
+import { uiMessage } from "../../i18n/ui";
 import { createSessionStreamClient } from "../sessions/session-stream-client";
 import { parseFallbackChoices, parseFallbackInputs } from "../input/fallback-choices";
 
@@ -26,6 +28,18 @@ const TOAST_MESSAGES = {
     detail: "前端与后端的连接已断开，正在重新连接。"
   },
 };
+
+const TOAST_ICON_PATHS = {
+  success: '<path d="m5 12 4 4L19 6"/>',
+  choice: '<circle cx="12" cy="12" r="9"/><path d="M12 11v5m0-8h.01"/>',
+  warning: '<path d="M10.3 4.3 2.6 18a2 2 0 0 0 1.8 3h15.2a2 2 0 0 0 1.8-3L13.7 4.3a2 2 0 0 0-3.4 0Z"/><path d="M12 9v4m0 4h.01"/>',
+  error: '<circle cx="12" cy="12" r="9"/><path d="m9 9 6 6m0-6-6 6"/>',
+  connection: '<circle cx="12" cy="12" r="9"/><path d="M12 11v5m0-8h.01"/>',
+};
+
+function isToastType(type) {
+  return Object.prototype.hasOwnProperty.call(TOAST_MESSAGES, type);
+}
 
 const UNREAD_COMPLETED_SESSIONS_KEY = "piweb:unread-completed-sessions";
 const LAST_SESSION_PROMPTS_KEY = "piweb:last-session-prompts";
@@ -75,29 +89,47 @@ function authWarningDetail(detail) {
 }
 
 function toastText(kind, detail, context) {
-  const message = TOAST_MESSAGES[kind] || TOAST_MESSAGES.success;
+  const message = isToastType(kind) ? TOAST_MESSAGES[kind] : TOAST_MESSAGES.success;
+  const titleKey = kind === "connection" ? "connectionToastTitle" : undefined;
+  const detailKey = kind === "connection" ? "connectionToastDetail" : undefined;
+  const locale = currentUiLocale();
+  const title = titleKey ? uiMessage(locale, titleKey) : message.title;
+  const defaultDetail = detailKey ? uiMessage(locale, detailKey) : message.detail;
+  const contextPrompt = toastContextPrompt(context);
   return {
-    title: message.title,
-    detail: detail || message.detail,
+    title,
+    detail: detail || defaultDetail,
     workspace: toastContextWorkspace(context),
     session: toastContextSession(context),
-    prompt: toastContextPrompt(context) || detail || message.detail,
+    prompt: contextPrompt || detail || defaultDetail,
+    titleI18nKey: titleKey,
+    promptI18nKey: detailKey && !contextPrompt && !detail ? detailKey : undefined,
   };
 }
 
-function toastHtml(message) {
+function toastIconHtml(kind) {
+  const iconPath = isToastType(kind) ? TOAST_ICON_PATHS[kind] : TOAST_ICON_PATHS.choice;
+  return `<span class="toast-icon" aria-hidden="true"><svg viewBox="0 0 24 24">${iconPath}</svg></span>`;
+}
+
+function toastHtml(message, kind) {
+  const titleI18n = message.titleI18nKey ? ` data-i18n="${message.titleI18nKey}"` : "";
+  const promptI18n = message.promptI18nKey
+    ? ` data-i18n="${message.promptI18nKey}" data-i18n-title="${message.promptI18nKey}"`
+    : "";
   return [
-    `<span class="toast-dot" aria-hidden="true"></span>`,
-    `<span class="toast-copy"><strong>${escapeHtml(message.title)}</strong>`,
+    toastIconHtml(kind),
+    `<span class="toast-copy"><strong${titleI18n}>${escapeHtml(message.title)}</strong>`,
     `<span class="toast-line toast-workspace" title="${escapeHtml(message.workspace)}">${escapeHtml(message.workspace)}</span>`,
     `<span class="toast-line toast-session" title="${escapeHtml(message.session)}">${escapeHtml(message.session)}</span>`,
-    `<small class="toast-line toast-prompt" title="${escapeHtml(message.prompt)}">${escapeHtml(message.prompt)}</small></span>`,
+    `<small class="toast-line toast-prompt" title="${escapeHtml(message.prompt)}"${promptI18n}>`,
+    `${escapeHtml(message.prompt)}</small></span>`,
   ].join("");
 }
 
-function systemToastHtml(title, detail) {
+function systemToastHtml(type, title, detail) {
   return [
-    `<span class="toast-dot" aria-hidden="true"></span>`,
+    toastIconHtml(type),
     `<span class="toast-copy"><strong>${escapeHtml(title)}</strong>`,
     `<small class="toast-line toast-prompt" title="${escapeHtml(detail)}">${escapeHtml(detail)}</small></span>`,
   ].join("");
@@ -156,9 +188,10 @@ export const toastMethods = {
     const notyf = this.ensureToastRegion();
     const message = toastText(kind, detail, context);
     const sessionId = toastContextSessionId(context);
+    const toastType = isToastType(kind) ? kind : "success";
     const notification = notyf.open({
-      type: TOAST_MESSAGES[kind] ? kind : "success",
-      message: toastHtml(message),
+      type: toastType,
+      message: toastHtml(message, toastType),
     });
     notification.on(NotyfEvent.Click, (payload = {}) => {
       const event = (payload as { event?: Event }).event;
@@ -175,9 +208,10 @@ export const toastMethods = {
     this.systemToastKeys ??= new Set();
     if (this.systemToastKeys.has(key)) return undefined;
     this.systemToastKeys.add(key);
+    const toastType = isToastType(type) ? type : "warning";
     const notification = this.ensureToastRegion().open({
-      type: TOAST_MESSAGES[type] ? type : "warning",
-      message: systemToastHtml(title, detail),
+      type: toastType,
+      message: systemToastHtml(toastType, title, detail),
     });
     this.syncToastDismissAll();
     return notification;
@@ -214,6 +248,10 @@ export const toastMethods = {
       region.prepend(button);
       this.toastDismissObserver?.observe(region, { childList: true });
     }
+    region.querySelectorAll(".notyf__dismiss-btn").forEach((dismissButton) => {
+      dismissButton.setAttribute("data-i18n-aria-label", "dismissNotification");
+      dismissButton.setAttribute("aria-label", uiMessage(currentUiLocale(), "dismissNotification"));
+    });
     const activeToasts = [...region.querySelectorAll(".notyf__toast:not(.notyf__toast--disappear)")];
     activeToasts.forEach((toast, index) => {
       toast.style.setProperty("--toast-stack-index", String(index));

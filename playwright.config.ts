@@ -23,7 +23,7 @@ export default defineConfig({
     },
     ...(chrome107Path ? [{
       name: "chromium-107",
-      use: { browserName: "chromium" as const, executablePath: chrome107Path },
+      use: { browserName: "chromium" as const, launchOptions: { executablePath: chrome107Path } },
     }] : []),
   ],
   webServer: {

@@ -1,4 +1,6 @@
 import { renderPiBody } from "../../lib/renderers";
+import { currentUiLocale } from "../../i18n/client";
+import { uiMessage } from "../../i18n/ui";
 import {
   createSession,
   getGitStatus,
@@ -55,11 +57,11 @@ function patchStreamingTranscriptBody(current, message) {
     return true;
   }
   if (message.kind !== "think") return false;
-  const thinkingBlock = body.querySelector(".thinking-block");
-  if (!thinkingBlock) return false;
-  const textNode = [...thinkingBlock.childNodes].find((node) => node.nodeType === Node.TEXT_NODE);
+  const thinkingCopy = body.querySelector(".thinking-copy");
+  if (!thinkingCopy) return false;
+  const textNode = [...thinkingCopy.childNodes].find((node) => node.nodeType === Node.TEXT_NODE);
   if (textNode) textNode.nodeValue = message.text || "";
-  else thinkingBlock.append(document.createTextNode(message.text || ""));
+  else thinkingCopy.append(document.createTextNode(message.text || ""));
   return true;
 }
 
@@ -151,6 +153,7 @@ export const workspaceBootstrapMethods = {
         clearStoredActiveSession();
         this.dataset.activeSessionId = "";
         this.resetActiveSessionDisplay();
+        this.updateActiveWorkspaceLabel(activeWorkspace.id);
       }
       if (!matchesBootstrapState(activeWorkspace.id, activeSession?.id || "")) return;
 
@@ -313,7 +316,8 @@ export const workspaceBootstrapMethods = {
     this.workspaceCommandsLoadToken = loadToken;
     this.slashCommandsLoading = true;
     this.renderSlashCommands?.([]);
-    this.setSlashCommandStatus?.("loading…");
+    const loadingLabel = uiMessage(currentUiLocale(), "loading");
+    this.setSlashCommandStatus?.(loadingLabel, "loading");
     const isCurrentLoad = () => (
       this.dataset.activeSessionId === sessionId
       && this.workspaceCommandsLoadToken === loadToken
@@ -344,7 +348,8 @@ export const workspaceBootstrapMethods = {
     this.workspaceCommandsLoadToken = loadToken;
     this.slashCommandsLoading = true;
     this.renderSlashCommands?.([]);
-    this.setSlashCommandStatus?.("loading…");
+    const loadingLabel = uiMessage(currentUiLocale(), "loading");
+    this.setSlashCommandStatus?.(loadingLabel, "loading");
     const isCurrentLoad = () => (
       this.dataset.activeWorkspaceId === workspaceId
       && !this.dataset.activeSessionId
@@ -585,6 +590,7 @@ export const workspaceBootstrapMethods = {
         const nodes = this.transcriptElementNodes(this.messageNode(message));
         wrapper.replaceChildren(...nodes);
       }
+      this.bindTranscriptCardState(item, wrapper);
       this.notifyTranscriptItemHeightDidChange?.(item, wrapper);
     }
   },
@@ -606,22 +612,14 @@ export const workspaceBootstrapMethods = {
     if (message.kind === "tool" && !current.matches(".tool-card")) return false;
     if (!rendered || rendered.nodeType !== Node.ELEMENT_NODE) return false;
     if (message.kind === "tool") {
-      current.dataset.status = rendered.dataset.status || "";
-      current.querySelector(".tc-name").textContent = rendered.querySelector(".tc-name")?.textContent || "tool";
-      current.querySelector(".tc-args").textContent = rendered.querySelector(".tc-args")?.textContent || "";
-      current.querySelector(".tc-meta").innerHTML = rendered.querySelector(".tc-meta")?.innerHTML || "";
-      const body = current.querySelector(".tc-body");
-      const nextBody = rendered.querySelector(".tc-body");
-      if (body && nextBody) {
-        body.innerHTML = nextBody.innerHTML;
-        if (message.body) this.storeDurableToolBody?.(body, message.body);
-      }
+      this.patchToolCard(current, rendered, message);
       return true;
     }
     const body = current.querySelector(".body");
     const nextBody = rendered.querySelector(".body");
     if (!body || !nextBody) return false;
     current.dataset.rawText = message.text || "";
+    current.classList.toggle("streaming", message.status === "streaming");
     body.innerHTML = nextBody.innerHTML;
     return true;
   },
@@ -688,9 +686,13 @@ export const workspaceBootstrapMethods = {
     const row = this.simpleMessage("session loading", "agent >", "");
     row.classList.add("session-switch-loading");
     row.dataset.kind = "loading";
+    const locale = currentUiLocale();
+    const sessionTitle = this.findSessionRow(sessionId)?.dataset.title || uiMessage(locale, "sessionFallback");
     const label = document.createElement("span");
     label.className = "session-switch-label";
-    label.textContent = `正在加载 ${this.findSessionRow(sessionId)?.dataset.title || "会话"}…`;
+    label.dataset.i18n = "sessionLoading";
+    label.dataset.i18nSession = sessionTitle;
+    label.textContent = uiMessage(locale, "sessionLoading").replace("{session}", () => sessionTitle);
     const skeleton = document.createElement("span");
     skeleton.className = "session-switch-skeleton";
     skeleton.setAttribute("aria-hidden", "true");
@@ -801,8 +803,17 @@ export const workspaceBootstrapMethods = {
 
   updateActiveWorkspaceLabel(workspaceId) {
     const group = this.findWorkspaceGroup(workspaceId);
-    const name = group?.querySelector(".label")?.textContent || workspaceId;
+    const name = group?.querySelector(".label")?.textContent || workspaceId || "工作区";
+    const path = group?.querySelector(".ws-path")?.textContent || "";
+    const pathLabel = this.querySelector("[data-active-workspace-path]");
+    if (pathLabel) {
+      pathLabel.textContent = path;
+      pathLabel.title = path;
+    }
     const label = this.querySelector("[data-active-workspace]");
+    const trigger = this.querySelector("[data-workspace-switcher] summary");
+    trigger?.setAttribute("aria-label", uiMessage(currentUiLocale(), "switchWorkspace")
+      .replace("{workspace}", () => name));
     const empty = this.querySelector("[data-empty-workspace]");
     if (label) label.textContent = name;
     if (empty) empty.textContent = name;

@@ -230,15 +230,3 @@ button.tc-head {
   align-items: center;
   gap: 4px;
 }
-.sb-collapse {
-  background: transparent;
-  border: 1px solid transparent;
-  color: var(--fg-3);
-  font-family: var(--font-mono);
-  font-size: 14px;
-  width: 26px;
-  height: 26px;
-  padding: 0;
-  border-radius: var(--radius-1);
-  line-height: 1;
-}

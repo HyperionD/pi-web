@@ -1,4 +1,4 @@
-import { fullToolBody } from "../messages/tool-output-rendering";
+import { captureToolOutputScroll, fullToolBody, restoreToolOutputScroll } from "../messages/tool-output-rendering";
 import { renderAnsiBody } from "../../lib/renderers";
 
 const SIDEBAR_WIDTH_KEY = "pi.sb.width";
@@ -75,6 +75,11 @@ export const layoutMethods = {
       if (popover && !popover.hidden) {
         event.preventDefault();
         this.closeFolderPopover();
+        return;
+      }
+      if (this.querySelector("[data-workspace-switcher]")?.open) {
+        event.preventDefault();
+        this.closeWorkspaceSwitcher(true);
         return;
       }
       const gitDetail = this.querySelector("[data-git-detail-panel]");
@@ -183,44 +188,30 @@ export const layoutMethods = {
     if (!open && wasOpen && this.querySelector(".sidebar")?.contains(document.activeElement)) button?.focus();
   },
 
-  collapseSidebar(collapsed) {
-    this.dataset.sidebar = collapsed ? "collapsed" : "open";
-    this.querySelector(".sidebar-wrap")?.toggleAttribute("hidden", collapsed);
-    const expand = this.querySelector(".sb-expand-btn");
-    if (expand) expand.style.display = collapsed ? "inline-flex" : "none";
-    try { localStorage.setItem("pi.sb.collapsed", collapsed ? "1" : "0"); } catch {}
-    this.applyGrid();
-  },
-
   restoreSidebar() {
     const width = readStoredSidebarWidth();
     const inspectorWidth = readStoredInspectorWidth();
     if (width) this.dataset.sidebarWidth = String(width);
     if (inspectorWidth) this.dataset.inspectorWidth = String(inspectorWidth);
-    if (this.dataset.sidebar === "collapsed") {
-      this.collapseSidebar(true);
-      return;
-    }
-    try { this.collapseSidebar(localStorage.getItem("pi.sb.collapsed") === "1"); } catch { this.applyGrid(width); }
+    try { localStorage.removeItem("pi.sb.collapsed"); } catch {}
+    this.applyGrid(width, inspectorWidth);
   },
 
-  applyGrid(width = Number(this.dataset.sidebarWidth || 280), inspectorWidth = Number(this.dataset.inspectorWidth || 560)) {
+  applyGrid(width = Number(this.dataset.sidebarWidth || 286), inspectorWidth = Number(this.dataset.inspectorWidth || 560)) {
     const body = this.querySelector(".app-body");
     if (!body) return;
-    const collapsed = this.dataset.sidebar === "collapsed";
-    body.style.setProperty("--inspector-column", collapsed ? "2" : "3");
+    this.dataset.sidebar = "open";
+    body.style.setProperty("--inspector-column", "3");
     this.querySelectorAll(".fp-resizer").forEach((resizer) => {
       resizer.setAttribute("aria-valuenow", String(inspectorWidth));
     });
-    const expandedColumns = `${width}px 1fr`;
-    const collapsedColumns = "1fr";
-    body.style.gridTemplateColumns = collapsed ? collapsedColumns : expandedColumns;
+    body.style.gridTemplateColumns = `${width}px 1fr`;
   },
 
   startResize(event) {
     event.preventDefault();
     const startX = event.clientX;
-    const startWidth = Number(this.dataset.sidebarWidth || 280);
+    const startWidth = Number(this.dataset.sidebarWidth || 286);
     const move = (moveEvent) => {
       const width = Math.min(480, Math.max(200, startWidth + moveEvent.clientX - startX));
       this.dataset.sidebarWidth = String(width);
@@ -266,8 +257,10 @@ export const layoutMethods = {
     const body = button?.closest(".tc-body");
     const fullBody = fullToolBody(body);
     if (!body || !fullBody) return;
+    captureToolOutputScroll(body);
     body.innerHTML = renderAnsiBody(fullBody);
     body.dataset.largeToolBody = "rendered";
+    restoreToolOutputScroll(body);
     this.notifyTranscriptNodeHeightDidChange(body);
   },
 

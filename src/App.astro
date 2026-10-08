@@ -1,7 +1,6 @@
 ---
 import {
   ArrowDown,
-  ChevronLeft,
   ChevronRight,
   Folder,
   GitBranch,
@@ -23,15 +22,14 @@ import SkillManager from "./components/SkillManager.astro";
 import PromptPresetManager from "./components/PromptPresetManager.astro";
 import AccountNav from "./components/AccountNav.astro";
 import UserManagement from "./components/UserManagement.astro";
-import { escapeHtml, renderBannerBody, renderPiBody, renderUserBody } from "./lib/renderers";
-import { formatToolArgs, toolIconHtml } from "./pi-app/messages/tool-message-methods";
+import { renderBannerBody, renderPiBody, renderUserBody } from "./lib/renderers";
+import { formatToolArgs, isShellTool, toolIconHtml, toolMessageMethods } from "./pi-app/messages/tool-message-methods";
 import { isLargeToolBody, renderToolBody } from "./pi-app/messages/tool-output-rendering";
-import { TERMINAL_SPINNER_HTML } from "./pi-app/constants";
+import { messageAvatarHtml } from "./pi-app/messages/message-avatars";
 
 const {
   initialSession = "active",
   treeOpen = true,
-  sidebarCollapsed = false,
   showCompaction = false,
   showDisconnect = false,
   scanlines = false,
@@ -50,75 +48,127 @@ const activeWorkspaceID = activeWorkspace?.id || "";
 const emptyVisible = initialSession === "empty" || !activeWorkspaceID;
 const sessionVisible = !emptyVisible;
 const bodyClass = "app-body";
-const bodyGrid = sidebarCollapsed ? "1fr" : "280px 1fr";
+const bodyGrid = "286px minmax(0, 1fr)";
 const sessionHidden = !sessionVisible;
 const emptyHidden = !emptyVisible;
 const compactionHidden = !showCompaction;
 const treeHidden = !treeOpen;
 
-function toolStatus(msg) {
-  if (msg.status === "running") return `${TERMINAL_SPINNER_HTML}<span style="color:var(--accent)">running</span>`;
-  if (msg.status === "err") return `<span class="err">✗</span>${escapeHtml(msg.resultMeta || "failed")}`;
-  return `<span class="ok">✓</span>${msg.durationMs ? `${msg.durationMs} ms` : ""}${msg.resultMeta ? ` · ${escapeHtml(msg.resultMeta)}` : ""}`;
-}
-
 ---
 
-<pi-app class="app" data-route="workspace" data-tree={treeOpen ? "on" : "off"} data-sidebar={sidebarCollapsed ? "collapsed" : "open"} data-session={emptyVisible ? "empty" : "active"} data-active-session-id={activeSessionID} data-active-workspace-id={activeWorkspaceID}>
-  <header class="topbar">
-    <button class="sb-expand-btn" type="button" data-action="expand-sidebar" aria-label="显示侧栏" style={sidebarCollapsed ? "display:inline-flex" : "display:none"}><ChevronRight size={16} strokeWidth={1.75} aria-hidden="true" /></button>
-    <button class="hamburger" type="button" data-action="open-drawer" aria-label="打开侧栏" aria-expanded="false"><Menu size={16} strokeWidth={1.75} aria-hidden="true" /></button>
-    <span class="brand" aria-label="pi.dev / web">
-      <span data-brand>pi.dev / web</span><span class="cursor-block"></span>
-    </span>
-    <span class="crumb">
-      <span class="sep">/</span><span class="ws" data-active-workspace>{activeWorkspaceName}</span>
-      <span class="sep">/</span><span class="session" data-active-session-title title={`${activeSessionTitle} · ${activeSessionID}`}>{activeSessionTitle}</span>
-    </span>
-    <div class="actions">
-      <AccountNav />
-    </div>
-  </header>
-
+<pi-app class="app" data-route="workspace" data-tree={treeOpen ? "on" : "off"} data-sidebar="open" data-session={emptyVisible ? "empty" : "active"} data-active-session-id={activeSessionID} data-active-workspace-id={activeWorkspaceID}>
   <div class="folder-popover" data-folder-popover role="dialog" aria-label="选择工作区" hidden>
     <div class="folder-popover-head">
-      <strong>选择工作区</strong>
+      <div class="folder-popover-title"><span class="folder-tile"><Folder size={16} aria-hidden="true" /></span><div><strong>添加工作区</strong><small>选择本地文件夹作为工作区</small></div></div>
       <button type="button" data-action="folder-close" aria-label="关闭目录选择器">×</button>
     </div>
     <div class="folder-browser" data-folder-browser>
       <div class="folder-list" data-folder-list role="tree" aria-label="文件夹列表"></div>
-      <span class="folder-loading" data-folder-loading hidden aria-live="polite">加载中…</span>
+      <span class="folder-loading" data-folder-loading data-i18n="loading" hidden aria-live="polite">加载中…</span>
       <button type="button" class="folder-confirm" data-action="folder-open-current">选择此文件夹</button>
     </div>
   </div>
 
   <section class={bodyClass} data-view="workspace" style={`grid-template-columns:${bodyGrid}`}>
-    <div class="sidebar-wrap" hidden={sidebarCollapsed}>
+    <div class="sidebar-wrap">
       <aside class="sidebar" aria-label="工作区和会话">
-        <div class="sb-section" style="flex:1;overflow-y:auto;min-height:0">
-          <div class="sb-head"><span>工作区</span><span class="sb-head-actions"><button class="add" type="button" data-action="route-picker" aria-haspopup="dialog" aria-expanded="false"><Plus size={12} strokeWidth={1.75} aria-hidden="true" /> 打开</button><button class="refresh" type="button" data-action="refresh-workspaces" title="刷新工作区" aria-label="刷新工作区"><RefreshCw size={12} strokeWidth={1.75} aria-hidden="true" /></button><button class="sb-collapse" type="button" data-action="collapse-sidebar" title="收起侧栏" aria-label="收起侧栏"><ChevronLeft size={14} strokeWidth={1.75} aria-hidden="true" /></button></span></div>
+        <header class="side-head">
+          <span class="brand-mark" aria-hidden="true">π</span>
+          <span class="brand brand-name" aria-label="pi.dev / web">
+            <span data-brand>pi.dev / web</span>
+          </span>
+          <span class="head-grow"></span>
+          <button class="icon-btn sb-close-drawer" type="button" data-action="close-drawer" aria-label="关闭侧栏" title="关闭侧栏">
+            <X size={16} strokeWidth={1.75} aria-hidden="true" />
+          </button>
+        </header>
+        <details class="workspace-switcher" data-workspace-switcher>
+          <summary class="workspace-trigger" aria-label={`切换工作区，当前工作区：${activeWorkspaceName}`} data-i18n-aria-label="switchWorkspace">
+            <span class="folder-tile"><Folder size={16} strokeWidth={1.7} aria-hidden="true" /></span>
+            <span class="workspace-info">
+              <strong data-active-workspace>{activeWorkspaceName}</strong>
+              <small data-active-workspace-path>{activeWorkspace?.path || ""}</small>
+            </span>
+            <ChevronRight className="workspace-chevron" size={14} strokeWidth={1.75} aria-hidden="true" />
+          </summary>
+          <div class="workspace-menu">
+            <div class="workspace-menu-heading">切换工作区</div>
+            <div class="workspace-options" data-workspace-options>
+              {workspaces.map((workspace) => (
+                <div class="workspace-option-row">
+                  <button type="button" class="workspace-option" data-action="switch-workspace"
+                    data-workspace={workspace.id} aria-current={workspace.id === activeWorkspaceID ? "true" : "false"}>
+                    <span class="workspace-info"><strong>{workspace.name}</strong><small>{workspace.path}</small></span>
+                    <span class="workspace-check" aria-hidden="true">✓</span>
+                  </button>
+                  <button type="button" class="workspace-remove" data-action="close-workspace"
+                    data-workspace={workspace.id} title="从列表移除工作区"
+                    aria-label={`从列表移除 ${workspace.name}`}>
+                    <X size={14} strokeWidth={1.75} aria-hidden="true" />
+                  </button>
+                </div>
+              ))}
+              {workspaces.length === 0 && <div class="workspace-menu-empty">暂无工作区</div>}
+            </div>
+            <button class="workspace-add" type="button" data-action="route-picker" aria-haspopup="dialog" aria-expanded="false">
+              <Plus size={15} aria-hidden="true" /> 添加工作区
+            </button>
+          </div>
+        </details>
+        <div class="side-scroll">
+          <div class="sb-section">
+            <div class="sb-head"><span>会话</span><span class="sb-head-actions"><button class="refresh" type="button" data-action="refresh-workspaces" title="刷新工作区" aria-label="刷新工作区"><RefreshCw size={12} strokeWidth={1.75} aria-hidden="true" /></button></span></div>
           {workspaces.map((workspace) => {
             const isActiveWorkspace = workspace.id === activeWorkspaceID;
             const hasActiveSession = (workspace.sessions || []).some((session) => session.active || session.live);
             const isWorkspaceRunning = Boolean(workspace.live || hasActiveSession);
             return (
-              <div class:list={["workspace-group", isActiveWorkspace && "open"]} data-workspace-group={workspace.id}>
+              <div class:list={["workspace-group", isActiveWorkspace && "open"]} data-workspace-group={workspace.id} hidden={!isActiveWorkspace}>
+                <div class="workspace-shell" hidden>
                 <button type="button" class:list={["ws-row", isActiveWorkspace && "open"]} data-action="toggle-workspace" data-workspace={workspace.id} aria-expanded={isActiveWorkspace ? "true" : "false"}>
                   <span class="ws-stack"><span class="ws-name"><span class="label">{workspace.name}</span></span><span class="ws-path">{workspace.path}</span></span>
-                  <span class="ws-meta"><span class="ws-count">{workspace.sessionCount}</span><span class="ws-count-label">个会话</span><span class="ws-status" hidden={!isWorkspaceRunning}>运行中</span></span>
+                  <span class="ws-meta">
+                    <span class="ws-count">{workspace.sessionCount}</span>
+                    <span class="ws-count-label" data-i18n="sessionCountLabel">个会话</span>
+                    <span class="ws-status" data-i18n="running" hidden={!isWorkspaceRunning}>运行中</span>
+                  </span>
                 </button>
+                </div>
                 <div class="sessions" hidden={!isActiveWorkspace}>
                   {(workspace.sessions || []).map((session) => (
-                    <button type="button" class:list={[
-                      "session-row",
-                      isActiveWorkspace && session.id === activeSessionID && "selected",
-                      (session.active || session.live) && "active",
-                    ]} data-session={session.id} data-workspace={workspace.id} data-title={session.title}>
-                      <span class="title">{session.title}</span><span class:list={["meta", (session.active || session.live) && "live"]} hidden={!(session.active || session.live)}>{session.active || session.live ? "等待中" : ""}</span>
+                    <button
+                      type="button"
+                      class:list={[
+                        "session-row",
+                        isActiveWorkspace && session.id === activeSessionID && "selected",
+                        (session.active || session.live) && "active",
+                      ]}
+                      data-session={session.id}
+                      data-workspace={workspace.id}
+                      data-title={session.title}
+                    >
+                      <span class="title">{session.title}</span>
+                      <span
+                        class:list={["meta", (session.active || session.live) && "live"]}
+                        data-i18n="sessionWaiting"
+                        hidden={!(session.active || session.live)}
+                      >
+                        {session.active || session.live ? "等待中" : ""}
+                      </span>
                     </button>
                   ))}
-                  {(workspace.sessions || []).length === 0 && <div style="padding:12px 16px;color:var(--fg-3);font-size:12px;font-style:italic">暂无会话 · 按 N 新建</div>}
-                  <button type="button" class="session-row new-session-row" data-action="new-session" data-workspace={workspace.id} aria-label="新建会话" title="新建会话"><Plus size={14} strokeWidth={1.75} aria-hidden="true" /></button>
+                  {(workspace.sessions || []).length === 0 && <div class="sessions-empty" data-sessions-empty>暂无会话，开始一段新对话</div>}
+                  <button
+                    type="button"
+                    class="session-row new-session-row"
+                    data-action="new-session"
+                    data-workspace={workspace.id}
+                    aria-label="新建会话"
+                    title="新建会话"
+                  >
+                    <Plus size={14} strokeWidth={1.75} aria-hidden="true" />
+                    <span>新建会话</span>
+                  </button>
                 </div>
               </div>
             );
@@ -126,50 +176,266 @@ function toolStatus(msg) {
         </div>
         <aside class="tree" aria-label="工作区详情" hidden={treeHidden}>
           <div class="tree-head">
-            <span class="tree-tabs"><button class="tree-tab on" type="button" data-action="show-file-tree"><Folder size={12} strokeWidth={1.75} aria-hidden="true" /> 文件</button><button class="tree-tab" type="button" data-action="show-git-history"><GitBranch size={12} strokeWidth={1.75} aria-hidden="true" /> Git</button></span>
-            <span class="tree-head-actions"><button type="button" data-action="tree-root-menu" aria-label="文件树操作" title="文件树操作"><Plus size={12} strokeWidth={1.75} aria-hidden="true" /></button><button type="button" data-action="refresh-tree" aria-label="刷新工作区浏览器" title="刷新工作区浏览器"><RefreshCw size={12} strokeWidth={1.75} aria-hidden="true" /></button></span>
+            <span class="tree-tabs"><button class="tree-tab on" type="button" data-action="show-file-tree"><Folder size={14} strokeWidth={1.75} aria-hidden="true" /> 文件</button><button class="tree-tab" type="button" data-action="show-git-history"><GitBranch size={14} strokeWidth={1.75} aria-hidden="true" /> Git</button></span>
+            <span class="tree-head-actions"><button type="button" data-action="tree-root-menu" aria-label="文件树操作" title="文件树操作"><Plus size={16} strokeWidth={1.75} aria-hidden="true" /></button><button type="button" data-action="refresh-tree" aria-label="刷新工作区浏览器" title="刷新工作区浏览器"><RefreshCw size={16} strokeWidth={1.75} aria-hidden="true" /></button></span>
           </div>
           <div class="tree-list">
             <WorkspaceFileTree client:load initialFiles={fileTree} />
           </div>
           <div class="git-panel" data-git-panel hidden></div>
         </aside>
+        </div>
         <div class="sb-footer">
           <div class="sb-footer-status">
-            <span class="status-dot" data-connection-status-dot data-status="reconnecting" aria-hidden="true"></span><span data-connection-status-label aria-live="polite">连接中</span>
-            <span class="sb-footer-actions"><button type="button" class="sb-account-admin" data-account-admin hidden title="用户管理" aria-label="用户管理" aria-haspopup="dialog"><Users size={14} strokeWidth={1.75} aria-hidden="true" /></button><button class="sb-prompt-presets" type="button" data-action="open-prompt-presets" title="预设提示词" aria-label="打开预设提示词设置"><Sparkles size={14} strokeWidth={1.75} aria-hidden="true" /></button><button class="sb-skill-manager" type="button" data-action="open-skill-manager" title="技能管理" aria-label="打开技能管理" disabled={!activeWorkspaceID}><Puzzle size={14} strokeWidth={1.75} aria-hidden="true" /></button><button class="sb-settings" type="button" data-action="open-settings" title="设置" aria-label="打开设置"><Settings size={14} strokeWidth={1.75} aria-hidden="true" /></button></span>
+            <span class="status-dot" data-connection-status-dot data-status="reconnecting" aria-hidden="true"></span>
+            <span data-connection-status-label data-i18n="connectionConnecting" aria-live="polite">连接中</span>
+            <AccountNav />
           </div>
+          <nav class="sb-footer-actions" aria-label="管理工具" data-i18n-aria-label="managementTools">
+            <button
+              type="button"
+              class="sb-account-admin"
+              data-account-admin
+              hidden
+              title="用户管理"
+              data-i18n-title="userManagementShort"
+              aria-label="用户管理"
+              data-i18n-aria-label="userManagementShort"
+              aria-haspopup="dialog"
+            >
+              <Users size={14} strokeWidth={1.75} aria-hidden="true" />
+              <span class="sb-tool-label" data-i18n="userManagementShort">用户</span>
+            </button>
+            <button
+              class="sb-prompt-presets"
+              type="button"
+              data-action="open-prompt-presets"
+              title="预设"
+              data-i18n-title="promptPresetsShort"
+              aria-label="预设"
+              data-i18n-aria-label="promptPresetsShort"
+            >
+              <Sparkles size={14} strokeWidth={1.75} aria-hidden="true" />
+              <span class="sb-tool-label" data-i18n="promptPresetsShort">预设</span>
+            </button>
+            <button
+              class="sb-skill-manager"
+              type="button"
+              data-action="open-skill-manager"
+              title="技能"
+              data-i18n-title="skillManagerShort"
+              aria-label="技能"
+              data-i18n-aria-label="skillManagerShort"
+              disabled={!activeWorkspaceID}
+            >
+              <Puzzle size={14} strokeWidth={1.75} aria-hidden="true" />
+              <span class="sb-tool-label" data-i18n="skillManagerShort">技能</span>
+            </button>
+            <button
+              class="sb-settings"
+              type="button"
+              data-action="open-settings"
+              title="设置"
+              data-i18n-title="settingsShort"
+              aria-label="设置"
+              data-i18n-aria-label="settingsShort"
+            >
+              <Settings size={14} strokeWidth={1.75} aria-hidden="true" />
+              <span class="sb-tool-label" data-i18n="settingsShort">设置</span>
+            </button>
+          </nav>
         </div>
       </aside>
       <div class="sb-resizer" role="separator" aria-orientation="vertical" aria-label="调整侧栏大小" title="拖动以调整大小"></div>
     </div>
 
-    <main class="main" data-main="session" hidden={sessionHidden}> 
+    <section class="main-content" aria-label="会话主工作区">
+    <main class="main" data-main="session" aria-labelledby="active-session-name" hidden={sessionHidden}>
       {showDisconnect && <div class="disconn"><span class="pulse"></span><span>连接已断开 · 2 秒后重试</span></div>}
+      <span id="active-session-name" data-active-session-title hidden
+        title={`${activeSessionTitle} · ${activeSessionID}`}>{activeSessionTitle}</span>
+      <div class="transcript-navigation">
+        <button class="hamburger" type="button" data-action="open-drawer" aria-label="打开侧栏" aria-expanded="false">
+          <Menu size={16} strokeWidth={1.75} aria-hidden="true" />
+        </button>
+      </div>
       <div class:list={["term", scanlines && "scanlines"]}>
         <div class="term-inner">
           {conversation.map((msg) => (
             msg.kind === "banner" ? <pre class="ascii-banner" set:html={renderBannerBody(msg.text)}></pre> :
-            msg.kind === "user" ? <div class="msg"><div class="prefix user">您 &gt;</div><div class="body markdown-body" set:html={renderUserBody(msg.text)}></div></div> :
-            msg.kind === "think" ? <div class="msg"><div class="prefix think">—</div><div class="body" style="flex:1"><div class="thinking-block"><span class="label">thinking</span>{msg.text}</div></div></div> :
-            msg.kind === "pi" ? <div class="msg" data-raw-text={msg.text}><div class="prefix pi">agent &gt;</div><div class="body markdown-body" set:html={renderPiBody(msg.text)}></div></div> :
-            msg.kind === "tool" ? <div class="tool-card" data-tool={msg.tool} data-tool-call-id={msg.id || undefined} data-status={msg.status || ""}>
-              <div class="tc-head">
-                <span class="tc-glyph" set:html={toolIconHtml(msg)}></span><span class="tc-name">{msg.tool}</span><span class="tc-args">{formatToolArgs(msg.tool, msg.args)}</span><span class="tc-meta" set:html={toolStatus(msg)}></span>
+            msg.kind === "user" ? (
+              <div class="msg" data-kind="user" data-raw-text={msg.text}>
+                <div class="prefix user message-identity" set:html={messageAvatarHtml("user")}></div>
+                <div class="body markdown-body" set:html={renderUserBody(msg.text)}></div>
               </div>
-              <div class="tc-body" data-full-tool-body={isLargeToolBody(msg.body || "") ? msg.body : undefined} set:html={msg.body ? renderToolBody(msg.body) : ""}></div>
-            </div> : null
+            ) :
+            msg.kind === "think" ? (
+              <div class="msg" data-kind="think" data-raw-text={msg.text}>
+                <div class="prefix think message-identity" set:html={messageAvatarHtml("think")}></div>
+                <div class="body">
+                  <details class="thinking-block stream-card thinking-card" open={msg.status === "streaming"}>
+                    <summary class="stream-summary">
+                      <span class="label stream-label" data-i18n="thinking">思考过程</span>
+                      <span class:list={["thinking-state", msg.status === "streaming" && "stream-state running"]}
+                        data-i18n={msg.status === "streaming" ? "thinkingInProgress" : "thinkingCompleted"}>
+                        {msg.status === "streaming" ? "思考中" : "已完成 · 可展开查看"}
+                      </span>
+                    </summary>
+                    <div class="thinking-copy">{msg.text}</div>
+                  </details>
+                </div>
+              </div>
+            ) :
+            msg.kind === "pi" ? (
+              <div class="msg" data-kind="pi" data-raw-text={msg.text}>
+                <div class="prefix pi message-identity" set:html={messageAvatarHtml("pi")}></div>
+                <div class="body markdown-body" set:html={renderPiBody(msg.text)}></div>
+              </div>
+            ) :
+            msg.kind === "tool" ? (
+              <details class:list={["tool-card", "stream-card", isShellTool(msg.tool) && "command-card"]}
+                open data-tool={msg.tool} data-tool-call-id={msg.id || undefined} data-status={msg.status || ""}>
+                <summary class="tc-head stream-summary">
+                  <span class="tc-glyph" set:html={toolIconHtml(msg)}></span>
+                  <span class="tc-title stream-label"
+                    data-i18n={isShellTool(msg.tool) ? "commandExecution" : "toolExecution"}>
+                    {isShellTool(msg.tool) ? "命令执行" : "工具执行"}
+                  </span>
+                  <span class="tc-name">{msg.tool}</span>
+                  <span class="tc-meta" set:html={toolMessageMethods.toolStatus(msg)}></span>
+                </summary>
+                <div class="tc-content">
+                  <div class="tc-command" hidden={!formatToolArgs(msg.tool, msg.args)}>
+                    <span class="tc-prompt" aria-hidden="true">{isShellTool(msg.tool) ? "$" : "→"}</span>
+                    <span class="tc-args">{formatToolArgs(msg.tool, msg.args)}</span>
+                  </div>
+                  <div class="tc-output-label" data-i18n="toolOutput">实时输出</div>
+                  <div class="tc-body" data-i18n-aria-label="toolOutput" aria-label="实时输出"
+                    data-full-tool-body={isLargeToolBody(msg.body || "") ? msg.body : undefined}
+                    set:html={msg.body ? renderToolBody(msg.body) : ""}></div>
+                </div>
+              </details>
+            ) : null
           ))}
           <div class="compaction" hidden={compactionHidden}><span class="lbl">⚠ context summarized</span><span>older messages summarized · /undo to revert</span></div>
         </div>
         <div class="streaming-tail" data-streaming-tail></div>
       </div>
-      <button type="button" class="scroll-bottom-btn" data-action="scroll-bottom" aria-label="scroll to bottom" title="scroll to bottom" hidden><ArrowDown size={14} strokeWidth={1.75} aria-hidden="true" /></button>
+      <button
+        type="button"
+        class="scroll-bottom-btn"
+        data-action="scroll-bottom"
+        aria-label="滚动到底部"
+        data-i18n-aria-label="scrollToBottom"
+        title="滚动到底部"
+        data-i18n-title="scrollToBottom"
+        hidden
+      >
+        <ArrowDown size={14} strokeWidth={1.75} aria-hidden="true" />
+      </button>
     </main>
 
     <main class="main" data-main="empty" hidden={emptyHidden}> 
       <div class="empty-shell"><div class="empty-inner"><div class="empty-title" data-empty-no-workspace hidden={Boolean(activeWorkspaceID)}>点击打开按钮选择一个目录后开始你的对话</div></div></div>
     </main>
+
+  <div class="prompt-region">
+    <section class="session-stats-panel" data-session-stats role="dialog" aria-labelledby="session-stats-title" hidden>
+      <div class="session-stats-head">
+        <strong id="session-stats-title">会话统计</strong>
+        <button type="button" data-action="close-session-stats" aria-label="关闭会话统计"><X size={14} strokeWidth={1.75} aria-hidden="true" /></button>
+      </div>
+      <div class="session-stats-grid">
+        <div class="session-stat" data-session-stat="context" hidden><span>上下文</span><strong>—</strong></div>
+        <div class="session-stat" data-session-stat="messages" hidden><span>消息</span><strong>—</strong></div>
+        <div class="session-stat" data-session-stat="tools" hidden><span>工具调用</span><strong>—</strong></div>
+        <div class="session-stat" data-session-stat="cost" hidden><span>成本</span><strong>—</strong></div>
+      </div>
+    </section>
+    <div id="slash-command-list" class="slash-pop" role="listbox" aria-label="斜杠命令" hidden>
+      <div class="slash-head" data-slash-head aria-live="polite">
+        <span data-i18n="slashCommandsTitle">斜杠命令</span> ·
+        <span data-i18n="slashCommandHint">输入以筛选</span>
+      </div>
+      <div class="slash-list">{slashCommands.map((cmd, index) => {
+        const command = cmd.command || cmd.cmd || `/${cmd.name}`;
+        return <button id={`slash-command-${index}`} type="button" role="option" aria-selected={index === 0 ? "true" : "false"} class:list={["slash-item", index === 0 && "selected"]} data-slash={command}><span class="sl-cmd">{command}</span><span class="sl-tags"><span class="sl-scope">{cmd.scope || "global"}</span><span class="sl-source">{cmd.source || "command"}</span></span><span class="sl-desc">{cmd.description || cmd.desc}</span></button>;
+      })}</div>
+    </div>
+    <div class="prompt-presets" data-prompt-presets hidden aria-label="预设提示词">
+      <span class="prompt-presets-label">预设</span>
+      <div class="prompt-preset-list" data-prompt-preset-list></div>
+    </div>
+    <div class="prompt-bar">
+      <div class="prompt-input-col">
+        <div class="attach-chips" hidden></div>
+        <textarea
+          class="prompt-textarea"
+          placeholder="输入你的想法"
+          data-i18n-placeholder="promptPlaceholder"
+          rows="1"
+          aria-controls="slash-command-list"
+          aria-expanded="false"
+          aria-autocomplete="list"
+          disabled={!activeWorkspaceID}
+        ></textarea>
+      </div>
+      <div class="prompt-toolbar">
+        <button
+          class="attach-btn"
+          type="button"
+          aria-label="添加附件"
+          data-i18n-aria-label="addAttachment"
+          title="添加附件"
+          data-i18n-title="addAttachment"
+        >
+          <Paperclip size={14} strokeWidth={1.5} aria-hidden="true" />
+        </button>
+        <input type="file" multiple hidden data-file-input />
+        <span class="prompt-toolbar-note">支持粘贴文本与添加文件</span>
+        <details class="attachment-guidance-disclosure">
+          <summary data-i18n="attachmentLimits">附件限制说明</summary>
+          <p class="attachment-guidance" data-attachment-guidance>
+            <span data-i18n="attachmentGuidancePrefix">较大文件建议上传到工作区。单文件上限：</span>
+            <strong><span data-attachment-max-upload>100</span> MiB</strong>
+            <span data-i18n="attachmentGuidanceSuffix">。普通文件超 256 KiB 不内联，图片与附件预算约 768 KiB。</span>
+          </p>
+        </details>
+        <span class="prompt-keyboard-hint">Enter 发送 · Shift + Enter 换行</span>
+        <div class="prompt-actions">
+          <button
+            class="stop-btn"
+            type="button"
+            aria-label="停止当前运行"
+            data-i18n-aria-label="stopRun"
+            title="停止当前运行"
+            data-i18n-title="stopRun"
+            hidden
+          >
+            <Square size={13} strokeWidth={2} aria-hidden="true" />
+            <span data-i18n="stop">停止</span>
+          </button>
+          <button
+            class="send-btn"
+            type="button"
+            aria-label="发送消息"
+            data-i18n-aria-label="sendMessage"
+            title="发送消息"
+            data-i18n-title="sendMessage"
+            disabled={!activeWorkspaceID}
+            aria-disabled="true"
+          >
+            <SendHorizontal size={14} strokeWidth={2} aria-hidden="true" />
+            <span data-i18n="sendPrompt">发送</span>
+          </button>
+        </div>
+      </div>
+      <div class="drop-overlay" hidden><span data-i18n="dropFiles">松开放置文件即可添加</span></div>
+    </div>
+    <div class="attachment-warning" data-attachment-warning aria-live="polite" role="status" hidden></div>
+    <div class="prompt-meta"><span data-prompt-meta>— | <span class="prompt-meta-item prompt-meta-branch"><GitBranch size={12} strokeWidth={1.75} aria-hidden="true" /><span>—</span></span></span><button type="button" class="compact-btn" data-action="compact-session" disabled aria-label="压缩上下文" title="压缩上下文">压缩上下文</button></div>
+  </div>
+    </section>
 
     <div class="file-preview-panel" data-file-preview hidden>
       <div class="fp-resizer" role="separator" aria-orientation="vertical" aria-label="调整文件预览大小" aria-valuemin="320" aria-valuemax="720" aria-valuenow="560" title="拖动以调整大小"></div>
@@ -187,44 +453,6 @@ function toolStatus(msg) {
     <div class="git-detail-panel" data-git-detail-panel hidden>
       <div class="git-detail-dialog" role="dialog" aria-modal="true" aria-label="Git 提交详情" tabindex="-1"></div>
     </div>
-  <div class="prompt-region">
-    <section class="session-stats-panel" data-session-stats role="dialog" aria-labelledby="session-stats-title" hidden>
-      <div class="session-stats-head">
-        <strong id="session-stats-title">会话统计</strong>
-        <button type="button" data-action="close-session-stats" aria-label="关闭会话统计"><X size={14} strokeWidth={1.75} aria-hidden="true" /></button>
-      </div>
-      <div class="session-stats-grid">
-        <div class="session-stat" data-session-stat="context" hidden><span>上下文</span><strong>—</strong></div>
-        <div class="session-stat" data-session-stat="messages" hidden><span>消息</span><strong>—</strong></div>
-        <div class="session-stat" data-session-stat="tools" hidden><span>工具调用</span><strong>—</strong></div>
-        <div class="session-stat" data-session-stat="cost" hidden><span>成本</span><strong>—</strong></div>
-      </div>
-    </section>
-    <div id="slash-command-list" class="slash-pop" role="listbox" aria-label="斜杠命令" hidden>
-      <div class="slash-head" data-slash-head aria-live="polite">slash commands · type to filter</div>
-      <div class="slash-list">{slashCommands.map((cmd, index) => {
-        const command = cmd.command || cmd.cmd || `/${cmd.name}`;
-        return <button id={`slash-command-${index}`} type="button" role="option" aria-selected={index === 0 ? "true" : "false"} class:list={["slash-item", index === 0 && "selected"]} data-slash={command}><span class="sl-cmd">{command}</span><span class="sl-tags"><span class="sl-scope">{cmd.scope || "global"}</span><span class="sl-source">{cmd.source || "command"}</span></span><span class="sl-desc">{cmd.description || cmd.desc}</span></button>;
-      })}</div>
-    </div>
-    <div class="prompt-presets" data-prompt-presets hidden aria-label="预设提示词">
-      <span class="prompt-presets-label">预设</span>
-      <div class="prompt-preset-list" data-prompt-preset-list></div>
-    </div>
-    <div class="prompt-bar">
-      <button class="attach-btn" type="button" aria-label="attach files" title="attach files"><Paperclip size={14} strokeWidth={1.5} aria-hidden="true" /></button>
-      <input type="file" multiple hidden data-file-input />
-      <div class="prompt-input-col"><div class="attach-chips" hidden></div><textarea class="prompt-textarea" placeholder="输入你的想法" rows="1" aria-controls="slash-command-list" aria-expanded="false" aria-autocomplete="list" disabled={!activeWorkspaceID}></textarea></div>
-      <div class="prompt-actions"><button class="stop-btn" type="button" aria-label="stop" title="stop" hidden><Square size={13} strokeWidth={2} aria-hidden="true" /></button><button class="send-btn" type="button" aria-label="send" title="send" disabled={!activeWorkspaceID} aria-disabled="true"><SendHorizontal size={14} strokeWidth={2} aria-hidden="true" /></button></div>
-      <div class="drop-overlay" hidden><span>drop to attach</span></div>
-    </div>
-    <div class="attachment-guidance" data-attachment-guidance>
-      对话附件有限制；较大文件请先上传到工作区。工作区单文件上传上限 100 MiB；普通文件超过 256 KiB 不会内联。图片及合计请求预算约 768 KiB。
-    </div>
-    <div class="attachment-warning" data-attachment-warning aria-live="polite" role="status" hidden></div>
-    <div class="prompt-meta"><span data-prompt-meta>— | <span class="prompt-meta-item prompt-meta-branch"><GitBranch size={12} strokeWidth={1.75} aria-hidden="true" /><span>—</span></span></span><button type="button" class="compact-btn" data-action="compact-session" disabled aria-label="压缩上下文" title="压缩上下文">压缩上下文</button></div>
-  </div>
-
     <div class="scrim" data-action="close-drawer"></div>
   </section>
 

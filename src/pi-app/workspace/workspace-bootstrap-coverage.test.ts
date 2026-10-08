@@ -1,5 +1,7 @@
 // @ts-nocheck
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { applyUiLocale } from "../../i18n/client";
+import { UI_LOCALE_STORAGE_KEY } from "../../i18n/locales";
 import { cleanupPiAppFixture, connectPiApp, installPiAppFixture } from "../test-helper";
 
 function okJson(body) {
@@ -60,6 +62,30 @@ describe("workspace bootstrap coverage", () => {
     expect(globalThis.fetch.mock.calls.some(([url]) => String(url).includes("/api/workspaces/w1/commands"))).toBe(false);
   });
 
+  it("relocalizes slash-command loading feedback", async () => {
+    localStorage.setItem(UI_LOCALE_STORAGE_KEY, "en");
+    const app = await connectPiApp();
+    app.apiConnected = true;
+    app.dataset.activeWorkspaceId = "w1";
+    const head = document.createElement("span");
+    head.dataset.slashHead = "";
+    app.append(head);
+    let resolveRequest;
+    globalThis.fetch = vi.fn(() => new Promise((resolve) => { resolveRequest = resolve; }));
+
+    const loading = app.loadWorkspaceCommands("w1");
+    expect(head.textContent).toBe("Slash commands · Loading…");
+
+    const selector = app.querySelector("[data-ui-language]");
+    selector.value = "zh-CN";
+    selector.dispatchEvent(new Event("change", { bubbles: true }));
+    expect(head.textContent).toBe("斜杠命令 · 加载中…");
+
+    resolveRequest(okJson({ commands: [] }));
+    await loading;
+    expect(head.textContent).toBe("斜杠命令 · 输入以筛选");
+  });
+
   it("loads workspace commands without creating a session when none is active", async () => {
     const app = await connectPiApp();
     app.apiConnected = true;
@@ -79,12 +105,16 @@ describe("workspace bootstrap coverage", () => {
     expect(app.querySelector("[data-slash='/review']")).not.toBeNull();
   });
 
-  it("clears stale slash commands when command loading fails", async () => {
+  it("clears stale commands and localizes unavailable feedback", async () => {
+    localStorage.setItem(UI_LOCALE_STORAGE_KEY, "zh-CN");
     const app = await connectPiApp();
     app.dataset.activeWorkspaceId = "w1";
     app.dataset.activeSessionId = "s1";
     app.renderSlashCommands([{ command: "/old", description: "old command" }]);
     app.recoverForbiddenWorkspace = vi.fn();
+    const head = document.createElement("span");
+    head.dataset.slashHead = "";
+    app.append(head);
     let resolveRequest;
     const request = new Promise((resolve) => { resolveRequest = resolve; });
     globalThis.fetch = vi.fn(() => request);
@@ -97,6 +127,7 @@ describe("workspace bootstrap coverage", () => {
 
     expect(app.querySelector("[data-slash='/old']")).toBeNull();
     expect(app.querySelector("[data-slash='/compact']")).not.toBeNull();
+    expect(head.textContent).toBe("斜杠命令 · 不可用");
   });
 
   it("covers workspace API fallback branches", async () => {
@@ -747,7 +778,8 @@ describe("workspace bootstrap coverage", () => {
     expect(app.querySelector('[data-view="picker"]')).toBeNull();
   });
 
-  it("ignores delayed forbidden settings after switching workspaces", async () => {
+  it("relocalizes settings loading feedback while ignoring stale forbidden responses", async () => {
+    localStorage.setItem(UI_LOCALE_STORAGE_KEY, "en");
     const app = await connectPiApp();
     app.apiConnected = true;
     app.dataset.activeWorkspaceId = "w-old";
@@ -763,6 +795,20 @@ describe("workspace bootstrap coverage", () => {
     });
 
     const loading = app.openSettingsModal();
+    const settingsStatus = app.querySelector("[data-settings-status]");
+    const modelOption = app.querySelector("[data-setting='defaultModel'] option");
+    const brandInput = app.querySelector("[data-app-setting='brand']");
+    expect(settingsStatus.textContent).toBe("Loading settings…");
+    expect(modelOption.textContent).toBe("Loading models…");
+    expect(brandInput.placeholder).toBe("Loading…");
+
+    const selector = app.querySelector("[data-ui-language]");
+    selector.value = "zh-CN";
+    selector.dispatchEvent(new Event("change", { bubbles: true }));
+    expect(settingsStatus.textContent).toBe("正在加载设置…");
+    expect(modelOption.textContent).toBe("正在加载模型…");
+    expect(brandInput.placeholder).toBe("加载中…");
+
     await vi.waitFor(() => expect(globalThis.fetch).toHaveBeenCalledWith(
       expect.stringContaining("/settings"),
       expect.any(Object),
@@ -776,6 +822,8 @@ describe("workspace bootstrap coverage", () => {
     expect(app.dataset.activeSessionId).toBe("s-new");
     expect(app.dataset.route).toBe("workspace");
     expect(app.querySelector('[data-view="picker"]')).toBeNull();
+    expect(brandInput.placeholder).toBe("pi.dev / web");
+    expect(brandInput.hasAttribute("data-i18n-placeholder")).toBe(false);
   });
 
   it("fails closed when the durable session snapshot is unavailable", async () => {

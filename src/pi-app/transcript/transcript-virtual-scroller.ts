@@ -83,6 +83,7 @@ export function renderVirtualTranscriptItem(owner, item) {
   element.className = "transcript-item";
   element.dataset.transcriptItem = String(item.id);
   element.append(...transcriptItemNodes(owner, item));
+  owner.bindTranscriptCardState?.(item, element);
   observeTranscriptItem(owner, item, element);
   return element;
 }

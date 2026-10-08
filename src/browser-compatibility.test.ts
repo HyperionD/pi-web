@@ -18,15 +18,11 @@ describe("browser compatibility", () => {
     expect(app).toContain('data-action="open-drawer" aria-label="打开侧栏" aria-expanded="false"');
   });
 
-  it("shows an idea-focused placeholder in the prompt composer", () => {
-    const app = readFileSync(new URL("./App.astro", import.meta.url), "utf8");
-    expect(app).toContain('<textarea class="prompt-textarea" placeholder="输入你的想法" rows="1"');
-    expect(app).toContain('aria-controls="slash-command-list"');
-  });
-
   it("exposes slash completion state to assistive technology", () => {
     const app = readFileSync(new URL("./App.astro", import.meta.url), "utf8");
     expect(app).toContain('class="slash-head" data-slash-head aria-live="polite"');
+    expect(app).toContain('data-i18n="slashCommandsTitle">斜杠命令</span>');
+    expect(app).toContain('data-i18n="slashCommandHint">输入以筛选</span>');
     expect(app).toContain('aria-autocomplete="list"');
   });
 

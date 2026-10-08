@@ -9,6 +9,8 @@ import {
   saveWorkspaceSettings,
   setSessionModel,
 } from "../../lib/api";
+import { currentUiLocale } from "../../i18n/client";
+import { uiMessage } from "../../i18n/ui";
 import {
   MODEL_SETTING_PATHS,
   SETTINGS_FIELDS,
@@ -97,7 +99,18 @@ export const settingsMethods = {
     const control = this.querySelector("[data-app-setting='brand']");
     if (!control) return;
     control.disabled = loading;
-    if (loading) control.placeholder = "loading…";
+    if (loading) {
+      if (control.dataset.appConfigPlaceholder === undefined) {
+        control.dataset.appConfigPlaceholder = control.placeholder;
+      }
+      control.dataset.i18nPlaceholder = "loading";
+      control.placeholder = uiMessage(currentUiLocale(), "loading");
+    } else {
+      const placeholder = control.dataset.appConfigPlaceholder;
+      delete control.dataset.appConfigPlaceholder;
+      delete control.dataset.i18nPlaceholder;
+      control.placeholder = placeholder ?? "";
+    }
   },
 
   fillAppConfigFormState() {
@@ -124,7 +137,7 @@ export const settingsMethods = {
       this.setSettingsStatus("backend disconnected", true);
       return;
     }
-    this.setSettingsStatus("loading settings…");
+    this.setSettingsStatus(uiMessage(currentUiLocale(), "loadingSettings"), false, "loadingSettings");
     this.setAppConfigLoading(true);
     if (!workspaceId) {
       const [appConfigResult] = await Promise.allSettled([this.loadAppConfigState()]);
@@ -140,7 +153,7 @@ export const settingsMethods = {
       this.focusSettingsModal?.();
       return;
     }
-    this.setModelControlsLoading("loading models…");
+    this.setModelControlsLoading();
     const loadSharedCredentials = document.body.dataset.accountRole !== "user";
     const [appConfigResult, settingsResult, authResult, oauthResult, modelsResult] = await Promise.allSettled([
       this.loadAppConfigState(),
@@ -233,10 +246,12 @@ export const settingsMethods = {
     }
   },
 
-  setModelControlsLoading(message = "loading models…") {
+  setModelControlsLoading() {
+    const message = uiMessage(currentUiLocale(), "loadingModels");
     for (const control of this.querySelectorAll("[data-setting='defaultProvider'], [data-setting='defaultModel']")) {
       const option = document.createElement("option");
       option.value = "inherit";
+      option.dataset.i18n = "loadingModels";
       option.textContent = message;
       control.replaceChildren(option);
       control.value = "inherit";
@@ -568,9 +583,11 @@ export const settingsMethods = {
     return control.value;
   },
 
-  setSettingsStatus(message, error = false) {
+  setSettingsStatus(message, error = false, messageKey) {
     const status = this.querySelector("[data-settings-status]");
     if (!status) return;
+    if (messageKey) status.dataset.i18n = messageKey;
+    else delete status.dataset.i18n;
     status.textContent = message;
     status.classList.toggle("err", error);
   },

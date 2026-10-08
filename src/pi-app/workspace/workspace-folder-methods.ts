@@ -106,7 +106,9 @@ export const workspaceFolderMethods = {
       this.restoreAllowedRootPicker?.();
       return;
     }
-    trigger?.focus();
+    const switcher = trigger?.closest("[data-workspace-switcher]");
+    if (switcher && !switcher.open) switcher.querySelector("summary")?.focus();
+    else trigger?.focus();
   },
 
   focusFolderPopover() {
@@ -331,11 +333,18 @@ export const workspaceFolderMethods = {
 
   async closeWorkspace(workspaceId) {
     if (!workspaceId || !this.apiConnected) return;
-    if (!confirm(`要从当前视图移除工作区 ${workspaceId} 吗？`)) return;
+    const group = this.findWorkspaceGroup?.(workspaceId);
+    const workspaceName = group?.querySelector(".label")?.textContent?.trim() || workspaceId;
+    if (!confirm(`要从列表中移除工作区“${workspaceName}”吗？工作区不会删除磁盘上的文件。`)) return;
+    const removingActiveWorkspace = workspaceId === this.dataset.activeWorkspaceId;
     try {
       await closeWorkspaceRequest(workspaceId);
       const { workspaces } = await getWorkspaces();
       this.renderFilteredWorkspaces(workspaces || []);
+      if (removingActiveWorkspace) {
+        this.clearActiveWorkspaceView();
+        await this.bootstrapAPI();
+      }
     } catch (error) {
       if (!this.recoverForbiddenWorkspace?.(error)) this.setConnection("err");
     }
@@ -343,6 +352,10 @@ export const workspaceFolderMethods = {
 
   async openWorkspace(workspaceId) {
     this.workspaceOpenGeneration = Symbol("workspace-open");
+    if (workspaceId !== this.dataset.activeWorkspaceId && this.findWorkspaceGroup(workspaceId)) {
+      await this.switchWorkspace(workspaceId);
+      return;
+    }
     this.activateWorkspaceForSession(workspaceId, { loadContext: true, forceLoadContext: true });
     this.route("workspace");
   },

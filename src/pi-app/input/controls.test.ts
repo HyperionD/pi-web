@@ -1,5 +1,6 @@
 // @ts-nocheck
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { UI_LOCALE_STORAGE_KEY } from "../../i18n/locales";
 import { PROMPT_DRAFT_STORAGE_KEY } from "../constants";
 import { cleanupPiAppFixture, connectPiApp, installPiAppFixture } from "../test-helper";
 
@@ -486,6 +487,20 @@ describe("pi-app controls", () => {
     expect(tree.hidden).toBe(false);
   });
 
+  it("localizes the file preview loading placeholder and updates it after a language change", async () => {
+    localStorage.setItem(UI_LOCALE_STORAGE_KEY, "en");
+    const app = await connectPiApp();
+    app.renderFilePreview({ path: "README.md", previewKind: "loading" });
+
+    const label = app.querySelector("[data-file-preview] .fp-body [data-i18n='loadingPreview']");
+    expect(label?.textContent).toBe("Loading preview…");
+
+    const selector = app.querySelector("[data-ui-language]");
+    selector.value = "zh-CN";
+    selector.dispatchEvent(new Event("change", { bubbles: true }));
+    expect(label?.textContent).toBe("正在加载预览…");
+  });
+
   it("keeps the file tree in the sidebar and opens file content in a modal", async () => {
     const app = await connectPiApp();
     const body = app.querySelector(".app-body");
@@ -495,28 +510,27 @@ describe("pi-app controls", () => {
     expect(tree.closest(".sidebar")).not.toBeNull();
     expect(preview.hidden).toBe(true);
     expect(app.dataset.tree).toBe("on");
-    expect(body.style.gridTemplateColumns).toBe("280px 1fr");
+    expect(body.style.gridTemplateColumns).toBe("286px 1fr");
 
     app.renderFilePreview({ path: "README.md", previewKind: "loading" });
     expect(preview.hidden).toBe(false);
     expect(app.dataset.preview).toBe("on");
-    expect(body.style.gridTemplateColumns).toBe("280px 1fr");
+    expect(body.style.gridTemplateColumns).toBe("286px 1fr");
 
     app.closeFilePreview();
     expect(preview.hidden).toBe(true);
     expect(app.dataset.preview).toBe("off");
-    expect(body.style.gridTemplateColumns).toBe("280px 1fr");
+    expect(body.style.gridTemplateColumns).toBe("286px 1fr");
   });
 
-  it("keeps the workspace grid unchanged when Git details open as a modal", async () => {
+  it("keeps the sidebar visible when Git details open as a modal", async () => {
     const app = await connectPiApp();
     const body = app.querySelector(".app-body");
 
     app.toggleGitDetailPanel(true);
-    expect(body.style.gridTemplateColumns).toBe("280px 1fr");
-
-    app.collapseSidebar(true);
-    expect(body.style.gridTemplateColumns).toBe("1fr");
+    expect(body.style.gridTemplateColumns).toBe("286px 1fr");
+    expect(app.querySelector(".sidebar-wrap").hidden).toBe(false);
+    expect(app.dataset.sidebar).toBe("open");
   });
 
   it("refreshes workspaces from the sidebar refresh button", async () => {

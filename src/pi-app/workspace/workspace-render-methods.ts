@@ -1,3 +1,5 @@
+import { currentUiLocale } from "../../i18n/client";
+import { uiMessage } from "../../i18n/ui";
 import { escapeHtml } from "../../lib/renderers";
 import { appendGroupedSessionRows } from "../sessions/session-hierarchy";
 
@@ -12,6 +14,8 @@ export const workspaceRenderMethods = {
     if (count) count.textContent = `${workspaces.length} 个工作区`;
     this.renderRecentWorkspaces(workspaces);
     this.renderSidebarWorkspaces(workspaces);
+    this.renderWorkspaceOptions(workspaces);
+    this.syncActiveWorkspaceRows();
     this.syncUnreadCompletedSessions?.();
     this.syncBackgroundSessionWatches?.();
   },
@@ -32,6 +36,75 @@ export const workspaceRenderMethods = {
       const group = this.createWorkspaceGroup(workspace);
       anchor.insertAdjacentElement("afterend", group);
       anchor = group;
+    }
+  },
+
+  renderWorkspaceOptions(workspaces) {
+    const options = this.querySelector("[data-workspace-options]");
+    if (!options) return;
+    options.replaceChildren();
+    for (const workspace of workspaces) {
+      const row = document.createElement("div");
+      row.className = "workspace-option-row";
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "workspace-option";
+      button.dataset.action = "switch-workspace";
+      button.dataset.workspace = workspace.id;
+      button.innerHTML = `<span class="workspace-info"><strong></strong><small></small></span>
+        <span class="workspace-check" aria-hidden="true">✓</span>`;
+      button.querySelector("strong").textContent = workspace.name;
+      button.querySelector("small").textContent = workspace.path;
+      row.append(button);
+      if (document.body.dataset.accountRole !== "user") row.append(this.createWorkspaceRemoveButton(workspace));
+      options.append(row);
+    }
+    if (!workspaces.length) {
+      const empty = document.createElement("div");
+      empty.className = "workspace-menu-empty";
+      empty.textContent = "暂无工作区";
+      options.append(empty);
+    }
+  },
+
+  createWorkspaceRemoveButton(workspace) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "workspace-remove";
+    button.dataset.action = "close-workspace";
+    button.dataset.workspace = workspace.id;
+    button.title = "从列表移除工作区";
+    button.setAttribute("aria-label", `从列表移除 ${workspace.name}`);
+    button.innerHTML = LUCIDE_X_ICON;
+    return button;
+  },
+
+  closeWorkspaceSwitcher(restoreFocus = false) {
+    const switcher = this.querySelector("[data-workspace-switcher]");
+    if (!switcher?.open) return;
+    switcher.open = false;
+    if (restoreFocus) switcher.querySelector("summary")?.focus();
+  },
+
+  async switchWorkspace(workspaceId) {
+    const group = this.findWorkspaceGroup(workspaceId);
+    if (!group) return;
+    this.closeWorkspaceSwitcher(true);
+    if (workspaceId === this.dataset.activeWorkspaceId) return;
+    const session = group.querySelector(".session-row.selected[data-session]")
+      || group.querySelector(".session-row.active[data-session]")
+      || group.querySelector(".session-row[data-session]");
+    try {
+      if (session) await this.pickSession(session);
+      else {
+        this.activateWorkspaceForSession(workspaceId);
+        this.clearActiveSession(this.dataset.activeSessionId);
+        this.markSelectedSessionRow("");
+        this.activateWorkspaceForSession(workspaceId, { loadContext: true, forceLoadContext: true });
+      }
+      this.route("workspace");
+    } catch (error) {
+      this.showSystemToast?.("error", "切换工作区失败", String(error));
     }
   },
 
@@ -75,23 +148,31 @@ export const workspaceRenderMethods = {
   },
 
   workspaceHasActiveSession(workspace) {
-    return (workspace.sessions || []).some((session) => session.active || session.live);
+    return (workspace.sessions || []).some((session) => session.live);
   },
 
   workspaceGroupTemplate(workspace, open) {
     const active = workspace.id === this.dataset.activeWorkspaceId;
     const hasActiveSession = this.workspaceHasActiveSession(workspace);
+    const runningLabel = uiMessage(currentUiLocale(), "running");
+    const sessionCountLabel = uiMessage(currentUiLocale(), "sessionCountLabel");
+    const runningHidden = hasActiveSession || workspace.live ? "" : " hidden";
     const stateClasses = [open && "open", active && "active", hasActiveSession && "has-active-session"]
       .filter(Boolean)
       .join(" ");
     return [
-      "<div class=\"workspace-shell\">",
+      // Keep workspace metadata for existing session operations, outside the visible session list.
+      "<div class=\"workspace-shell\" hidden>",
       `<button type="button" class="ws-row ${stateClasses}"`,
       ` data-action="toggle-workspace" data-workspace="${escapeHtml(workspace.id)}"`,
       ` aria-expanded="${open}" aria-current="${active ? "true" : "false"}">`,
       "<span class=\"ws-stack\"><span class=\"ws-name\"><span class=\"label\"></span></span>",
       "<span class=\"ws-path\"></span></span>",
-      `<span class="ws-meta"><span class="ws-count">${workspace.sessionCount}</span><span class="ws-count-label">个会话</span><span class="ws-status"${hasActiveSession || workspace.live ? "" : " hidden"}>运行中</span></span></button>`,
+      "<span class=\"ws-meta\">",
+      `<span class="ws-count">${workspace.sessionCount}</span>`,
+      `<span class=\"ws-count-label\" data-i18n=\"sessionCountLabel\">${sessionCountLabel}</span>`,
+      `<span class="ws-status" data-i18n="running"${runningHidden}>${runningLabel}</span>`,
+      "</span></button>",
       document.body.dataset.accountRole === "user" ? "" : [
         `<button type="button" class="row-action danger" data-action="close-workspace"`,
         ` data-workspace="${escapeHtml(workspace.id)}" title="关闭工作区" aria-label="关闭工作区">${LUCIDE_X_ICON}</button>`,
@@ -107,11 +188,16 @@ export const workspaceRenderMethods = {
     if (status) {
       const running = !!workspace.live || this.workspaceHasActiveSession(workspace);
       status.hidden = !running;
-      status.textContent = running ? "运行中" : "";
+      status.textContent = running ? uiMessage(currentUiLocale(), "running") : "";
     }
     const sessions = group.querySelector(".sessions");
     appendGroupedSessionRows(sessions, workspace.id, workspace.sessions, this.createSessionRow.bind(this));
-    sessions.append(this.createNewSessionRow(workspace.id));
+    const empty = document.createElement("div");
+    empty.className = "sessions-empty";
+    empty.dataset.sessionsEmpty = "";
+    empty.textContent = "暂无会话，开始一段新对话";
+    empty.hidden = Boolean(workspace.sessions?.length);
+    sessions.append(empty, this.createNewSessionRow(workspace.id));
   },
 
   createNewSessionRow(workspaceId) {
@@ -123,6 +209,9 @@ export const workspaceRenderMethods = {
     row.setAttribute("aria-label", "新建会话");
     row.title = "新建会话";
     row.innerHTML = LUCIDE_PLUS_ICON;
+    const label = document.createElement("span");
+    label.textContent = "新建会话";
+    row.append(label);
     return row;
   },
 
@@ -149,6 +238,10 @@ export const workspaceRenderMethods = {
       const active = group.dataset.workspaceGroup === activeWorkspaceId;
       const hasLiveSession = group.querySelector(".session-row.active");
       const hasActiveSession = !!hasLiveSession || group.dataset.workspaceLive === "true";
+      group.hidden = !active;
+      group.querySelector(".sessions")?.toggleAttribute("hidden", !active);
+      const empty = group.querySelector("[data-sessions-empty]");
+      if (empty) empty.hidden = Boolean(group.querySelector(".session-row[data-session]"));
       group.classList.toggle("active", active);
       group.classList.toggle("has-active-session", hasActiveSession);
       row?.classList.toggle("active", active);
@@ -157,8 +250,12 @@ export const workspaceRenderMethods = {
       const status = row?.querySelector(".ws-status");
       if (status) {
         status.hidden = !hasActiveSession;
-        status.textContent = hasActiveSession ? "运行中" : "";
+        status.textContent = hasActiveSession ? uiMessage(currentUiLocale(), "running") : "";
       }
     });
+    this.querySelectorAll("[data-action='switch-workspace']").forEach((option) => {
+      option.setAttribute("aria-current", String(option.dataset.workspace === activeWorkspaceId));
+    });
+    this.updateActiveWorkspaceLabel(activeWorkspaceId);
   },
 };

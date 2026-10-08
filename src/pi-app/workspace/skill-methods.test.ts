@@ -1,5 +1,7 @@
 // @ts-nocheck
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { applyUiLocale } from "../../i18n/client";
+import { UI_LOCALE_STORAGE_KEY } from "../../i18n/locales";
 import {
   getWorkspaceSkills,
   setWorkspaceSkillEnabled,
@@ -43,6 +45,24 @@ describe("skill manager structure", () => {
     const source = await import("../../App.astro?raw");
     expect(source.default).toContain("data-action=\"open-skill-manager\"");
     expect(source.default).toContain("Puzzle");
+  });
+
+  it("relocalizes the skill loading status", async () => {
+    localStorage.setItem(UI_LOCALE_STORAGE_KEY, "en");
+    const app = installPiAppFixture();
+    app.dataset.activeWorkspaceId = "ws-1";
+    app.querySelector("[data-skill-manager]").hidden = false;
+    let resolveRequest;
+    globalThis.fetch = vi.fn(() => new Promise((resolve) => { resolveRequest = resolve; }));
+
+    const loading = app.loadWorkspaceSkills();
+    const status = app.querySelector("[data-skill-sidebar-status]");
+    expect(status.textContent).toBe("Loading…");
+
+    applyUiLocale("zh-CN", app);
+    expect(status.textContent).toBe("加载中…");
+    resolveRequest(new Response(JSON.stringify({ skills: [], available: true }), { status: 200 }));
+    await loading;
   });
 
   it("loads only the active workspace and restores focus on close", async () => {

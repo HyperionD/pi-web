@@ -1,5 +1,6 @@
 // @ts-nocheck
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { UI_LOCALE_STORAGE_KEY } from "../../i18n/locales";
 import {
   cleanupPiAppFixture,
   connectPiApp,
@@ -83,7 +84,7 @@ describe("pi-app sessions", () => {
     expect(newSession.classList.contains("new-session-row")).toBe(true);
     expect(newSession.getAttribute("aria-label")).toBe("新建会话");
     expect(newSession.getAttribute("title")).toBe("新建会话");
-    expect(newSession.textContent.trim()).toBe("");
+    expect(newSession.textContent.trim()).toBe("新建会话");
     expect(newSession.querySelector("svg")).not.toBeNull();
   });
 
@@ -215,6 +216,7 @@ describe("pi-app sessions", () => {
   });
 
   it("waits for the backend prompt echo when connected", async () => {
+    localStorage.setItem(UI_LOCALE_STORAGE_KEY, "zh-CN");
     globalThis.PI_WEB_API_BASE = "http://backend.test";
     globalThis.fetch = vi.fn(async () => ({
       ok: true,

@@ -60,7 +60,6 @@
   grid-column: 2;
   grid-row: 1;
 }
-.app[data-sidebar="collapsed"] .main { grid-column: 1; }
 
 .shell-row {
   flex-shrink: 0;
@@ -309,23 +308,14 @@
   to { background-position: -200% 0; }
 }
 
-.thinking-block {
-  border: 1px dashed var(--border);
-  padding: 8px 12px;
-  margin: 4px 0;
-  background: rgba(255,121,198,0.04);
+.thinking-card .stream-summary { background: transparent; }
+.thinking-copy {
+  margin: 0;
+  padding: 9px 12px 10px;
   color: var(--fg-2);
-  font-style: italic;
-  font-size: var(--text-sm);
-}
-.thinking-block .label {
-  color: var(--thinking);
-  font-style: normal;
-  font-size: var(--text-xs);
-  letter-spacing: var(--tracking-wide);
-  text-transform: uppercase;
-  margin-bottom: 4px;
-  display: block;
+  font: 11px/1.7 var(--font-sans);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 
 .fallback-choice-list {

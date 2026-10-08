@@ -1,5 +1,7 @@
 // @ts-nocheck
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { applyUiLocale } from "../../i18n/client";
+import { UI_LOCALE_STORAGE_KEY } from "../../i18n/locales";
 import { cleanupPiAppFixture, connectPiApp, installPiAppFixture } from "../test-helper";
 
 describe("pi-app session switch UX", () => {
@@ -10,7 +12,8 @@ describe("pi-app session switch UX", () => {
 
   afterEach(cleanupPiAppFixture);
 
-  it("shows a transcript loading placeholder while a session loads", async () => {
+  it("localizes the transcript loading placeholder while a session loads", async () => {
+    localStorage.setItem(UI_LOCALE_STORAGE_KEY, "en");
     let resolveFetch;
     globalThis.fetch = vi.fn(() => new Promise((resolve) => {
       resolveFetch = resolve;
@@ -18,13 +21,18 @@ describe("pi-app session switch UX", () => {
     const app = await connectPiApp();
     app.connectDurableEvents = vi.fn();
     app.stopDurableStream = vi.fn();
-    app.append(app.createSessionRow("w1", { id: "s1", title: "large session", lastUsed: "now" }));
+    const sessionTitle = "build $& session";
+    app.append(app.createSessionRow("w1", { id: "s1", title: sessionTitle, lastUsed: "now" }));
 
     const loading = app.loadSession("s1");
 
     expect(app.stopDurableStream).toHaveBeenCalledTimes(1);
     expect(app.querySelector(".session-switch-loading")).not.toBeNull();
-    expect(app.querySelector(".session-switch-label").textContent).toBe("正在加载 large session…");
+    const label = app.querySelector(".session-switch-label");
+    expect(label.textContent).toBe("Loading build $& session…");
+
+    applyUiLocale("zh-CN", app);
+    expect(label.textContent).toBe("正在加载 build $& session…");
 
     resolveFetch({
       ok: true,

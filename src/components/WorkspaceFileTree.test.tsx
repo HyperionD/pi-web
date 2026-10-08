@@ -1,10 +1,12 @@
 import React, { act } from "react";
 import { createRoot } from "react-dom/client";
+import { renderToString } from "react-dom/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   createWorkspaceFile,
   deleteWorkspaceFile,
   downloadWorkspaceFile,
+  getWorkspaceFileList,
   renameWorkspaceFile,
   searchWorkspaceFiles,
   uploadWorkspaceFile,
@@ -14,22 +16,46 @@ import WorkspaceFileTree from "./WorkspaceFileTree";
 vi.mock("../lib/api", () => ({
   createWorkspaceFile: vi.fn().mockResolvedValue({}),
   deleteWorkspaceFile: vi.fn().mockResolvedValue({}),
+  getWorkspaceFileList: vi.fn().mockResolvedValue({ entries: [] }),
   renameWorkspaceFile: vi.fn().mockResolvedValue({}),
   searchWorkspaceFiles: vi.fn().mockResolvedValue({ matches: [] }),
   uploadWorkspaceFile: vi.fn().mockResolvedValue({}),
   downloadWorkspaceFile: vi.fn().mockResolvedValue({ blob: new Blob(["content"]), filename: "download.txt" }),
 }));
 
+const renderedTrees = new Map<ReturnType<typeof createRoot>, HTMLElement>();
+
 describe("WorkspaceFileTree", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.mocked(getWorkspaceFileList).mockReset().mockResolvedValue({ entries: [] });
+    vi.mocked(searchWorkspaceFiles).mockReset().mockResolvedValue({ matches: [] });
     document.body.replaceChildren();
   });
 
-  afterEach(() => {
+  afterEach(async () => {
+    for (const [root, host] of renderedTrees) await cleanup(root, host);
     vi.useRealTimers();
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
+  });
+
+  it("renders on the server without reading document", () => {
+    vi.stubGlobal("document", undefined);
+    try {
+      expect(renderToString(<WorkspaceFileTree />)).toContain("workspace-file-tree");
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("does not render the file operations hint", async () => {
+    const { host, root } = await renderTree();
+
+    expect(host.querySelector(".tree-tip")).toBeNull();
+    expect(host.textContent).not.toContain("提示：右键点击");
+
+    await cleanup(root, host);
   });
 
   it("renders files, status badges, expansion, and activation contract", async () => {
@@ -59,6 +85,105 @@ describe("WorkspaceFileTree", () => {
     await act(async () => file?.click());
     expect(click).toHaveBeenCalled();
 
+    await cleanup(root, host);
+  });
+
+  it("expands an empty .worktrees directory with visible feedback and can collapse it", async () => {
+    const { host, root } = await renderTree();
+    createActiveWorkspace();
+    await setTreeFiles([{ type: "dir", name: ".worktrees", path: ".worktrees" }]);
+    const folder = host.querySelector<HTMLElement>("[data-file-path='.worktrees']")!;
+
+    await act(async () => folder.click());
+
+    expect(folder.getAttribute("aria-expanded")).toBe("true");
+    expect(folder.textContent).toContain("空文件夹");
+    await act(async () => folder.click());
+    expect(folder.getAttribute("aria-expanded")).toBe("false");
+    expect(folder.textContent).not.toContain("空文件夹");
+    await cleanup(root, host);
+  });
+
+  it("toggles a focused directory once for each Enter or Space key", async () => {
+    const { host, root } = await renderTree();
+    createActiveWorkspace();
+    await setTreeFiles([{ type: "dir", name: ".worktrees", path: ".worktrees" }]);
+    const folder = host.querySelector<HTMLElement>("[data-file-path='.worktrees']")!;
+    await act(async () => folder.click());
+    expect(folder.getAttribute("aria-expanded")).toBe("true");
+    await act(async () => folder.dispatchEvent(new KeyboardEvent("keydown", {
+      key: "Enter", bubbles: true, cancelable: true,
+    })));
+    expect(folder.getAttribute("aria-expanded")).toBe("false");
+
+    await act(async () => folder.dispatchEvent(new KeyboardEvent("keydown", {
+      key: " ", bubbles: true, cancelable: true,
+    })));
+
+    expect(folder.getAttribute("aria-expanded")).toBe("true");
+    await cleanup(root, host);
+  });
+
+  it("shows loading feedback before an unloaded directory finishes loading", async () => {
+    let resolveListing!: (listing: unknown) => void;
+    vi.mocked(getWorkspaceFileList).mockReturnValueOnce(new Promise((resolve) => { resolveListing = resolve; }));
+    const { host, root } = await renderTree();
+    createActiveWorkspace();
+    await setTreeFiles([{ type: "dir", name: "deep", path: "deep" }]);
+    const folder = host.querySelector<HTMLElement>("[data-file-path='deep']")!;
+
+    await act(async () => folder.click());
+
+    expect(folder.getAttribute("aria-expanded")).toBe("true");
+    expect(folder.getAttribute("aria-busy")).toBe("true");
+    expect(folder.textContent).toContain("加载中");
+    expect(folder.textContent).not.toContain("空文件夹");
+    await act(async () => resolveListing({ entries: [{ type: "file", name: "child.txt", path: "deep/child.txt" }] }));
+    expect(host.querySelector("[data-file-path='deep/child.txt']")).toBeTruthy();
+    expect(folder.getAttribute("aria-busy")).not.toBe("true");
+    await cleanup(root, host);
+  });
+
+  it.each([
+    { rawPath: "./deep", path: "deep" },
+    { rawPath: "deep\\nested", path: "deep/nested" },
+  ])("loads directories using the displayed normalized path: $rawPath", async ({ rawPath, path }) => {
+    vi.mocked(getWorkspaceFileList).mockResolvedValueOnce({ entries: [
+      { type: "file", name: "child.txt", path: `${path}/child.txt` },
+    ] });
+    const { host, root } = await renderTree();
+    createActiveWorkspace();
+    await setTreeFiles([{ type: "dir", name: "deep", path: rawPath }]);
+
+    await act(async () => host.querySelector<HTMLElement>(`[data-file-path='${path}']`)!.click());
+
+    expect(host.querySelector(`[data-file-path='${path}/child.txt']`)).toBeTruthy();
+    expect(getWorkspaceFileList).toHaveBeenCalledWith("workspace-1", path);
+    await cleanup(root, host);
+  });
+
+  it("preserves lazy-loaded children and git statuses on selection-only updates", async () => {
+    vi.mocked(getWorkspaceFileList).mockResolvedValueOnce({ entries: [
+      { type: "file", name: "child.txt", path: "deep/child.txt" },
+    ] });
+    const { host, root } = await renderTree();
+    createActiveWorkspace();
+    await act(async () => window.dispatchEvent(new CustomEvent("pi-workspace-tree:update", { detail: {
+      files: [{ type: "dir", name: "deep", path: "deep" }],
+      statusMap: { "deep/child.txt": "modified" },
+    } })));
+    await act(async () => host.querySelector<HTMLElement>("[data-file-path='deep']")!.click());
+    expect(host.querySelector("[data-file-path='deep/child.txt']")).toBeTruthy();
+
+    await act(async () => window.dispatchEvent(new CustomEvent("pi-workspace-tree:update", { detail: {
+      selectedPath: "deep/child.txt",
+    } })));
+
+    const child = host.querySelector<HTMLElement>("[data-file-path='deep/child.txt']");
+    expect(child).toBeTruthy();
+    expect(child?.getAttribute("aria-current")).toBe("true");
+    expect(child?.querySelector("[aria-label='modified']")).toBeTruthy();
+    expect(host.querySelector("[data-file-path='deep']")?.getAttribute("aria-expanded")).toBe("true");
     await cleanup(root, host);
   });
 
@@ -103,6 +228,152 @@ describe("WorkspaceFileTree", () => {
     expect(host.querySelector("[data-file-path='src/main.ts']")).toBeTruthy();
     expect(host.querySelector("[data-file-path='src/new.ts']")).toBeFalsy();
 
+    await cleanup(root, host);
+  });
+
+  it("renders backend search hits beyond the loaded depth without caching partial search folders", async () => {
+    vi.useFakeTimers();
+    vi.mocked(searchWorkspaceFiles).mockResolvedValueOnce({ matches: ["src/deep/more/needle.txt"] });
+    vi.mocked(getWorkspaceFileList).mockResolvedValueOnce({ entries: [
+      { type: "file", name: "other.txt", path: "src/other.txt" },
+    ] });
+    const { host, root } = await renderTree();
+    createActiveWorkspace();
+    await setTreeFiles([{ type: "dir", name: "src", path: "src" }]);
+    const search = host.querySelector<HTMLInputElement>(".tree-search input")!;
+    await act(async () => {
+      setInputValue(search, "needle");
+      search.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await act(async () => { await vi.advanceTimersByTimeAsync(250); });
+
+    const hit = host.querySelector<HTMLElement>("[data-file-path='src/deep/more/needle.txt']");
+    expect(hit?.dataset.action).toBe("open-file");
+    expect(host.querySelector("[data-file-path='src/deep/more']")).toBeTruthy();
+
+    await act(async () => {
+      setInputValue(search, "");
+      search.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await act(async () => host.querySelector<HTMLElement>("[data-file-path='src']")!.click());
+    expect(host.querySelector("[data-file-path='src/other.txt']")).toBeTruthy();
+    expect(host.querySelector("[data-file-path='src/deep/more/needle.txt']")).toBeNull();
+    await cleanup(root, host);
+  });
+
+  it("does not merge a stale directory response into a refreshed tree", async () => {
+    let resolveOldListing!: (listing: unknown) => void;
+    vi.mocked(getWorkspaceFileList).mockReturnValueOnce(new Promise((resolve) => { resolveOldListing = resolve; }));
+    const { host, root } = await renderTree();
+    createActiveWorkspace();
+    await setTreeFiles([{ type: "dir", name: "deep", path: "deep" }]);
+    await act(async () => host.querySelector<HTMLElement>("[data-file-path='deep']")!.click());
+    await setTreeFiles([{ type: "dir", name: "deep", path: "deep" }]);
+    expect(host.querySelector("[data-file-path='deep']")?.getAttribute("aria-expanded")).toBe("false");
+
+    await act(async () => resolveOldListing({ entries: [
+      { type: "file", name: "stale.txt", path: "deep/stale.txt" },
+    ] }));
+
+    expect(host.querySelector("[data-file-path='deep/stale.txt']")).toBeNull();
+    vi.mocked(getWorkspaceFileList).mockResolvedValueOnce({ entries: [
+      { type: "file", name: "current.txt", path: "deep/current.txt" },
+    ] });
+    await act(async () => host.querySelector<HTMLElement>("[data-file-path='deep']")!.click());
+    expect(host.querySelector("[data-file-path='deep/current.txt']")).toBeTruthy();
+    await cleanup(root, host);
+  });
+
+  it("clears old git statuses on a full tree update that omits statusMap", async () => {
+    const { host, root } = await renderTree();
+    createActiveWorkspace();
+    await act(async () => window.dispatchEvent(new CustomEvent("pi-workspace-tree:update", { detail: {
+      files: [{ type: "file", name: "file.txt", path: "file.txt" }], statusMap: { "file.txt": "modified" },
+    } })));
+    expect(host.querySelector("[aria-label='modified']")).toBeTruthy();
+
+    await setTreeFiles([{ type: "file", name: "file.txt", path: "file.txt" }]);
+
+    expect(host.querySelector("[aria-label='modified']")).toBeNull();
+    await cleanup(root, host);
+  });
+
+  it("retries failed directory loads only when reopening the directory", async () => {
+    vi.mocked(getWorkspaceFileList).mockRejectedValueOnce(new Error("directory permission denied"));
+    const alert = vi.spyOn(window, "alert").mockImplementation(() => {});
+    const { host, root } = await renderTree();
+    createActiveWorkspace();
+    await setTreeFiles([{ type: "dir", name: "deep", path: "deep" }]);
+    const folder = host.querySelector<HTMLElement>("[data-file-path='deep']")!;
+    await act(async () => folder.click());
+    expect(alert).toHaveBeenCalledWith("directory permission denied");
+    let resolveRetry!: (listing: unknown) => void;
+    vi.mocked(getWorkspaceFileList).mockReturnValueOnce(new Promise((resolve) => { resolveRetry = resolve; }));
+
+    await act(async () => folder.click());
+
+    expect(folder.getAttribute("aria-expanded")).toBe("false");
+    expect(folder.getAttribute("aria-busy")).not.toBe("true");
+    await act(async () => folder.click());
+    expect(folder.getAttribute("aria-busy")).toBe("true");
+    await act(async () => resolveRetry({ entries: [{ type: "file", name: "child.txt", path: "deep/child.txt" }] }));
+    expect(host.querySelector("[data-file-path='deep/child.txt']")).toBeTruthy();
+    await cleanup(root, host);
+  });
+
+  it("resets expansion when switching between workspaces with the same directory paths", async () => {
+    const { host, root } = await renderTree();
+    const app = createActiveWorkspace();
+    await setTreeFiles([{ type: "dir", name: "deep", path: "deep" }]);
+    await act(async () => host.querySelector<HTMLElement>("[data-file-path='deep']")!.click());
+    expect(host.querySelector("[data-file-path='deep']")?.getAttribute("aria-expanded")).toBe("true");
+    app.dataset.activeWorkspaceId = "workspace-2";
+
+    await setTreeFiles([{ type: "dir", name: "deep", path: "deep" }]);
+
+    expect(host.querySelector("[data-file-path='deep']")?.getAttribute("aria-expanded")).toBe("false");
+    await cleanup(root, host);
+  });
+
+  it("repeats the current search in a new workspace and ignores the old search response", async () => {
+    vi.useFakeTimers();
+    let resolveOldSearch!: (result: unknown) => void;
+    vi.mocked(searchWorkspaceFiles).mockReturnValueOnce(new Promise((resolve) => { resolveOldSearch = resolve; }));
+    const { host, root } = await renderTree();
+    const app = createActiveWorkspace();
+    await setTreeFiles([{ type: "file", name: "result.txt", path: "result.txt" }]);
+    const search = host.querySelector<HTMLInputElement>(".tree-search input")!;
+    await act(async () => {
+      setInputValue(search, "secret");
+      search.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await act(async () => { await vi.advanceTimersByTimeAsync(250); });
+    app.dataset.activeWorkspaceId = "workspace-2";
+    await setTreeFiles([{ type: "file", name: "result.txt", path: "result.txt" }]);
+    await act(async () => { await vi.advanceTimersByTimeAsync(250); });
+
+    await act(async () => resolveOldSearch({ matches: ["result.txt"] }));
+
+    expect(host.querySelector("[data-file-path='result.txt']")).toBeNull();
+    expect(searchWorkspaceFiles).toHaveBeenLastCalledWith("workspace-2", "secret");
+    await cleanup(root, host);
+  });
+
+  it("reports current search failures instead of silently clearing the results", async () => {
+    vi.useFakeTimers();
+    vi.mocked(searchWorkspaceFiles).mockRejectedValueOnce(new Error("search permission denied"));
+    const alert = vi.spyOn(window, "alert").mockImplementation(() => {});
+    const { host, root } = await renderTree();
+    createActiveWorkspace();
+    await setTreeFiles([{ type: "file", name: "result.txt", path: "result.txt" }]);
+    const search = host.querySelector<HTMLInputElement>(".tree-search input")!;
+    await act(async () => {
+      setInputValue(search, "secret");
+      search.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await act(async () => { await vi.advanceTimersByTimeAsync(250); });
+
+    expect(alert).toHaveBeenCalledWith("search permission denied");
     await cleanup(root, host);
   });
 
@@ -698,10 +969,22 @@ async function renderTree() {
   host.className = "tree-list";
   document.body.append(host);
   const root = createRoot(host);
+  renderedTrees.set(root, host);
   await act(async () => {
     root.render(<WorkspaceFileTree initialFiles={[]} />);
   });
   return { host, root };
+}
+
+function createActiveWorkspace(id = "workspace-1") {
+  const app = document.createElement("pi-app");
+  app.dataset.activeWorkspaceId = id;
+  document.body.append(app);
+  return app;
+}
+
+async function setTreeFiles(files: Array<{ type: string; name: string; path: string }>) {
+  await act(async () => window.dispatchEvent(new CustomEvent("pi-workspace-tree:update", { detail: { files } })));
 }
 
 async function updateTree() {
@@ -728,6 +1011,7 @@ function setInputValue(input: HTMLInputElement, value: string) {
 }
 
 async function cleanup(root, host) {
+  renderedTrees.delete(root);
   await act(async () => {
     root.unmount();
   });

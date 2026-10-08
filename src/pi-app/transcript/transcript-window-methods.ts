@@ -1,9 +1,12 @@
+import { currentUiLocale } from "../../i18n/client";
+import { uiMessage } from "../../i18n/ui";
 import {
   DEFAULT_TRANSCRIPT_ITEM_HEIGHT,
   renderVirtualTranscriptItem,
   updateTranscriptVirtualScroller,
 } from "./transcript-virtual-scroller";
 import type { TranscriptViewMessage } from "./transcript-view-model";
+import { bindToolOutputScroll } from "../messages/tool-output-rendering";
 
 const OLDER_MESSAGE_LOAD_THRESHOLD = 160;
 const TRANSCRIPT_HEIGHT_CHANGE_EPSILON = 0.5;
@@ -52,8 +55,11 @@ export const transcriptWindowMethods = {
     button.type = "button";
     button.className = "scroll-bottom-btn";
     button.dataset.action = "scroll-bottom";
-    button.setAttribute("aria-label", "scroll to bottom");
-    button.title = "scroll to bottom";
+    button.dataset.i18nAriaLabel = "scrollToBottom";
+    button.dataset.i18nTitle = "scrollToBottom";
+    const label = uiMessage(currentUiLocale(), "scrollToBottom");
+    button.setAttribute("aria-label", label);
+    button.title = label;
     button.textContent = "↓";
     button.hidden = true;
     button.addEventListener("click", () => this.scrollTranscriptToBottom());
@@ -187,6 +193,8 @@ export const transcriptWindowMethods = {
       id: key,
       key,
       message,
+      cardOpen: options.cardOpen,
+      toolOutputScroll: options.toolOutputScroll,
       height: options.height || DEFAULT_TRANSCRIPT_ITEM_HEIGHT,
     };
   },
@@ -289,6 +297,22 @@ export const transcriptWindowMethods = {
 
   shouldStickToBottom() {
     return !this.userScrolledAway && this.transcriptFollowBottom !== false;
+  },
+
+  bindTranscriptCardState(item, element) {
+    const card = element?.querySelector("details.stream-card");
+    if (!card || card.__transcriptCardBound) return;
+    card.__transcriptCardBound = true;
+    if (typeof item.cardOpen === "boolean") card.open = item.cardOpen;
+    const output = card.querySelector(".tc-body");
+    if (output) item.toolOutputScroll = bindToolOutputScroll(output, item.toolOutputScroll);
+    let previousOpen = card.open;
+    card.addEventListener("toggle", () => {
+      if (!card.isConnected || card.open === previousOpen) return;
+      previousOpen = card.open;
+      item.cardOpen = card.open;
+      this.notifyTranscriptNodeHeightDidChange(card);
+    });
   },
 
   renderVirtualTranscriptItem(item) {

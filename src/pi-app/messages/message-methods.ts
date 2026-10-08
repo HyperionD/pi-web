@@ -1,3 +1,5 @@
+import { currentUiLocale } from "../../i18n/client";
+import { uiMessage } from "../../i18n/ui";
 import { escapeHtml, renderBannerBody, renderPiBody, renderUserBody } from "../../lib/renderers";
 import {
   parseFallbackChoiceAnswer,
@@ -9,6 +11,8 @@ import {
 import { TERMINAL_SPINNER_HTML } from "../constants";
 import { createTranscriptStateFromMessages } from "../sessions/transcript-state";
 import { calculateOutputRate, estimateIncrementalOutputTokens, type OutputTokenEstimate } from "./output-rate";
+import { messageAvatarHtml } from "./message-avatars";
+import type { ToolOutputScrollState } from "./tool-output-rendering";
 
 function responseErrorText(detail) {
   if (typeof detail === "string") return detail.trim();
@@ -19,6 +23,12 @@ function responseErrorText(detail) {
 export const messageMethods = {
   renderMessages(messages) {
     if (!this.termInner) return;
+    const cardStates = new Map<unknown, { cardOpen?: boolean; toolOutputScroll?: ToolOutputScrollState }>(
+      (this.transcriptItems || []).map((item) => [
+        item.message?.key || item.message?.id || item.message?.toolCallId || item.message,
+        { cardOpen: item.cardOpen, toolOutputScroll: item.toolOutputScroll },
+      ]),
+    );
     this.streamingRows = {};
     this.responseErrorMessageShown = false;
     this.termInner.replaceChildren();
@@ -34,7 +44,10 @@ export const messageMethods = {
       );
       this.durableTranscriptIds = undefined;
     }
-    this.transcriptItems = messages.map((message) => this.createTranscriptItem(message));
+    this.transcriptItems = messages.map((message) => ({
+      ...this.createTranscriptItem(message),
+      ...cardStates.get(message.key || message.id || message.toolCallId || message),
+    }));
     this.renderTranscriptWindow({ stickToBottom: true });
     this.scrollTerm();
   },
@@ -145,9 +158,9 @@ export const messageMethods = {
       this.updateOutputRate(row, delta);
       this.notifyPiMessageCommitted?.({ kind, text: nextText });
     } else {
-      const thinkingBlock = body?.querySelector(".thinking-block");
-      if (!thinkingBlock) return;
-      thinkingBlock.append(document.createTextNode(String(delta)));
+      const thinkingCopy = body?.querySelector(".thinking-copy");
+      if (!thinkingCopy) return;
+      thinkingCopy.append(document.createTextNode(String(delta)));
     }
     this.scrollTerm();
   },
@@ -193,7 +206,9 @@ export const messageMethods = {
   appendLoadingMessage() {
     if (!this.termInner || this.hasLoadingMessage()) return;
     const row = this.simpleMessage("pi loading", "agent >", "");
-    row.querySelector(".body").innerHTML = `${TERMINAL_SPINNER_HTML}<span>waiting for response…</span>`;
+    const waitingLabel = uiMessage(currentUiLocale(), "waitingForResponse");
+    row.querySelector(".body").innerHTML =
+      `${TERMINAL_SPINNER_HTML}<span data-i18n="waitingForResponse">${waitingLabel}</span>`;
     row.classList.add("loading");
     row.dataset.kind = "loading";
     this.loadingMessage = row;
@@ -277,13 +292,14 @@ export const messageMethods = {
   },
 
   thinkingPrefix() {
-    return this.runtimeStatus?.model || "—";
+    return "AI";
   },
 
   syncThinkingPrefixes() {
-    const prefix = this.thinkingPrefix();
-    this.termInner?.querySelectorAll(".prefix.think").forEach((node) => {
-      node.textContent = prefix;
+    this.querySelectorAll(".prefix.think").forEach((node) => {
+      if (node.querySelector("[data-message-avatar='think']")) return;
+      node.classList.add("message-identity");
+      node.innerHTML = messageAvatarHtml("think");
     });
   },
 
@@ -295,10 +311,21 @@ export const messageMethods = {
   },
 
   thinkingMessageNode(message) {
-    const messageRow = this.simpleMessage("think", this.thinkingPrefix(), "");
-    if (message.status === "streaming") messageRow.classList.add("streaming");
-    messageRow.querySelector(".body").innerHTML =
-      `<div class="thinking-block"><span class="label">thinking</span>${escapeHtml(message.text)}</div>`;
+    const messageRow = this.simpleMessage("think", this.thinkingPrefix(), message.text || "");
+    const streaming = message.status === "streaming";
+    if (streaming) messageRow.classList.add("streaming");
+    const locale = currentUiLocale();
+    const label = escapeHtml(uiMessage(locale, "thinking"));
+    const stateKey = streaming ? "thinkingInProgress" : "thinkingCompleted";
+    const stateClass = streaming ? " stream-state running" : "";
+    messageRow.querySelector(".body").innerHTML = [
+      `<details class="thinking-block stream-card thinking-card"${streaming ? " open" : ""}>`,
+      '<summary class="stream-summary">',
+      `<span class="label stream-label" data-i18n="thinking">${label}</span>`,
+      `<span class="thinking-state${stateClass}" data-i18n="${stateKey}">`,
+      `${escapeHtml(uiMessage(locale, stateKey))}</span></summary>`,
+      `<div class="thinking-copy">${escapeHtml(message.text || "")}</div></details>`,
+    ].join("");
     return messageRow;
   },
 
@@ -462,7 +489,12 @@ export const messageMethods = {
     row.dataset.kind = kind.split(" ")[0];
     row.dataset.rawText = text;
     row.innerHTML = `<div class="prefix ${kind}"></div><div class="body"></div>`;
-    row.querySelector(".prefix").textContent = prefix;
+    const identity = row.querySelector(".prefix");
+    const avatar = messageAvatarHtml(row.dataset.kind) || (prefix === "agent >" ? messageAvatarHtml("pi") : "");
+    if (avatar) {
+      identity.classList.add("message-identity");
+      identity.innerHTML = avatar;
+    } else identity.textContent = prefix;
     row.querySelector(".body").textContent = text;
     return row;
   },

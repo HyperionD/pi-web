@@ -1,5 +1,7 @@
 // @ts-nocheck
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { applyUiLocale } from "../../i18n/client";
+import { UI_LOCALE_STORAGE_KEY } from "../../i18n/locales";
 import { cleanupPiAppFixture, connectPiApp, installPiAppFixture } from "../test-helper";
 
 describe("pi-app messages", () => {
@@ -22,19 +24,72 @@ describe("pi-app messages", () => {
     expect(app.textContent).not.toContain("connecting to local backend");
   });
 
-  it("renders localized transcript prefixes and the current model for thinking", async () => {
+  it("keeps icon-only identities stable on model updates and preserves composer metadata", async () => {
     const app = await connectPiApp();
     app.renderMessages([]);
     app.appendMessage({ kind: "think", text: "before model status" });
-    expect(app.querySelector(".msg[data-kind='think'] .prefix").textContent).toBe("—");
+    const lightbulb = app.querySelector(".prefix.think [data-message-icon='lightbulb']");
+    expect(lightbulb).not.toBeNull();
+    expect(app.querySelector(".prefix.think").textContent).toBe("");
 
     app.updatePromptMeta({ model: "GPT-5.5" });
-    expect(app.querySelector(".msg[data-kind='think'] .prefix").textContent).toBe("GPT-5.5");
+    expect(app.querySelector(".prefix.think [data-message-icon='lightbulb']")).toBe(lightbulb);
+    expect(app.runtimeStatus.model).toBe("GPT-5.5");
+    expect(app.querySelector("[data-prompt-meta]").textContent).toContain("GPT-5.5");
+    app.appendStreamingDelta("think", "streaming plan");
+    expect(app.querySelector(".streaming-tail [data-message-icon='lightbulb']")).not.toBeNull();
 
     app.appendMessage({ kind: "user", text: "hello" });
     app.appendMessage({ kind: "pi", text: "world" });
-    expect(app.querySelector(".msg[data-kind='user'] .prefix").textContent).toBe("您 >");
-    expect(app.querySelector(".msg[data-kind='pi'] .prefix").textContent).toBe("agent >");
+    expect(app.querySelector(".prefix.user [data-message-icon='user-round']")).not.toBeNull();
+    expect(app.querySelector(".prefix.user").textContent).toBe("");
+    expect(app.querySelector(".prefix.pi [data-message-icon='pi']").textContent).toBe("π");
+    expect(app.querySelector(".prefix.pi").textContent).not.toContain("agent");
+    expect(app.querySelector(".prefix.think [role='img']").getAttribute("aria-label")).toBe("AI");
+  });
+
+  it("localizes thinking and running tool status labels", async () => {
+    localStorage.setItem(UI_LOCALE_STORAGE_KEY, "zh-CN");
+    const app = await connectPiApp();
+    app.renderMessages([]);
+    app.appendMessage({ kind: "think", text: "reasoning" });
+    app.appendMessage({ kind: "tool", tool: "bash", status: "running" });
+    app.appendMessage({ kind: "tool", tool: "bash", status: "err" });
+
+    expect(app.querySelector(".thinking-block .label").textContent).toBe("思考过程");
+    expect(app.querySelector(".tool-card .tc-meta").textContent).toContain("运行中");
+    expect(app.querySelectorAll(".tool-card .tc-meta")[1].textContent).toContain("执行失败");
+  });
+
+  it("relocalizes dynamically rendered transcript status in the active UI language", async () => {
+    localStorage.setItem(UI_LOCALE_STORAGE_KEY, "en");
+    const app = await connectPiApp();
+    app.renderMessages([]);
+    app.appendMessage({ kind: "think", text: "reasoning" });
+    app.appendMessage({ kind: "tool", tool: "bash", status: "running" });
+    app.appendMessage({ kind: "tool", tool: "bash", status: "err" });
+
+    expect(app.querySelector(".thinking-block .label").textContent).toBe("Thinking");
+    expect(app.querySelectorAll(".tool-card .tc-meta")[0].textContent).toContain("Running");
+    expect(app.querySelectorAll(".tool-card .tc-meta")[1].textContent).toContain("Execution failed");
+
+    applyUiLocale("zh-CN", app);
+    expect(app.querySelector(".thinking-block .label").textContent).toBe("思考过程");
+    expect(app.querySelectorAll(".tool-card .tc-meta")[0].textContent).toContain("运行中");
+    expect(app.querySelectorAll(".tool-card .tc-meta")[1].textContent).toContain("执行失败");
+  });
+
+  it("localizes the waiting-for-response status and updates it after a locale change", async () => {
+    localStorage.setItem(UI_LOCALE_STORAGE_KEY, "zh-CN");
+    const app = await connectPiApp();
+    app.renderMessages([]);
+    app.appendLoadingMessage();
+
+    const label = app.querySelector(".msg.loading [data-i18n='waitingForResponse']");
+    expect(label?.textContent).toBe("正在等待回复…");
+
+    applyUiLocale("en", app);
+    expect(label?.textContent).toBe("Waiting for response…");
   });
 
   it("renders banner, thinking, image, fallback choice, and unknown messages", async () => {

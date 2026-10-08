@@ -1,6 +1,7 @@
+import { currentUiLocale } from "../../i18n/client";
+import { uiMessage } from "../../i18n/ui";
 import { escapeHtml } from "../../lib/renderers";
-import { TERMINAL_SPINNER_HTML } from "../constants";
-import { renderToolBody, storeFullToolBody } from "./tool-output-rendering";
+import { captureToolOutputScroll, updateToolBody } from "./tool-output-rendering";
 
 const TOOL_ICON_PATHS = {
   "book-open": `<path d="M12 7v14"/><path d="M3 18a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h5a4 4 0 0 1 4 4 4 4 0 0 1 4-4h5a1 1 0 0 1 1 1v13a1 1 0 0 1-1 1h-6a3 3 0 0 0-3 3 3 3 0 0 0-3-3z"/>`,
@@ -60,9 +61,13 @@ function commandIconName(text) {
   return undefined;
 }
 
+export function isShellTool(tool) {
+  return ["bash", "shell", "sh", "zsh", "terminal"].includes(normalizeToolName(tool));
+}
+
 function toolIconName(message) {
   const tool = normalizeToolName(message?.tool);
-  if (["bash", "shell", "sh", "zsh", "terminal"].includes(tool)) return commandIconName(commandText(message)) || "terminal";
+  if (isShellTool(tool)) return commandIconName(commandText(message)) || "terminal";
   return TOOL_ICON_NAMES[tool];
 }
 
@@ -116,30 +121,48 @@ function latestToolCard(app, tool, id) {
 
 export const toolMessageMethods = {
   toolCard(message) {
-    const card = document.createElement("div");
-    card.className = "tool-card";
+    const card = document.createElement("details");
+    card.className = `tool-card stream-card${isShellTool(message.tool) ? " command-card" : ""}`;
+    card.open = true;
     card.dataset.tool = message.tool || "tool";
     card.dataset.toolCallId = message.toolCallId || message.id || message.key || "";
     card.dataset.status = message.status || "";
     card.innerHTML = this.toolCardTemplate(message);
     card.querySelector(".tc-name").textContent = message.tool || "tool";
-    card.querySelector(".tc-args").textContent = formatToolArgs(message.tool, message.args);
+    const args = formatToolArgs(message.tool, message.args);
+    card.querySelector(".tc-args").textContent = args;
+    card.querySelector(".tc-command").hidden = !args;
     card.querySelector(".tc-meta").innerHTML = this.toolStatus(message);
-    if (message.body) {
-      const body = card.querySelector(".tc-body");
-      body.innerHTML = renderToolBody(message.body);
-      storeFullToolBody(body, message.body);
-    }
+    if (message.body) updateToolBody(card.querySelector(".tc-body"), message.body);
     return card;
   },
 
   toolCardTemplate(message) {
+    const locale = currentUiLocale();
+    const shell = isShellTool(message.tool);
+    const titleKey = shell ? "commandExecution" : "toolExecution";
+    const outputLabel = escapeHtml(uiMessage(locale, "toolOutput"));
     return [
-      `<div class="tc-head">`,
-      `<span class="tc-glyph">${toolIconHtml(message)}</span><span class="tc-name"></span>`,
-      `<span class="tc-args"></span><span class="tc-meta"></span></div>`,
-      `<div class="tc-body"></div>`,
+      '<summary class="tc-head stream-summary">',
+      `<span class="tc-glyph">${toolIconHtml(message)}</span>`,
+      `<span class="tc-title stream-label" data-i18n="${titleKey}">`,
+      `${escapeHtml(uiMessage(locale, titleKey))}</span><span class="tc-name"></span>`,
+      '<span class="tc-meta"></span></summary><div class="tc-content">',
+      `<div class="tc-command"><span class="tc-prompt" aria-hidden="true">${shell ? "$" : "→"}</span>`,
+      '<span class="tc-args"></span></div>',
+      `<div class="tc-output-label" data-i18n="toolOutput">${outputLabel}</div>`,
+      `<div class="tc-body" data-i18n-aria-label="toolOutput" aria-label="${outputLabel}"></div></div>`,
     ].join("");
+  },
+
+  patchToolCard(card, rendered, message) {
+    card.dataset.status = rendered.dataset.status || "";
+    card.querySelector(".tc-glyph").innerHTML = rendered.querySelector(".tc-glyph").innerHTML;
+    card.querySelector(".tc-name").textContent = rendered.querySelector(".tc-name").textContent;
+    card.querySelector(".tc-args").textContent = rendered.querySelector(".tc-args").textContent;
+    card.querySelector(".tc-command").hidden = rendered.querySelector(".tc-command").hidden;
+    card.querySelector(".tc-meta").innerHTML = rendered.querySelector(".tc-meta").innerHTML;
+    updateToolBody(card.querySelector(".tc-body"), message.body || "");
   },
 
   toolStatus(message) {
@@ -149,18 +172,22 @@ export const toolMessageMethods = {
   },
 
   runningToolStatus() {
-    return `${TERMINAL_SPINNER_HTML}<span style="color:var(--accent)">running</span>`;
+    const label = escapeHtml(uiMessage(currentUiLocale(), "running"));
+    return `<span class="stream-state running" data-i18n="running">${label}</span>`;
   },
 
   errorToolStatus(message) {
-    const result = escapeHtml(message.resultMeta || "failed");
-    return `<span class="err">✗</span>${result}`;
+    const label = escapeHtml(uiMessage(currentUiLocale(), "executionFailed"));
+    const result = message.resultMeta ? `<span class="tc-result">${escapeHtml(message.resultMeta)}</span>` : "";
+    return `<span class="stream-state err" data-i18n="executionFailed">${label}</span>${result}`;
   },
 
   completedToolStatus(message) {
-    const duration = message.durationMs ? `${message.durationMs} ms` : "";
-    const result = message.resultMeta ? ` · ${escapeHtml(message.resultMeta)}` : "";
-    return `<span class="ok">✓</span>${duration}${result}`;
+    const label = escapeHtml(uiMessage(currentUiLocale(), "executionCompleted"));
+    const duration = message.durationMs !== undefined ? `${message.durationMs} ms` : "";
+    const result = [duration, message.resultMeta].filter(Boolean).join(" · ");
+    const detail = result ? `<span class="tc-result">${escapeHtml(result)}</span>` : "";
+    return `<span class="stream-state ok" data-i18n="executionCompleted">${label}</span>${detail}`;
   },
 
   updateToolArgs(payload) {
@@ -169,7 +196,10 @@ export const toolMessageMethods = {
     if (!card) return;
     card.__toolArgsText = `${card.__toolArgsText || ""}${payload.chunk}`;
     const formatted = formatToolArgs(payload.tool, card.__toolArgsText);
-    if (formatted) card.querySelector(".tc-args").textContent = formatted;
+    if (!formatted) return;
+    card.querySelector(".tc-args").textContent = formatted;
+    card.querySelector(".tc-command").hidden = false;
+    card.querySelector(".tc-glyph").innerHTML = toolIconHtml({ tool: payload.tool, args: card.__toolArgsText });
   },
 
   appendToolOutput(payload) {
@@ -178,10 +208,7 @@ export const toolMessageMethods = {
     if (!card) return;
     const body = card.querySelector(".tc-body");
     const fullBody = `${body?.__fullToolBody || body?.textContent || ""}${payload.chunk}`;
-    if (body) {
-      body.innerHTML = renderToolBody(fullBody);
-      storeFullToolBody(body, fullBody);
-    }
+    updateToolBody(body, fullBody);
     this.renderTranscriptWindow?.({ stickToBottom: true });
     this.scrollTerm?.();
   },
@@ -192,10 +219,13 @@ export const toolMessageMethods = {
       this.appendMessage(message);
       return;
     }
+    captureToolOutputScroll(card.querySelector(".tc-body"));
     const next = this.toolCard(message);
+    next.open = card.open;
     const wrapper = card.closest?.(".transcript-item");
     const item = this.transcriptItems?.find((candidate) => String(candidate.id) === wrapper?.dataset?.transcriptItem);
     if (item) item.message = message;
     card.replaceWith(next);
+    if (item) this.bindTranscriptCardState(item, wrapper);
   },
 };

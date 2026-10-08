@@ -1,4 +1,5 @@
 import { applyUiLocale, currentUiLocale, setUiLocale } from "../i18n/client";
+import { uiMessage } from "../i18n/ui";
 import { normalizeUiLocale } from "../i18n/locales";
 import { escapeHtml } from "../lib/renderers";
 import {
@@ -53,7 +54,7 @@ class PiApp extends HTMLElement {
     this.attachmentContents = [];
     this.spinnerIndex = 0;
     this.runtimeStatus = {};
-    applyUiLocale(currentUiLocale(), this);
+    applyUiLocale(currentUiLocale(), document);
     this.restorePromptDraft();
     this.installViewportSizing();
     this.installFilePreviewUnloadGuard();
@@ -135,7 +136,7 @@ class PiApp extends HTMLElement {
     this.querySelector("[data-settings-location]")?.addEventListener("change", () => this.fillSettingsForm());
     this.querySelector("[data-ui-language]")?.addEventListener("change", (event) => {
       const locale = normalizeUiLocale((event.currentTarget as HTMLSelectElement).value);
-      if (locale) setUiLocale(locale, this);
+      if (locale) setUiLocale(locale, document);
     });
     this.querySelector("[data-setting='defaultProvider']")?.addEventListener("change", (event) => {
       this.syncCustomSettingInput(event.currentTarget);
@@ -207,6 +208,7 @@ class PiApp extends HTMLElement {
     });
     window.addEventListener("keydown", (event) => this.shortcut(event));
     window.addEventListener("click", (event) => {
+      if (!event.target?.closest?.("[data-workspace-switcher]")) this.closeWorkspaceSwitcher();
       if (!event.target?.closest?.(".folder-popover, [data-action='folder-open'], [data-action='route-picker'], [data-allowed-root-add]")) this.closeFolderPopover();
       if (!event.target?.closest?.(".session-menu, .session-menu-button")) this.closeSessionMenus();
     });
@@ -300,24 +302,29 @@ class PiApp extends HTMLElement {
     const indicator = this.querySelector(".statusbtn");
     if (status === "ok") this.apiConnected = true;
     this.syncCompactionControl?.();
-    const styles = {
-      ok: ["var(--accent)", "已连接"],
-      reconnecting: ["var(--fg-3)", "正在重新连接事件流"],
-      err: ["var(--danger)", "后端连接已断开"],
+    const statuses = {
+      ok: ["var(--accent)", "connectionConnected"],
+      reconnecting: ["var(--fg-3)", "connectionReconnecting"],
+      err: ["var(--danger)", "connectionDisconnected"],
     };
-    const state = styles[status] ? status : "err";
-    const [color, title] = styles[state];
+    const state = statuses[status] ? status : "err";
+    const [color, messageKey] = statuses[state];
+    const title = uiMessage(currentUiLocale(), messageKey);
     if (indicator) {
       indicator.style.color = color;
+      indicator.dataset.i18nTitle = messageKey;
       indicator.title = title;
     }
     const statusDot = this.querySelector("[data-connection-status-dot]");
     if (statusDot) {
       statusDot.dataset.status = state;
+      statusDot.dataset.i18nTitle = messageKey;
       statusDot.title = title;
     }
     const statusLabel = this.querySelector("[data-connection-status-label]");
     if (statusLabel) {
+      statusLabel.dataset.i18n = messageKey;
+      statusLabel.dataset.i18nTitle = messageKey;
       statusLabel.textContent = title;
       statusLabel.title = title;
     }

@@ -4,6 +4,8 @@ import {
   deleteWorkspaceSessions as deleteWorkspaceSessionsRequest,
   renameSession as renameSessionRequest,
 } from "../../lib/api";
+import { currentUiLocale } from "../../i18n/client";
+import { uiMessage } from "../../i18n/ui";
 import { escapeHtml } from "../../lib/renderers";
 import { decorateSessionRow, sessionKindLabel } from "./session-hierarchy";
 import { sessionMenuMethods } from "./session-menu-methods";
@@ -26,8 +28,8 @@ export const sessionMethods = {
     row.innerHTML = this.sessionRowTemplate(workspaceId, session, menuId);
     row.querySelector(".title").textContent = session.title;
     row.dataset.lastUsed = session.lastUsed || "";
-    this.updateSessionMeta(row, !!(session.active || session.live));
-    this.markSessionRunning(row, !!(session.active || session.live));
+    this.updateSessionMeta(row, !!session.live);
+    this.markSessionRunning(row, !!session.live);
     this.markSessionSelected(row, session.id === this.dataset.activeSessionId);
     row.classList.toggle("unread-completed", this.readUnreadCompletedSessions?.().has(session.id));
     return row;
@@ -40,11 +42,12 @@ export const sessionMethods = {
       ` data-workspace="${escapeHtml(workspaceId)}"`,
       ` data-title="${escapeHtml(session.title)}">`,
       `<span class="session-title"><span class="title"></span>${this.sessionKindBadge(session)}</span>`,
-      `<span class="meta"></span></button>`,
+      `<span class="meta" data-i18n="sessionWaiting"></span></button>`,
       `<button type="button" class="session-menu-button" data-action="session-menu-toggle"`,
       ` aria-haspopup="true" aria-expanded="false" aria-controls="${menuId}"`,
       ` aria-label="会话操作">${LUCIDE_ELLIPSIS_ICON}</button>`,
       `<div class="session-menu" id="${menuId}" role="menu" hidden>`,
+      `<h2>会话操作</h2>`,
       `<button type="button" role="menuitem" data-action="rename-session">${LUCIDE_PENCIL_ICON}<span>重命名</span></button>`,
       `<button type="button" role="menuitem" class="danger" data-action="delete-session">${LUCIDE_TRASH_ICON}<span>删除</span></button>`,
       `</div>`,
@@ -121,7 +124,7 @@ export const sessionMethods = {
   updateSessionMeta(row, running) {
     const meta = row.querySelector(".meta");
     if (!meta) return;
-    meta.textContent = running ? "等待中" : "";
+    meta.textContent = running ? uiMessage(currentUiLocale(), "sessionWaiting") : "";
     meta.toggleAttribute("hidden", !running);
   },
 
@@ -227,6 +230,7 @@ export const sessionMethods = {
     const count = this.countWorkspaceSessions(workspaceId);
     const countLabel = group.querySelector(".ws-count") || group.querySelector(".ws-meta");
     if (countLabel) countLabel.textContent = String(count);
+    sessions?.querySelector("[data-sessions-empty]")?.toggleAttribute("hidden", count > 0);
     sessions?.querySelector("[data-action='delete-workspace-sessions']")?.remove();
   },
 

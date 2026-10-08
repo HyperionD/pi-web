@@ -1,5 +1,6 @@
 // @ts-nocheck
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { UI_LOCALE_STORAGE_KEY } from "../../i18n/locales";
 import { cleanupPiAppFixture, connectPiApp, installPiAppFixture } from "../test-helper";
 
 const fallbackChoiceJson = [
@@ -140,6 +141,7 @@ describe("pi-app toast notifications", () => {
   });
 
   it("shows a backend connection toast instead of response failure for disconnects", async () => {
+    localStorage.setItem(UI_LOCALE_STORAGE_KEY, "zh-CN");
     const app = await connectPiApp();
     setActiveToastContext(app);
     app.setConnection = vi.fn();
@@ -152,6 +154,51 @@ describe("pi-app toast notifications", () => {
     expect(document.querySelector(".session-toast.error")).toBeNull();
     expect(document.querySelector(".session-toast.success")).toBeNull();
     expect(app.setConnection).toHaveBeenCalledWith("err");
+  });
+
+  it("localizes connection toasts and updates visible toast text after a locale change", async () => {
+    localStorage.setItem(UI_LOCALE_STORAGE_KEY, "zh-CN");
+    const app = await connectPiApp();
+    app.notifyResponseFailure("TypeError: Failed to fetch", {});
+
+    const toast = document.querySelector(".session-toast.connection");
+    expect(toast.querySelector("strong").textContent).toBe("后端连接已断开");
+    expect(toast.querySelector(".toast-prompt").textContent).toBe("前端与后端的连接已断开，正在重新连接。");
+
+    const selector = app.querySelector("[data-ui-language]");
+    selector.add(new Option("English", "en"));
+    selector.value = "en";
+    selector.dispatchEvent(new Event("change", { bubbles: true }));
+
+    expect(toast.querySelector("strong").textContent).toBe("Backend connection lost");
+    expect(toast.querySelector(".toast-prompt").textContent).toBe("Connection to the backend was lost. Reconnecting.");
+  });
+
+  it("localizes toast dismiss buttons with an accessible name", async () => {
+    localStorage.setItem(UI_LOCALE_STORAGE_KEY, "zh-CN");
+    const app = await connectPiApp();
+    app.showToast("success");
+
+    const dismissButton = document.querySelector(".notyf__dismiss-btn");
+    expect(dismissButton.getAttribute("data-i18n-aria-label")).toBe("dismissNotification");
+    expect(dismissButton.getAttribute("aria-label")).toBe("关闭通知");
+
+    const selector = app.querySelector("[data-ui-language]");
+    selector.add(new Option("English", "en"));
+    selector.value = "en";
+    selector.dispatchEvent(new Event("change", { bubbles: true }));
+
+    expect(dismissButton.getAttribute("aria-label")).toBe("Dismiss notification");
+  });
+
+  it("falls back for inherited property names used as toast kinds", async () => {
+    const app = await connectPiApp();
+    app.showToast("constructor", "Ignored invalid type");
+    app.showSystemToast("toString", "Warning", "Check this", "invalid-type:test");
+
+    expect(document.querySelectorAll(".session-toast.success")).toHaveLength(1);
+    expect(document.querySelectorAll(".session-toast.warning")).toHaveLength(1);
+    expect(document.querySelectorAll(".toast-icon svg")).toHaveLength(2);
   });
 
   it("shows auth warnings instead of generic response errors for credential failures", async () => {
@@ -197,6 +244,49 @@ describe("pi-app toast notifications", () => {
     expect(document.querySelectorAll(".notyf__toast--disappear")).toHaveLength(2);
   });
 
+  it("does not report completion for an active but idle session", async () => {
+    class FakeEventSource {
+      addEventListener() {}
+      close() {}
+    }
+    vi.stubGlobal("EventSource", FakeEventSource);
+    globalThis.fetch = vi.fn(async (url) => String(url).includes("/state")
+      ? {
+          ok: true,
+          status: 200,
+          statusText: "OK",
+          json: async () => ({
+            session: { id: "idle-session" },
+            items: [],
+            status: "idle",
+            seq: "1",
+            cursor: "",
+            hasMore: false,
+            limit: 120,
+            projectionSchemaVersion: 1,
+            projectionGeneration: "1",
+          }),
+        }
+      : bootstrapOkResponse(url));
+    const app = await connectPiApp();
+    app.apiConnected = true;
+    app.dataset.activeSessionId = "current-session";
+    app.dataset.activeWorkspaceId = "active-workspace";
+    app.notifySessionCompleted = vi.fn();
+    app.renderWorkspaces([{
+      id: "other-workspace",
+      name: "other",
+      path: "/other",
+      sessionCount: 1,
+      sessions: [{ id: "idle-session", title: "empty session", active: true, live: false }],
+    }]);
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(app.notifySessionCompleted).not.toHaveBeenCalled();
+    expect(globalThis.fetch.mock.calls.some(([url]) => String(url).includes("/state"))).toBe(false);
+  });
+
   it("notifies when an inactive watched session completes", async () => {
     const sources = [];
     class FakeEventSource {
@@ -224,7 +314,7 @@ describe("pi-app toast notifications", () => {
     app.renderWorkspaces([
       { id: "active-workspace", name: "active", sessionCount: 1, sessions: [{ id: "active-session", title: "now" }] },
       { id: "other-workspace", name: "other", sessionCount: 1, sessions: [
-        { id: "background-session", title: "background", active: true },
+        { id: "background-session", title: "background", live: true },
       ] },
     ]);
 
@@ -280,7 +370,7 @@ describe("pi-app toast notifications", () => {
 
     app.renderWorkspaces([
       { id: "active-workspace", name: "active", sessionCount: 1, sessions: [{ id: "active-session", title: "now" }] },
-      { id: "other-workspace", name: "other", sessionCount: 1, sessions: [{ id: "background-session", title: "background", active: true }] },
+      { id: "other-workspace", name: "other", sessionCount: 1, sessions: [{ id: "background-session", title: "background", live: true }] },
     ]);
     expect(app.backgroundWatchRows()).toHaveProperty("size", 1);
     await vi.waitFor(() => expect(sources).toHaveLength(1));

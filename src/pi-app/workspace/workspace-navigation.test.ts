@@ -1,10 +1,59 @@
 // @ts-nocheck
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { applyUiLocale } from "../../i18n/client";
+import { UI_LOCALE_STORAGE_KEY } from "../../i18n/locales";
 import { cleanupPiAppFixture, connectPiApp, installPiAppFixture } from "../test-helper";
 
 describe("pi-app workspace navigation", () => {
   beforeEach(installPiAppFixture);
   afterEach(cleanupPiAppFixture);
+
+  it("relocalizes live workspace and session states", async () => {
+    localStorage.setItem(UI_LOCALE_STORAGE_KEY, "en");
+    const app = await connectPiApp();
+    app.dataset.activeWorkspaceId = "w1";
+    app.renderWorkspaces([{
+      id: "w1",
+      name: "workspace",
+      path: "/workspace",
+      sessionCount: 1,
+      live: true,
+      sessions: [{ id: "s1", title: "session", live: true }],
+    }]);
+
+    const workspaceStatus = app.querySelector("[data-workspace='w1'] .ws-status");
+    const workspaceCountLabel = app.querySelector(".workspace-group .ws-count-label");
+    const sessionStatus = app.querySelector("[data-session='s1'] .meta");
+    expect(workspaceStatus.textContent).toBe("Running");
+    expect(workspaceCountLabel.textContent).toBe("sessions");
+    expect(sessionStatus.textContent).toBe("Waiting");
+
+    applyUiLocale("zh-CN", app);
+    expect(workspaceStatus.textContent).toBe("运行中");
+    expect(workspaceCountLabel.textContent).toBe("个会话");
+    expect(sessionStatus.textContent).toBe("等待中");
+  });
+
+  it("does not treat a selected idle session as running", async () => {
+    const app = await connectPiApp();
+    app.dataset.activeWorkspaceId = "w1";
+    app.dataset.activeSessionId = "s1";
+    app.renderWorkspaces([{
+      id: "w1",
+      name: "workspace",
+      path: "/workspace",
+      sessionCount: 1,
+      sessions: [{ id: "s1", title: "new session", active: true, live: false }],
+    }]);
+
+    const sessionRow = app.querySelector("[data-session='s1']");
+    const sessionStatus = sessionRow.querySelector(".meta");
+    const workspaceStatus = app.querySelector("[data-workspace='w1'] .ws-status");
+    expect(sessionRow.classList.contains("selected")).toBe(true);
+    expect(sessionRow.classList.contains("active")).toBe(false);
+    expect(sessionStatus.hasAttribute("hidden")).toBe(true);
+    expect(workspaceStatus.hasAttribute("hidden")).toBe(true);
+  });
 
   it("creates a new session in the workspace selected from the sidebar", async () => {
     globalThis.PI_WEB_API_BASE = "http://backend.test";
@@ -122,6 +171,7 @@ describe("pi-app workspace navigation", () => {
   });
 
   it("renders recent workspaces and marks workspaces that contain a waiting session", async () => {
+    localStorage.setItem(UI_LOCALE_STORAGE_KEY, "zh-CN");
     const app = await connectPiApp();
     const count = document.createElement("span");
     const recent = document.createElement("div");

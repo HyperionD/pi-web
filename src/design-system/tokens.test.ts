@@ -22,4 +22,18 @@ describe("light theme tokens", () => {
     expect(root.getPropertyValue("--fg-2").trim()).toBe("#475569");
     expect(root.getPropertyValue("--accent").trim()).toBe("#2563eb");
   });
+
+  it("separates Chinese UI typography from technical monospace typography", () => {
+    const style = document.createElement("style");
+    style.textContent = readFileSync(tokensPath, "utf8");
+    document.head.append(style);
+
+    const root = getComputedStyle(document.documentElement);
+    const sans = root.getPropertyValue("--font-sans").trim();
+    const mono = root.getPropertyValue("--font-mono").trim();
+
+    expect(sans).toContain('"Noto Sans SC"');
+    expect(sans).not.toBe(mono);
+    expect(mono).toContain('"Fira Code"');
+  });
 });

@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { Tree } from "react-arborist";
+import { Tree, type TreeApi } from "react-arborist";
 import {
   createWorkspaceFile,
   deleteWorkspaceFile,
@@ -10,7 +10,13 @@ import {
   uploadWorkspaceFile,
 } from "../lib/api";
 import { formatTransferBytes, transferPercent } from "../lib/file-transfer";
-import { decorateFileTree, type FileTreeNode, type GitStatusMap, type RawFileNode } from "../lib/file-tree-model";
+import {
+  decorateFileTree,
+  normalizeFileTreePath,
+  type FileTreeNode,
+  type GitStatusMap,
+  type RawFileNode,
+} from "../lib/file-tree-model";
 import { resolveMaterialFileIcon } from "../lib/material-file-icons";
 
 type WorkspaceTreeUpdate = { files?: RawFileNode[]; statusMap?: GitStatusMap; selectedPath?: string };
@@ -29,6 +35,7 @@ const SUCCESS_STATUS_DURATION = 1000;
 
 export default function WorkspaceFileTree({ initialFiles = [], initialStatusMap = {} }: Props) {
   const [files, setFiles] = useState<RawFileNode[]>(initialFiles);
+  const [treeScope, setTreeScope] = useState({ workspaceId: "", generation: 0 });
   const [statusMap, setStatusMap] = useState<GitStatusMap>(initialStatusMap);
   const [selectedPath, setSelectedPath] = useState("");
   const [expandedPaths, setExpandedPaths] = useState<Set<string>>(() => new Set());
@@ -36,7 +43,9 @@ export default function WorkspaceFileTree({ initialFiles = [], initialStatusMap 
   const [menu, setMenu] = useState<MenuTarget | null>(null);
   const [searchTerm, setSearchTerm] = useState("");
   const [contentMatches, setContentMatches] = useState<Set<string>>(() => new Set());
+  const [loadingPaths, setLoadingPaths] = useState<ReadonlySet<string>>(() => new Set());
   const [transferState, setTransferState] = useState<TransferState>({ kind: "idle" });
+  const tree = useRef<TreeApi<FileTreeNode>>(null);
   const treeArea = useRef<HTMLDivElement>(null);
   const uploadInput = useRef<HTMLInputElement>(null);
   const uploadTarget = useRef<MenuTarget | null>(null);
@@ -45,15 +54,25 @@ export default function WorkspaceFileTree({ initialFiles = [], initialStatusMap 
   const transferGeneration = useRef(0);
   const loadingDirectories = useRef(new Set<string>());
   const loadedDirectories = useRef(new Set<string>());
+  const treeGeneration = useRef(0);
 
   useEffect(() => {
     const onUpdate = (event: Event) => {
       const detail = (event as CustomEvent<WorkspaceTreeUpdate>).detail || {};
-      setFiles(detail.files || []);
-      loadingDirectories.current.clear();
-      loadedDirectories.current.clear();
-      setStatusMap(detail.statusMap || {});
-      setSelectedPath(detail.selectedPath || "");
+      if (detail.files !== undefined) {
+        treeGeneration.current += 1;
+        const workspaceId = activeWorkspaceId();
+        setTreeScope({ workspaceId, generation: treeGeneration.current });
+        setExpandedPaths(new Set());
+        setFiles(detail.files);
+        loadingDirectories.current.clear();
+        loadedDirectories.current.clear();
+        setLoadingPaths(new Set());
+        setContentMatches(new Set());
+        setSelectedPath(detail.selectedPath || "");
+      } else if (detail.selectedPath !== undefined) setSelectedPath(detail.selectedPath);
+      if (detail.statusMap !== undefined) setStatusMap(detail.statusMap);
+      else if (detail.files !== undefined) setStatusMap({});
     };
     const onRootMenu = (event: Event) => {
       const detail = (event as CustomEvent<{ x?: number; y?: number }>).detail || {};
@@ -103,27 +122,36 @@ export default function WorkspaceFileTree({ initialFiles = [], initialStatusMap 
     const workspaceId = activeWorkspaceId();
     if (!workspaceId) return;
     let cancelled = false;
+    const generation = treeGeneration.current;
+    const isCurrent = () => !cancelled && treeRequestIsCurrent(workspaceId, generation);
+    setContentMatches(new Set());
     const timeout = window.setTimeout(() => {
       void searchWorkspaceFiles(workspaceId, query)
         .then((result) => {
-          if (!cancelled) setContentMatches(new Set(result.matches || []));
+          if (isCurrent()) {
+            setContentMatches(new Set((result.matches || []).filter((path: unknown) => typeof path === "string")));
+          }
         })
-        .catch(() => {
-          if (!cancelled) setContentMatches(new Set());
+        .catch((error) => {
+          if (!isCurrent()) return;
+          setContentMatches(new Set());
+          showTemporaryError(error);
         });
     }, 200);
     return () => {
       cancelled = true;
       window.clearTimeout(timeout);
     };
-  }, [searchTerm]);
+  }, [searchTerm, treeScope]);
 
   const data = useMemo(
-    () => decorateFileTree(files, statusMap, selectedPath, expandedPaths),
-    [expandedPaths, files, selectedPath, statusMap],
+    () => decorateFileTree(
+      files, statusMap, selectedPath, expandedPaths, searchTerm.trim() ? contentMatches : undefined,
+    ),
+    [contentMatches, expandedPaths, files, searchTerm, selectedPath, statusMap],
   );
 
-  const contextValue = useMemo(() => ({ setMenu }), []);
+  const contextValue = useMemo(() => ({ setMenu, loadingPaths }), [loadingPaths]);
 
   const onEmptyContextMenu = (event: React.MouseEvent<HTMLDivElement>) => {
     if ((event.target as Element).closest?.(".tree-node")) return;
@@ -148,6 +176,8 @@ export default function WorkspaceFileTree({ initialFiles = [], initialStatusMap 
             <div className="tree-empty">文件树正在从后端加载。</div>
           ) : data.length ? (
             <Tree<FileTreeNode>
+              key={`${treeScope.workspaceId}:${treeScope.generation}`}
+              ref={tree}
               data={data}
               width="100%"
               height={height}
@@ -164,14 +194,15 @@ export default function WorkspaceFileTree({ initialFiles = [], initialStatusMap 
               disableDrop
               disableEdit
               onToggle={(id) => {
+                const open = tree.current?.isOpen(id);
                 setExpandedPaths((current) => {
                   const next = new Set(current);
-                  if (next.has(id)) next.delete(id);
-                  else next.add(id);
+                  if (open) next.add(id);
+                  else next.delete(id);
                   return next;
                 });
                 const node = findRawNode(files, id);
-                if (node?.type === "dir" && !node.children) void loadDirectory(id);
+                if (open && node?.type === "dir" && !node.children) void loadDirectory(id);
               }}
             >
               {FileTreeRow}
@@ -195,7 +226,6 @@ export default function WorkspaceFileTree({ initialFiles = [], initialStatusMap 
           />
         )}
         <TransferStatus state={transferState} />
-        <div className="tree-tip">提示：右键点击或轻触 ⋯ 进行文件操作。</div>
       </div>
     </TreeContext.Provider>
   );
@@ -203,9 +233,12 @@ export default function WorkspaceFileTree({ initialFiles = [], initialStatusMap 
   async function loadDirectory(path: string) {
     const workspaceId = activeWorkspaceId();
     if (!workspaceId || loadingDirectories.current.has(path) || loadedDirectories.current.has(path)) return;
+    const generation = treeGeneration.current;
     loadingDirectories.current.add(path);
+    setLoadingPaths(new Set(loadingDirectories.current));
     try {
       const result = await getWorkspaceFileList(workspaceId, path);
+      if (!treeRequestIsCurrent(workspaceId, generation)) return;
       const children: RawFileNode[] = (result.entries || []).map((entry: { name: string; path: string; type: string }) => ({
         name: entry.name,
         path: entry.path,
@@ -214,10 +247,17 @@ export default function WorkspaceFileTree({ initialFiles = [], initialStatusMap 
       setFiles((current) => path ? mergeDirectoryChildren(current, path, children) : children);
       loadedDirectories.current.add(path);
     } catch (error) {
-      showTemporaryError(error);
+      if (treeRequestIsCurrent(workspaceId, generation)) showTemporaryError(error);
     } finally {
-      loadingDirectories.current.delete(path);
+      if (treeRequestIsCurrent(workspaceId, generation)) {
+        loadingDirectories.current.delete(path);
+        setLoadingPaths(new Set(loadingDirectories.current));
+      }
     }
+  }
+
+  function treeRequestIsCurrent(workspaceId: string, generation: number) {
+    return mounted.current && activeWorkspaceId() === workspaceId && treeGeneration.current === generation;
   }
 
   async function runAction(action: string, target: MenuTarget) {
@@ -359,12 +399,19 @@ export default function WorkspaceFileTree({ initialFiles = [], initialStatusMap 
   }
 }
 
-const TreeContext = React.createContext<{ setMenu: (target: MenuTarget) => void }>({ setMenu: () => {} });
+const TreeContext = React.createContext<{
+  setMenu: (target: MenuTarget) => void;
+  loadingPaths: ReadonlySet<string>;
+}>({ setMenu: () => {}, loadingPaths: new Set() });
 
 function FileTreeRow({ node, style, dragHandle }: any) {
-  const { setMenu } = React.useContext(TreeContext);
+  const { setMenu, loadingPaths } = React.useContext(TreeContext);
   const item = node.data as FileTreeNode;
   const isDir = item.kind === "dir";
+  const loading = isDir && loadingPaths.has(item.path);
+  const directoryHint = isDir && node.isOpen && !item.children?.length
+    ? loading ? "加载中…" : item.childrenLoaded ? "空文件夹" : ""
+    : "";
   const status = item.gitStatus !== "clean" ? item.gitStatus : item.dirtyDescendants ? "dirty" : "clean";
   const classes = ["tree-node", item.kind, status, node.isSelected && "selected"].filter(Boolean).join(" ");
   const glyph = isDir ? (node.isOpen ? "▾" : "▸") : "";
@@ -383,6 +430,7 @@ function FileTreeRow({ node, style, dragHandle }: any) {
     if ((event.target as Element).closest(".tree-row-menu")) return;
     if (event.key !== "Enter" && event.key !== " ") return;
     event.preventDefault();
+    event.stopPropagation();
     event.currentTarget.click();
   };
   const onContextMenu = (event: React.MouseEvent<HTMLDivElement>) => {
@@ -406,6 +454,7 @@ function FileTreeRow({ node, style, dragHandle }: any) {
       data-action={isDir ? undefined : "open-file"}
       data-file-path={item.path}
       aria-expanded={isDir ? node.isOpen : undefined}
+      aria-busy={loading || undefined}
       aria-current={node.isSelected ? "true" : undefined}
       title={item.path}
       onClick={onClick}
@@ -416,7 +465,10 @@ function FileTreeRow({ node, style, dragHandle }: any) {
       <span className="file-icon" data-icon-name={icon.name}>
         <img src={icon.url} alt="" aria-hidden="true" draggable={false} />
       </span>
-      <span className="name">{item.name}</span>
+      <span className="name">
+        {item.name}
+        {directoryHint && <small className="tree-directory-hint" role="status">{directoryHint}</small>}
+      </span>
       <StatusBadge status={status} />
       <button className="tree-row-menu" type="button" aria-label={`操作：${item.name}`} onClick={onMenuClick}>⋯</button>
     </div>
@@ -436,6 +488,7 @@ function TreeActionMenu({
   const style = menuPosition(target);
   return (
     <div className="tree-action-menu" role="menu" style={style} onClick={(event) => event.stopPropagation()}>
+      <h2>{target.kind === "root" ? "工作区文件" : target.kind === "dir" ? "文件夹操作" : "文件操作"}</h2>
       <button type="button" role="menuitem" onClick={() => onAction("new-file")}>新建文件</button>
       <button type="button" role="menuitem" onClick={() => onAction("new-folder")}>新建文件夹</button>
       <button type="button" role="menuitem" disabled={transferBusy} onClick={() => onAction("upload")}>上传到此处</button>
@@ -465,8 +518,8 @@ function TransferStatus({ state }: { state: TransferState }) {
 }
 
 function menuPosition(target: MenuTarget) {
-  const width = 168;
-  const height = 180;
+  const width = 232;
+  const height = target.kind === "file" ? 260 : 226;
   const margin = 8;
   const maxX = Math.max(margin, window.innerWidth - width - margin);
   const maxY = Math.max(margin, window.innerHeight - height - margin);
@@ -491,7 +544,7 @@ function fileTreeSearchMatch(node: FileTreeNode, term: string, contentMatches: R
 
 function findRawNode(nodes: RawFileNode[], path: string): RawFileNode | undefined {
   for (const node of nodes) {
-    if ((node.path || node.name) === path) return node;
+    if (normalizeFileTreePath(node.path || node.name) === path) return node;
     const nested = node.children && findRawNode(node.children, path);
     if (nested) return nested;
   }
@@ -500,7 +553,7 @@ function findRawNode(nodes: RawFileNode[], path: string): RawFileNode | undefine
 
 function mergeDirectoryChildren(nodes: RawFileNode[], path: string, children: RawFileNode[]): RawFileNode[] {
   return nodes.map((node) => {
-    if ((node.path || node.name) === path) return { ...node, children };
+    if (normalizeFileTreePath(node.path || node.name) === path) return { ...node, children };
     return node.children ? { ...node, children: mergeDirectoryChildren(node.children, path, children) } : node;
   });
 }

@@ -22,7 +22,7 @@ describe("pi-app input actions coverage", () => {
     const calls = [];
     [
       "route", "refreshWorkspaces", "browseFolder", "loadFolder", "openWorkspacePath", "openFolderPopover", "closeFolderPopover", "toggleTree", "showFileTreePanel", "showGitHistory", "loadMoreGitHistory", "selectGitCommit", "closeGitDetail", "refreshTree",
-      "refreshGitHistory", "openFile", "closeFilePreview", "toggleFilePreviewMode", "saveFilePreview", "collapseSidebar",
+      "refreshGitHistory", "openFile", "closeFilePreview", "toggleFilePreviewMode", "saveFilePreview",
       "toggleDrawer", "toggleTool", "showFullToolOutput", "toggleWorkspace", "closeWorkspace", "deleteWorkspaceSessions",
       "newSession", "toggleSessionMenu", "renameSession", "deleteSession", "submitFallbackChoice", "openSettingsModal",
       "closeSettingsModal", "saveSettingsForm", "saveAuthForm", "logoutAuthProvider", "startOAuthLogin", "sendOAuthInput", "pickSession", "openWorkspace", "fillPrompt", "pickSlash",
@@ -31,7 +31,7 @@ describe("pi-app input actions coverage", () => {
     const actions = [
       "route-picker", "route-workspace", "refresh-workspaces", "browse-folder", "folder-open", "folder-close", "folder-toggle", "folder-select",
       "folder-open-current", "toggle-tree", "show-file-tree", "show-git-history", "load-more-git-history", "select-git-commit", "close-git-detail", "refresh-tree", "tree-root-menu", "open-file", "close-file-preview",
-      "toggle-file-preview-mode", "save-file-preview", "collapse-sidebar", "expand-sidebar", "open-drawer", "close-drawer",
+      "toggle-file-preview-mode", "save-file-preview", "open-drawer", "close-drawer",
       "toggle-tool", "show-full-tool-output", "toggle-workspace", "close-workspace", "delete-workspace-sessions", "new-session",
       "session-menu-toggle", "rename-session", "delete-session", "open-settings", "close-settings", "save-settings",
       "save-auth-provider", "logout-auth-provider", "start-oauth-login", "send-oauth-input",

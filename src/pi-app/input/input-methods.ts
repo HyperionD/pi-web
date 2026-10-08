@@ -1,3 +1,5 @@
+import { currentUiLocale } from "../../i18n/client";
+import { uiMessage } from "../../i18n/ui";
 import {
   cancelSession,
   compactSession,
@@ -297,7 +299,11 @@ export const inputMethods = {
       void this.copyCodeBlock(button);
       return;
     }
+    if (action === "switch-workspace") void this.switchWorkspace(actionTarget.dataset.workspace);
     if (action === "route-picker") {
+      const switcher = actionTarget.closest("[data-workspace-switcher]");
+      if (switcher) this.folderPickerTriggerRect = switcher.querySelector("summary")?.getBoundingClientRect();
+      this.closeWorkspaceSwitcher();
       this.route("workspace");
       const popover = this.querySelector("[data-folder-popover]");
       if (popover && !popover.hidden) this.closeFolderPopover();
@@ -382,8 +388,6 @@ export const inputMethods = {
     if (action === "toggle-file-preview-diff") void this.toggleFilePreviewDiff?.();
     if (action === "toggle-file-preview-mode") this.toggleFilePreviewMode();
     if (action === "save-file-preview") this.saveFilePreview();
-    if (action === "collapse-sidebar") this.collapseSidebar(true);
-    if (action === "expand-sidebar") this.collapseSidebar(false);
     if (action === "open-drawer") this.toggleDrawer();
     if (action === "close-drawer") this.toggleDrawer(false);
     if (action === "toggle-tool") this.toggleTool(button);
@@ -529,10 +533,10 @@ export const inputMethods = {
   },
 
   updateAttachmentGuidance() {
-    const guidance = this.querySelector("[data-attachment-guidance]");
-    if (!guidance) return;
+    const maxUpload = this.querySelector("[data-attachment-max-upload]");
+    if (!maxUpload) return;
     const maxUploadMiB = maxUploadBytesToMiB(this.appConfigState?.config?.workspace?.maxUploadBytes);
-    guidance.textContent = `对话附件有限制；较大文件请先上传到工作区。工作区单文件上传上限 ${maxUploadMiB} MiB；普通文件超过 256 KiB 不会内联。图片及合计请求预算约 768 KiB。`;
+    maxUpload.textContent = String(maxUploadMiB);
   },
 
   fillPrompt(value) {
@@ -542,10 +546,24 @@ export const inputMethods = {
     this.prompt.focus();
   },
 
-  setSlashCommandStatus(status = "") {
+  setSlashCommandStatus(status = "", statusKey) {
     const head = this.querySelector("[data-slash-head]");
     if (!head) return;
-    head.textContent = status ? `slash commands · ${status}` : "slash commands · type to filter";
+    const locale = currentUiLocale();
+    const heading = document.createElement("span");
+    heading.dataset.i18n = "slashCommandsTitle";
+    heading.textContent = uiMessage(locale, "slashCommandsTitle");
+    const messageKey = statusKey || (
+      status === "unavailable" ? "slashCommandsUnavailable" : !status && "slashCommandHint"
+    );
+    const statusLabel = document.createElement("span");
+    if (messageKey) {
+      statusLabel.dataset.i18n = messageKey;
+      statusLabel.textContent = uiMessage(locale, messageKey);
+    } else {
+      statusLabel.textContent = status;
+    }
+    head.replaceChildren(heading, document.createTextNode(" · "), statusLabel);
   },
 
   renderSlashCommands(commands = []) {

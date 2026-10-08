@@ -1,5 +1,5 @@
 const __vite__mapDeps=(i,m=__vite__mapDeps,d=(m.f||(m.f=["assets/ofd.CEnLlhi_.js","assets/jszip.min.B4E05B4V.js","assets/_commonjsHelpers.Cpj98o6Y.js","assets/_commonjs-dynamic-modules.TDtrdbi3.js"])))=>i.map(i=>d[i]);
-import{_ as fe}from"./App.astro_astro_type_script_index_0_lang.Dn6LspRb.js";import{n as ue,R as ge,ab as Q,J as me}from"./index.DN3iuhnm.js";import{a as pe}from"./zoom.DbtPu_cU.js";const V=.35,q=3,ee=.1,be=`
+import{_ as fe}from"./App.astro_astro_type_script_index_0_lang.DWoqqpzb.js";import{n as ue,R as ge,ab as Q,J as me}from"./index.CF94aKf-.js";import{a as pe}from"./zoom.CGyslf7w.js";const V=.35,q=3,ee=.1,be=`
 .ofd-viewer{position:relative;display:flex;box-sizing:border-box;min-height:100%;min-width:0;flex-direction:column;background:var(--file-viewer-render-surface-background,#e9edf2);color:#172033;font-family:Aptos,'Segoe UI','PingFang SC','Microsoft YaHei',sans-serif}
 .ofd-viewer *{box-sizing:border-box}
 .ofd-toolbar{position:sticky;top:0;z-index:4;display:flex;min-height:44px;align-items:center;justify-content:center;border-bottom:1px solid rgba(148,163,184,.32);background:rgba(255,255,255,.92);box-shadow:0 4px 14px rgba(15,23,42,.06);backdrop-filter:blur(10px)}

@@ -218,7 +218,6 @@
   grid-row: 2;
   min-width: 0;
 }
-.app[data-sidebar="collapsed"] .prompt-region { grid-column: 1; }
 
 .keypad-bar {
   display: flex;

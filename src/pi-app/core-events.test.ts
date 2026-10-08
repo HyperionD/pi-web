@@ -2,6 +2,8 @@
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { applyUiLocale } from "../i18n/client";
+import { UI_LOCALE_STORAGE_KEY } from "../i18n/locales";
 import { cleanupPiAppFixture, connectPiApp, installPiAppFixture } from "./test-helper";
 
 const appTemplatePath = "../App.astro";
@@ -439,6 +441,7 @@ describe("pi-app core events", () => {
   });
 
   it("updates the footer connection status without a topbar indicator", async () => {
+    localStorage.setItem(UI_LOCALE_STORAGE_KEY, "zh-CN");
     const app = await connectPiApp();
     const statusDot = app.querySelector("[data-connection-status-dot]");
     const statusLabel = app.querySelector("[data-connection-status-label]");
@@ -456,6 +459,7 @@ describe("pi-app core events", () => {
   });
 
   it("updates legacy topbar connection indicators when present", async () => {
+    localStorage.setItem(UI_LOCALE_STORAGE_KEY, "zh-CN");
     const app = await connectPiApp();
     const indicator = document.createElement("button");
     indicator.className = "statusbtn";
@@ -464,6 +468,25 @@ describe("pi-app core events", () => {
     expect(indicator.title).toBe("已连接");
     app.setConnection("err");
     expect(indicator.title).toBe("后端连接已断开");
+  });
+
+  it("relocalizes connection status labels and tooltips after a locale change", async () => {
+    localStorage.setItem(UI_LOCALE_STORAGE_KEY, "en");
+    const app = await connectPiApp();
+    const label = app.querySelector("[data-connection-status-label]");
+    const statusDot = app.querySelector("[data-connection-status-dot]");
+
+    app.setConnection("ok");
+    expect(label.textContent).toBe("Connected");
+    app.setConnection("reconnecting");
+    expect(label.textContent).toBe("Reconnecting");
+    app.setConnection("err");
+    expect(label.textContent).toBe("Backend disconnected");
+    expect(statusDot.title).toBe("Backend disconnected");
+
+    applyUiLocale("zh-CN", app);
+    expect(label.textContent).toBe("后端连接已断开");
+    expect(statusDot.title).toBe("后端连接已断开");
   });
 
   it("updates connection mode and prompt metadata branches", async () => {

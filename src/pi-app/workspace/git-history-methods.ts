@@ -1,4 +1,6 @@
 import { getGitCommit, getGitHistory } from "../../lib/api";
+import { currentUiLocale } from "../../i18n/client";
+import { uiMessage } from "../../i18n/ui";
 import { escapeHtml } from "../../lib/renderers";
 
 const LUCIDE_LIST_PLUS_ICON = `<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M11 12H3"></path><path d="M16 6H3"></path><path d="M16 18H3"></path><path d="M18 9v6"></path><path d="M21 12h-6"></path></svg>`;
@@ -53,7 +55,10 @@ export const gitHistoryMethods = {
     const panel = this.querySelector("[data-git-panel]");
     if (!panel) return;
     panel.dataset.mode = mode;
-    if (mode === "loading") panel.innerHTML = `<div class="git-empty">正在加载 Git 历史…</div>`;
+    if (mode === "loading") {
+      const message = uiMessage(currentUiLocale(), "loadingGitHistory");
+      panel.innerHTML = `<div class="git-empty" data-i18n="loadingGitHistory">${escapeHtml(message)}</div>`;
+    }
   },
 
   renderGitHistoryError(message) {
@@ -129,7 +134,8 @@ export const gitHistoryMethods = {
     const inspectorRequestId = this.beginInspectorRequest?.();
     this.querySelectorAll(".git-commit-row").forEach((row) => row.classList.toggle("selected", row.dataset.hash === hash));
     const detail = this.ensureGitDetail();
-    detail.innerHTML = gitDetailMessageTemplate("正在加载提交…");
+    const loadingMessage = uiMessage(currentUiLocale(), "loadingGitCommit");
+    detail.innerHTML = gitDetailMessageTemplate(loadingMessage, false, "loadingGitCommit");
     this.querySelector("[data-git-detail-panel] .git-detail-close")?.focus();
     try {
       const response = await getGitCommit(workspaceId, hash);
@@ -187,11 +193,12 @@ function gitDetailCloseButtonTemplate() {
   return `<button type="button" class="git-detail-close" data-action="close-git-detail" aria-label="关闭提交详情" title="关闭提交详情">${LUCIDE_X_ICON}</button>`;
 }
 
-function gitDetailMessageTemplate(message, isError = false) {
+function gitDetailMessageTemplate(message, isError = false, messageKey?: string) {
   const errorClass = isError ? " err" : "";
+  const messageI18n = messageKey ? ` data-i18n="${messageKey}"` : "";
   return [
     `<div class="git-detail-head">${gitDetailCloseButtonTemplate()}<strong>提交详情</strong></div>`,
-    `<div class="git-empty${errorClass}">${escapeHtml(message)}</div>`,
+    `<div class="git-empty${errorClass}"${messageI18n}>${escapeHtml(message)}</div>`,
   ].join("");
 }
 
