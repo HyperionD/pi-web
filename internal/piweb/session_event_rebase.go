@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"sort"
 	"time"
 )
 
@@ -28,14 +29,28 @@ func (s *SQLiteSessionEventStore) OpenSession(ctx context.Context, source Sessio
 			report = ImportReport{Deferred: true}
 			return nil
 		}
+		legacyRepair := false
 		if stream.ProjectionVersion > 0 {
 			hash, fingerprintErr := loadSourceHash(conn, source.SessionID)
 			if fingerprintErr != nil {
 				return fingerprintErr
 			}
 			if hash == imported.Fingerprint.ContentHash {
-				report = ImportReport{}
-				return nil
+				// Earlier imports omitted assistant failures even when the source hash matched.
+				legacyRepair, err = missingImportedErrors(conn, source.SessionID, imported.Items)
+				if err != nil {
+					return err
+				}
+				if !legacyRepair {
+					legacyRepair, err = needsRuntimeErrorRepair(conn, source.SessionID)
+					if err != nil {
+						return err
+					}
+					if !legacyRepair {
+						report = ImportReport{}
+						return nil
+					}
+				}
 			}
 		}
 		matches, matchErr := storedManifestsMatch(conn, source.SessionID, imported.Items)
@@ -46,7 +61,7 @@ func (s *SQLiteSessionEventStore) OpenSession(ctx context.Context, source Sessio
 			report = ImportReport{Deferred: true}
 			return nil
 		}
-		covered, preserved, planErr := runtimeRebasePlan(conn, source.SessionID, stream, imported.Items)
+		covered, preserved, planErr := runtimeRebasePlan(conn, source.SessionID, stream, imported.Items, legacyRepair)
 		if planErr != nil {
 			return planErr
 		}
@@ -54,7 +69,7 @@ func (s *SQLiteSessionEventStore) OpenSession(ctx context.Context, source Sessio
 			report = ImportReport{Deferred: true}
 			return nil
 		}
-		if err := rebaseProjection(conn, source, imported, stream, preserved); err != nil {
+		if err := rebaseProjection(conn, source, imported, stream, preserved, legacyRepair); err != nil {
 			return err
 		}
 		report = ImportReport{Imported: true}
@@ -73,6 +88,36 @@ func loadSourceHash(conn *sql.Conn, sessionID string) (string, error) {
 	var hash sql.NullString
 	err := conn.QueryRowContext(context.Background(), `SELECT source_content_hash FROM session_streams WHERE session_id=?`, sessionID).Scan(&hash)
 	return hash.String, err
+}
+
+func missingImportedErrors(conn *sql.Conn, sessionID string, imported []ProjectedSessionItem) (bool, error) {
+	for _, item := range imported {
+		if item.Kind != "error" {
+			continue
+		}
+		var found int
+		err := conn.QueryRowContext(context.Background(),
+			`SELECT 1 FROM session_items WHERE session_id=? AND item_id=? AND kind='error'`, sessionID, item.ItemID).Scan(&found)
+		if errors.Is(err, sql.ErrNoRows) {
+			return true, nil
+		}
+		if err != nil {
+			return false, err
+		}
+	}
+	return false, nil
+}
+
+func needsRuntimeErrorRepair(conn *sql.Conn, sessionID string) (bool, error) {
+	var hasError, marked int
+	err := conn.QueryRowContext(context.Background(), `SELECT EXISTS(
+		SELECT 1 FROM session_items WHERE session_id=? AND origin='runtime' AND kind='error')`, sessionID).Scan(&hasError)
+	if err != nil || hasError == 0 {
+		return false, err
+	}
+	err = conn.QueryRowContext(context.Background(), `SELECT EXISTS(
+		SELECT 1 FROM session_control_receipts WHERE session_id=? AND source_id='control:error-order:v1')`, sessionID).Scan(&marked)
+	return marked == 0, err
 }
 
 func storedManifestsMatch(conn *sql.Conn, sessionID string, imported []ProjectedSessionItem) (bool, error) {
@@ -101,7 +146,19 @@ func storedManifestsMatch(conn *sql.Conn, sessionID string, imported []Projected
 // current runtime projection. Items the JSONL cannot represent are returned so a
 // rebase can re-append them instead of dropping them, and any runtime item the
 // import misses defers the rebase so the projection stays intact.
-func runtimeRebasePlan(conn *sql.Conn, sessionID string, stream SessionStreamState, imported []ProjectedSessionItem) (bool, []ProjectedSessionItem, error) {
+type preservedRebaseItem struct {
+	item   ProjectedSessionItem
+	before int
+}
+
+type runImportInterval struct {
+	afterUser int
+	before    int
+}
+
+func runtimeRebasePlan(
+	conn *sql.Conn, sessionID string, stream SessionStreamState, imported []ProjectedSessionItem, legacyRepair bool,
+) (bool, []preservedRebaseItem, error) {
 	view, err := loadProjectionView(conn, sessionID, stream)
 	if err != nil {
 		return false, nil, err
@@ -121,7 +178,158 @@ func runtimeRebasePlan(conn *sql.Conn, sessionID string, stream SessionStreamSta
 		}
 		preserved = append(preserved, item)
 	}
-	return true, preserved, nil
+	anchors := map[string]runImportInterval(nil)
+	if legacyRepair && len(preserved) > 0 {
+		anchors, err = importedRunAnchors(conn, sessionID, imported)
+		if err != nil {
+			return false, nil, err
+		}
+	}
+	return true, positionPreservedItems(view, imported, preserved, legacyRepair, anchors), nil
+}
+
+// Place runtime-only entries before the next imported counterpart, not after
+// the entire JSONL history. Unmatched trailing entries remain at the end.
+func positionPreservedItems(
+	view ProjectionView, imported, preserved []ProjectedSessionItem, legacyRepair bool,
+	anchors map[string]runImportInterval,
+) []preservedRebaseItem {
+	if len(preserved) == 0 {
+		return nil
+	}
+	matches := matchImportedAnchors(view, imported)
+	nextMatches := futureImportPositions(view.Order, matches, len(imported))
+	pending := make(map[string]bool, len(preserved))
+	for _, item := range preserved {
+		pending[item.ItemID] = true
+	}
+	usedErrors := make(map[int]bool)
+	result := make([]preservedRebaseItem, 0, len(preserved))
+	previous := -1
+	for _, id := range view.Order {
+		if match, ok := matches[id]; ok {
+			previous = match
+		}
+		if !pending[id] {
+			continue
+		}
+		item := view.Items[id]
+		before := nextMatches[id]
+		if item.Origin == "runtime" && item.Kind == "error" {
+			// Match within this run: identical failures in adjacent runs are distinct.
+			if interval, ok := anchors[item.RunID]; ok {
+				if consumeImportedError(imported, usedErrors, interval.afterUser, interval.before, item.Text) {
+					continue
+				}
+				before = interval.before
+			} else if consumeImportedError(imported, usedErrors, previous+1, before, item.Text) ||
+				(legacyRepair && consumeImportedError(imported, usedErrors, 0, len(imported), item.Text)) {
+				continue
+			}
+		}
+		result = append(result, preservedRebaseItem{item: item, before: before})
+	}
+	sort.SliceStable(result, func(i, j int) bool { return result[i].before < result[j].before })
+	return result
+}
+
+func futureImportPositions(order []string, matches map[string]int, total int) map[string]int {
+	positions := make(map[string]int, len(order))
+	before := total
+	for index := len(order) - 1; index >= 0; index-- {
+		id := order[index]
+		if match, ok := matches[id]; ok {
+			before = match
+		}
+		positions[id] = before
+	}
+	return positions
+}
+
+func importedRunAnchors(
+	conn *sql.Conn, sessionID string, imported []ProjectedSessionItem,
+) (map[string]runImportInterval, error) {
+	rows, err := conn.QueryContext(context.Background(), `SELECT r.run_id, u.payload_json FROM session_events r
+		JOIN session_events u ON u.session_id=r.session_id AND u.seq=r.seq-1
+		WHERE r.session_id=? AND r.event_type=? AND u.event_type=? ORDER BY r.seq DESC`,
+		sessionID, EventRunStarted, EventUserMessageCreated)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	anchors := make(map[string]runImportInterval)
+	cursor := len(imported) - 1
+	for rows.Next() {
+		var runID string
+		var raw []byte
+		if err := rows.Scan(&runID, &raw); err != nil {
+			return nil, err
+		}
+		var payload struct {
+			Text string `json:"text"`
+		}
+		if err := json.Unmarshal(raw, &payload); err != nil {
+			return nil, err
+		}
+		for index := cursor; index >= 0; index-- {
+			if imported[index].Kind != "user" || imported[index].Text != payload.Text {
+				continue
+			}
+			anchors[runID] = runImportInterval{afterUser: index + 1, before: nextImportedUser(imported, index+1)}
+			cursor = index - 1
+			break
+		}
+	}
+	return anchors, rows.Err()
+}
+
+func nextImportedUser(imported []ProjectedSessionItem, start int) int {
+	for index := start; index < len(imported); index++ {
+		if imported[index].Kind == "user" {
+			return index
+		}
+	}
+	return len(imported)
+}
+
+func matchImportedAnchors(view ProjectionView, imported []ProjectedSessionItem) map[string]int {
+	matches := make(map[string]int)
+	cursor := 0
+	for _, id := range view.Order {
+		item := view.Items[id]
+		if item.Kind == "error" || (item.Origin != "runtime" && item.Origin != "import") {
+			continue
+		}
+		for index := cursor; index < len(imported); index++ {
+			if !sameImportedPosition(item, imported[index]) {
+				continue
+			}
+			matches[id], cursor = index, index+1
+			break
+		}
+	}
+	return matches
+}
+
+func consumeImportedError(imported []ProjectedSessionItem, used map[int]bool, start, end int, text string) bool {
+	for index := start; index < end; index++ {
+		if !used[index] && imported[index].Kind == "error" && imported[index].Text == text {
+			used[index] = true
+			return true
+		}
+	}
+	return false
+}
+
+func sameImportedPosition(runtime, imported ProjectedSessionItem) bool {
+	if runtime.Kind != imported.Kind {
+		return false
+	}
+	if runtime.Kind != "tool" {
+		return runtime.Text == imported.Text
+	}
+	return runtime.Tool == imported.Tool && runtime.ToolCallID == imported.ToolCallID &&
+		(runtime.Args == imported.Args || runtime.Body == imported.Body)
 }
 
 func jsonlRepresentableKind(kind string) bool {
@@ -194,8 +402,18 @@ func (index importIndex) coversTool(item ProjectedSessionItem) bool {
 	return argsMatched && bodyMatched
 }
 
-func rebaseProjection(conn *sql.Conn, source SessionSource, imported ImportedSession, stream SessionStreamState, preserved []ProjectedSessionItem) error {
-	if err := claimControlReceipt(conn, source.SessionID, "control:rebase:"+imported.Fingerprint.ContentHash); err != nil {
+func rebaseProjection(
+	conn *sql.Conn, source SessionSource, imported ImportedSession, stream SessionStreamState,
+	preserved []preservedRebaseItem, legacyRepair bool,
+) error {
+	rebaseSourceID := "control:rebase:" + imported.Fingerprint.ContentHash
+	if legacyRepair {
+		rebaseSourceID = "control:rebase:error-order:v1"
+	}
+	if err := claimControlReceipt(conn, source.SessionID, rebaseSourceID); err != nil {
+		return err
+	}
+	if err := claimControlReceipt(conn, source.SessionID, "control:error-order:v1"); err != nil {
 		return err
 	}
 	seq := stream.CurrentSeq + 1
@@ -204,7 +422,7 @@ func rebaseProjection(conn *sql.Conn, source SessionSource, imported ImportedSes
 		return err
 	}
 	event := StoredSessionEvent{Seq: seq, SessionEventDraft: SessionEventDraft{
-		SessionID: source.SessionID, SourceID: "control:rebase:" + imported.Fingerprint.ContentHash,
+		SessionID: source.SessionID, SourceID: rebaseSourceID,
 		Type: EventSessionRebased, Payload: payload, OccurredAt: time.Now().UTC(),
 	}}
 	if err := insertSessionEvent(conn, event); err != nil {
@@ -215,29 +433,43 @@ func rebaseProjection(conn *sql.Conn, source SessionSource, imported ImportedSes
 	if _, err := conn.ExecContext(context.Background(), `DELETE FROM session_items WHERE session_id=?`, source.SessionID); err != nil {
 		return err
 	}
-	ordinal := int64(0)
-	for index := range imported.Items {
-		item := imported.Items[index]
-		ordinal++
-		item.Ordinal = ordinal
-		item.CreatedSeq, item.UpdatedSeq = seq, seq
-		syncContentMetadata(&item, seq)
-		if err := upsertProjectedItem(conn, source.SessionID, item); err != nil {
-			return err
-		}
-	}
-	for index := range preserved {
-		item := preserved[index]
-		ordinal++
-		item.Ordinal = ordinal
-		item.CreatedSeq, item.UpdatedSeq = seq, seq
-		if err := upsertProjectedItem(conn, source.SessionID, item); err != nil {
-			return err
-		}
+	if err := insertRebasedItems(conn, source.SessionID, imported.Items, preserved, seq); err != nil {
+		return err
 	}
 	nextGeneration := stream.ProjectionVersion + 1
 	if _, err := conn.ExecContext(context.Background(), `UPDATE session_streams SET current_seq=?, projection_generation=?, source_path=?, source_size=?, source_mtime_ns=?, source_content_hash=?, updated_at=? WHERE session_id=?`, seq, nextGeneration, source.Path, imported.Fingerprint.Size, imported.Fingerprint.ModTimeNano, imported.Fingerprint.ContentHash, time.Now().UTC().Format(time.RFC3339Nano), source.SessionID); err != nil {
 		return err
+	}
+	return nil
+}
+
+func insertRebasedItems(
+	conn *sql.Conn, sessionID string, imported []ProjectedSessionItem, preserved []preservedRebaseItem, seq int64,
+) error {
+	ordinal := int64(0)
+	nextPreserved := 0
+	for index := 0; index <= len(imported); index++ {
+		for nextPreserved < len(preserved) && preserved[nextPreserved].before == index {
+			item := preserved[nextPreserved].item
+			ordinal++
+			item.Ordinal = ordinal
+			item.CreatedSeq, item.UpdatedSeq = seq, seq
+			if err := upsertProjectedItem(conn, sessionID, item); err != nil {
+				return err
+			}
+			nextPreserved++
+		}
+		if index == len(imported) {
+			break
+		}
+		item := imported[index]
+		ordinal++
+		item.Ordinal = ordinal
+		item.CreatedSeq, item.UpdatedSeq = seq, seq
+		syncContentMetadata(&item, seq)
+		if err := upsertProjectedItem(conn, sessionID, item); err != nil {
+			return err
+		}
 	}
 	return nil
 }

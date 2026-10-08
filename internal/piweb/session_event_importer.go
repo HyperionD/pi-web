@@ -104,7 +104,16 @@ func importAgentMessage(entry sessionEntry) ([]ProjectedSessionItem, error) {
 		text := strings.TrimSpace(imageFileTagPattern.ReplaceAllString(contentText(message.Content), ""))
 		return []ProjectedSessionItem{{Kind: "user", Text: text, Attachments: contentImageAttachments(message.Content)}}, nil
 	case "assistant":
-		return importAssistantContent(message.Content)
+		items, err := importAssistantContent(message.Content)
+		if err != nil {
+			return nil, err
+		}
+		if failure := assistantErrorMessage(entry.Message); failure != "" {
+			items = append(items, ProjectedSessionItem{
+				Kind: "error", Text: failure, BlockIndex: len(items),
+			})
+		}
+		return items, nil
 	case "toolResult":
 		status := ToolStatusOK
 		if message.IsError {

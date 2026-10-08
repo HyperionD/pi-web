@@ -50,6 +50,32 @@ func TestStrictParsePiSessionBuildsStableItems(t *testing.T) {
 	}
 }
 
+func TestStrictParsePiSessionKeepsAssistantFailureBetweenMessages(t *testing.T) {
+	path := writePiSessionFile(t, sessionHeaderLine(),
+		userMessageLine("e1", "first prompt"),
+		`{"type":"message","id":"e2","message":{"role":"assistant","content":[],`+
+			`"stopReason":"error","errorMessage":"429 rate limit"}}`,
+		userMessageLine("e3", "retry prompt"),
+		`{"type":"message","id":"e4","message":{"role":"assistant",`+
+			`"content":[{"type":"text","text":"success"}],"stopReason":"stop"}}`,
+	)
+	parsed, err := StrictParsePiSession(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var kinds, texts []string
+	for _, item := range parsed.Items {
+		kinds = append(kinds, item.Kind)
+		texts = append(texts, item.Text)
+	}
+	if got := strings.Join(kinds, ","); got != "user,error,user,pi" {
+		t.Fatalf("kinds = %s", got)
+	}
+	if got := strings.Join(texts, ","); got != "first prompt,429 rate limit,retry prompt,success" {
+		t.Fatalf("texts = %s", got)
+	}
+}
+
 func TestStrictParsePiSessionRejectsPartialAndMalformedLines(t *testing.T) {
 	if _, err := StrictParsePiSession(writePiSessionFile(t, sessionHeaderLine(), `{"type":"message"`)); err == nil {
 		t.Fatal("expected malformed line error")
