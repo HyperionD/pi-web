@@ -11,6 +11,7 @@ export default [
       "coverage/**",
       "dist/**",
       "node_modules/**",
+      "public/file-viewer/**",
       "static/**",
     ],
   },
