@@ -195,6 +195,7 @@ export const settingsMethods = {
       this.fillFallbackModelControls();
     }
     this.fillSettingsForm();
+    this.fillAccountModelControl();
     errors.push(...[authResult, oauthResult, modelsResult]
       .filter((result) => result.status === "rejected")
       .map((result) => result.reason instanceof Error ? result.reason.message : String(result.reason)));
@@ -278,6 +279,36 @@ export const settingsMethods = {
     this.replaceSelectOptions(modelControl, models.map((model) => model.id));
   },
 
+  fillAccountModelControl() {
+    const select = this.querySelector("[data-account-model]");
+    const status = this.querySelector("[data-account-model-status]");
+    if (!select || !status) return;
+    const options = [new Option("使用管理员默认", "inherit")];
+    for (const provider of this.modelState?.providers || []) {
+      for (const model of provider.models || []) {
+        options.push(new Option(`${provider.id} / ${model.id}`, JSON.stringify([provider.id, model.id])));
+      }
+    }
+    select.replaceChildren(...options);
+    select.disabled = options.length === 1;
+    const personal = this.settingsState?.personalGlobal || {};
+    const chosen = JSON.stringify([personal.defaultProvider, personal.defaultModel]);
+    select.value = [...select.options].some((option) => option.value === chosen) ? chosen : "inherit";
+    const warning = this.settingsState?.modelSelection;
+    status.textContent = warning?.catalogError || (warning?.invalidPersonal
+      ? "先前选择的模型已移除，当前使用管理员默认模型" : `${options.length - 1} 个可用模型`);
+    const catalogInfo = this.querySelector("[data-model-catalog-info]");
+    if (catalogInfo) {
+      catalogInfo.textContent = this.modelState?.path
+        ? `模型目录：${this.modelState.path} · ${this.modelState.count} 个模型（服务器文件管理）`
+        : "模型目录由服务器的 models.json 管理";
+    }
+    const thinking = this.querySelector("[data-setting='defaultThinkingLevel']");
+    if (thinking) thinking.value = personal.defaultThinkingLevel || "inherit";
+    const applyButton = this.querySelector("[data-action='apply-session-model']");
+    if (applyButton) applyButton.disabled = select.disabled || !this.dataset.activeSessionId;
+  },
+
   fillFallbackModelControls() {
     const effective = this.settingsState?.effective || {};
     const provider = typeof effective.defaultProvider === "string" ? effective.defaultProvider : undefined;
@@ -316,7 +347,7 @@ export const settingsMethods = {
     const locationWrap = this.querySelector("[data-settings-location-wrap]");
     if (document.body.dataset.accountRole === "user") {
       if (scope) scope.value = "personal";
-      if (location) location.value = "project";
+      if (location) location.value = "global";
     }
     if (scope && document.body.dataset.accountRole === "user") {
       [...scope.options].forEach((option) => { option.disabled = option.value !== "personal"; });
@@ -462,6 +493,7 @@ export const settingsMethods = {
       const scope = settingsScopeSchema.parse(scopeValue);
       const location = form.querySelector("[name='location']")?.value || "project";
       const patch = workspaceId ? parseSettingsPatch(this.settingsPatchFromForm(form)) : {};
+      const accountPatch = workspaceId ? parseSettingsPatch(this.accountModelPatchFromForm(form)) : {};
       let adminPassword = "";
       if (Object.keys(appConfigPatch).length) {
         adminPassword = await this.requestAdminPassword?.();
@@ -476,7 +508,12 @@ export const settingsMethods = {
       const settingsRequest = workspaceId && Object.keys(patch).length
         ? saveWorkspaceSettings(workspaceId, scope, patch, scope === "personal" ? location : undefined)
         : Promise.resolve(undefined);
-      const [appConfigResult, settingsResult] = await Promise.allSettled([appConfigRequest, settingsRequest]);
+      const accountRequest = workspaceId && Object.keys(accountPatch).length
+        ? saveWorkspaceSettings(workspaceId, "personal", accountPatch, "global")
+        : Promise.resolve(undefined);
+      const [appConfigResult, settingsResult, accountResult] = await Promise.allSettled([
+        appConfigRequest, settingsRequest, accountRequest,
+      ]);
       const errors = [];
       if (appConfigResult.status === "fulfilled" && appConfigResult.value) {
         try {
@@ -493,22 +530,24 @@ export const settingsMethods = {
       if (settingsResult.status === "fulfilled" && settingsResult.value) {
         try {
           this.settingsState = parseWorkspaceSettings(settingsResult.value.settings);
-          const modelWasSavedToPersonalScope = scope !== "personal"
-            && MODEL_SETTING_PATHS.some((path) => Object.prototype.hasOwnProperty.call(patch, path));
-          if (modelWasSavedToPersonalScope) {
-            form.querySelector("[name='scope']").value = "personal";
-            form.querySelector("[name='location']").value = scope;
-          }
           this.fillSettingsForm();
-          void this.loadRuntimeStatus?.(workspaceId);
-          if ("defaultProvider" in patch || "defaultModel" in patch || "defaultThinkingLevel" in patch) {
-            void this.applyEffectiveModelToActiveSession();
-          }
         } catch (error) {
           errors.push(error instanceof Error ? error.message : String(error));
         }
       } else if (settingsResult.status === "rejected") {
         errors.push(settingsResult.reason instanceof Error ? settingsResult.reason.message : String(settingsResult.reason));
+      }
+      if (accountResult.status === "fulfilled" && accountResult.value) {
+        try {
+          this.settingsState = parseWorkspaceSettings(accountResult.value.settings);
+          this.fillSettingsForm();
+          this.fillAccountModelControl();
+          void this.loadRuntimeStatus?.(workspaceId);
+        } catch (error) {
+          errors.push(error instanceof Error ? error.message : String(error));
+        }
+      } else if (accountResult.status === "rejected") {
+        errors.push(accountResult.reason instanceof Error ? accountResult.reason.message : String(accountResult.reason));
       }
       if (errors.length > 0) {
         this.setSettingsStatus(errors.join("; "), true);
@@ -541,6 +580,34 @@ export const settingsMethods = {
     }
   },
 
+  accountModelPatchFromForm(form) {
+    const patch: Record<string, string | null> = {};
+    const selected = form.querySelector("[data-account-model]");
+    const personal = this.settingsState?.personalGlobal || {};
+    if (!selected || selected.disabled) return patch;
+    if (selected.value === "inherit") {
+      if (personal.defaultProvider || personal.defaultModel) {
+        patch.defaultProvider = null;
+        patch.defaultModel = null;
+      }
+    } else {
+      const pair = JSON.parse(selected.value);
+      const valid = Array.isArray(pair) && pair.length === 2 && this.modelState?.providers?.some(
+        (provider) => provider.id === pair[0] && provider.models?.some((model) => model.id === pair[1]),
+      );
+      if (!valid) throw new Error("所选模型不在管理员配置目录中");
+      if (personal.defaultProvider !== pair[0] || personal.defaultModel !== pair[1]) {
+        patch.defaultProvider = pair[0];
+        patch.defaultModel = pair[1];
+      }
+    }
+    const thinking = form.querySelector("[data-setting='defaultThinkingLevel']")?.value || "inherit";
+    if ((personal.defaultThinkingLevel || "inherit") !== thinking) {
+      patch.defaultThinkingLevel = thinking === "inherit" ? null : thinking;
+    }
+    return patch;
+  },
+
   settingsPatchFromForm(form) {
     const patch = {};
     const scope = form.querySelector("[name='scope']")?.value || "project";
@@ -551,7 +618,7 @@ export const settingsMethods = {
       if (settingsValueChanged(scopedSettings, effective, path, value)) setPatchValue(patch, path, value);
     };
     for (const field of SETTINGS_FIELDS) {
-      if (scope === "personal" && !isModelSetting(field.path)) continue;
+      if (isModelSetting(field.path) || scope === "personal") continue;
       const control = form.querySelector(`[data-setting='${field.path}']`);
       if (!control) continue;
       addChangedValue(field.path, this.settingValueFromControl(control, field));

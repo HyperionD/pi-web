@@ -40,6 +40,12 @@ describe("settings schema", () => {
     });
   });
 
+  it("rejects malformed model selection state", () => {
+    expect(() => parseWorkspaceSettings({ global: {}, project: {}, effective: {}, paths: {},
+      modelSelection: { source: "unknown", invalidPersonal: "false" },
+    })).toThrow("invalid settings response");
+  });
+
   it("rejects invalid workspace settings responses", () => {
     expect(() => parseWorkspaceSettings({
       global: {},

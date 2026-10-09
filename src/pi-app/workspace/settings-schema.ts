@@ -95,6 +95,11 @@ export const workspaceSettingsSchema = z.object({
   effective: settingsObjectSchema,
   personalGlobal: settingsObjectSchema.optional(),
   personalProject: settingsObjectSchema.optional(),
+  modelSelection: z.object({
+    source: z.enum(["personal", "admin", "first"]).optional(),
+    invalidPersonal: z.boolean().optional(),
+    catalogError: z.string().optional(),
+  }).optional(),
   paths: z.object({
     global: z.string().optional(),
     project: z.string().optional(),

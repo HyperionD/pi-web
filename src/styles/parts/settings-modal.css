@@ -128,6 +128,31 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.settings-advanced {
+  margin: 0 12px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-1);
+}
+.settings-advanced > summary {
+  padding: 10px 12px;
+  color: var(--fg-1);
+  cursor: pointer;
+  font-size: var(--text-sm);
+}
+.settings-advanced > summary:focus-visible { outline: 2px solid var(--accent); }
+.settings-advanced [data-model-catalog-info] {
+  display: block;
+  padding: 0 12px;
+  color: var(--fg-3);
+  font-size: var(--text-xs);
+  overflow-wrap: anywhere;
+}
+.settings-model-group {
+  margin: 12px;
+}
+.settings-model-group > [data-action="apply-session-model"] {
+  margin: 0 12px 12px;
+}
 .settings-toolbar {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);
