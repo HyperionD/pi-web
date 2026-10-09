@@ -235,3 +235,32 @@ func streamMinRetained(ctx context.Context, db *sql.DB, sessionID string) int64 
 func parseEventTime(value string) (time.Time, error) {
 	return time.Parse(time.RFC3339Nano, value)
 }
+
+func (s *SQLiteSessionEventStore) LatestSessionModel(ctx context.Context, sessionID string) (ModelStartupSettings, bool, error) {
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT payload_json FROM session_events WHERE session_id=? AND event_type=? ORDER BY seq DESC`,
+		sessionID, EventSessionModelChanged)
+	if err != nil {
+		return ModelStartupSettings{}, false, err
+	}
+	defer rows.Close()
+	thinkingLevel := ""
+	for rows.Next() {
+		var payload []byte
+		if err := rows.Scan(&payload); err != nil {
+			return ModelStartupSettings{}, false, err
+		}
+		var selected ModelStartupSettings
+		if err := json.Unmarshal(payload, &selected); err != nil {
+			return ModelStartupSettings{}, false, err
+		}
+		if thinkingLevel == "" {
+			thinkingLevel = selected.ThinkingLevel
+		}
+		if selected.Provider != "" && selected.Model != "" {
+			selected.ThinkingLevel = thinkingLevel
+			return selected, true, nil
+		}
+	}
+	return ModelStartupSettings{}, false, rows.Err()
+}

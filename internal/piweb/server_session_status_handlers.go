@@ -55,6 +55,27 @@ func (s *Server) handleSessionSetModel(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, errors.New("provider and model, or thinkingLevel, are required"))
 		return
 	}
+	if req.Provider != "" {
+		session, _, err := s.store.Session(sessionID)
+		if err != nil {
+			writeStoreError(w, err)
+			return
+		}
+		root, err := s.store.WorkspacePath(session.Workspace)
+		if err != nil {
+			writeStoreError(w, err)
+			return
+		}
+		catalog, err := configuredModels(r.Context(), root)
+		if err != nil {
+			writeError(w, http.StatusBadGateway, err)
+			return
+		}
+		if !catalogContains(catalog, req.Provider, req.Model) {
+			writeError(w, http.StatusBadRequest, errors.New("model is not in the configured catalog"))
+			return
+		}
+	}
 	settings := ModelStartupSettings{Provider: req.Provider, Model: req.Model, ThinkingLevel: req.ThinkingLevel}
 	if err := s.runtimeManager.ConfigureModel(r.Context(), sessionID, settings); err != nil {
 		writeError(w, http.StatusBadGateway, err)
