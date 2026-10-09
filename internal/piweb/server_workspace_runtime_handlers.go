@@ -123,7 +123,7 @@ func (s *Server) workspaceSettings(w http.ResponseWriter, r *http.Request) {
 	if actor := requestActor(r); actor != nil {
 		userID = actor.ID
 	}
-	settings, err := WorkspaceSettingsForUser(root, workspaceID, userID)
+	settings, err := s.accountWorkspaceSettings(root, workspaceID, userID)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err)
 		return
@@ -154,13 +154,29 @@ func (s *Server) saveWorkspaceSettings(w http.ResponseWriter, r *http.Request) {
 		}
 		location := req.Location
 		if location == "" {
-			location = personalProjectScope
+			location = personalGlobalScope
+		}
+		if location != personalGlobalScope {
+			writeError(w, http.StatusBadRequest, errors.New("personal project model settings are no longer supported"))
+			return
+		}
+		catalog := fallbackWorkspaceModels(root, nil)
+		if s.config.EnablePiExecution {
+			catalog, err = configuredModels(r.Context(), root)
+			if err != nil {
+				writeError(w, http.StatusBadGateway, err)
+				return
+			}
+		}
+		if err := validateAccountModelPatch(req.Settings, catalog); err != nil {
+			writeError(w, http.StatusBadRequest, err)
+			return
 		}
 		if err := savePersonalModelSettings(actor.ID, location, workspaceID, req.Settings); err != nil {
 			writeError(w, http.StatusBadRequest, err)
 			return
 		}
-		settings, err := WorkspaceSettingsForUser(root, workspaceID, actor.ID)
+		settings, err := s.accountWorkspaceSettings(root, workspaceID, actor.ID)
 		if err != nil {
 			writeError(w, http.StatusBadRequest, err)
 			return
@@ -168,30 +184,21 @@ func (s *Server) saveWorkspaceSettings(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]any{"settings": settings})
 		return
 	}
-	if actor != nil && actor.Role == "admin" && containsModelSettings(req.Settings) {
-		modelPatch, sharedPatch := splitModelSettings(req.Settings)
-		if len(sharedPatch) > 0 {
-			if _, err := SaveWorkspaceSettings(root, SettingsPatchRequest{Scope: req.Scope, Settings: sharedPatch}); err != nil {
-				writeError(w, http.StatusBadRequest, err)
-				return
-			}
-		}
-		if err := savePersonalModelSettings(actor.ID, req.Scope, workspaceID, modelPatch); err != nil {
-			writeError(w, http.StatusBadRequest, err)
-			return
-		}
-		settings, err := WorkspaceSettingsForUser(root, workspaceID, actor.ID)
-		if err != nil {
-			writeError(w, http.StatusBadRequest, err)
-			return
-		}
-		writeJSON(w, http.StatusOK, map[string]any{"settings": settings})
+	if containsModelSettings(req.Settings) {
+		writeError(w, http.StatusBadRequest, errors.New("model defaults are personal; configure the catalog in models.json"))
 		return
 	}
 	settings, err := SaveWorkspaceSettings(root, req)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err)
 		return
+	}
+	if actor != nil {
+		settings, err = s.accountWorkspaceSettings(root, workspaceID, actor.ID)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, err)
+			return
+		}
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"settings": settings})
 }
@@ -211,17 +218,4 @@ func containsModelSettings(settings map[string]any) bool {
 		}
 	}
 	return false
-}
-
-func splitModelSettings(settings map[string]any) (map[string]any, map[string]any) {
-	modelSettings := map[string]any{}
-	sharedSettings := map[string]any{}
-	for key, value := range settings {
-		if _, ok := modelSettingKeys[key]; ok {
-			modelSettings[key] = value
-		} else {
-			sharedSettings[key] = value
-		}
-	}
-	return modelSettings, sharedSettings
 }

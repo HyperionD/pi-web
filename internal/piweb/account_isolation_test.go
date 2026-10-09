@@ -108,10 +108,12 @@ func TestAccountSessionIsolationAndPersistence(t *testing.T) {
 
 func TestAccountModelSettingsAreIsolated(t *testing.T) {
 	s, admin := accountServer(t)
-	workspace, err := s.store.OpenWorkspace(t.TempDir())
+	root := t.TempDir()
+	workspace, err := s.store.OpenWorkspace(root)
 	if err != nil {
 		t.Fatal(err)
 	}
+	setupAccountModelCatalog(t, s, root)
 	alice := addAccount(t, s, admin, "alice-model", workspace.ID)
 	bob := addAccount(t, s, admin, "bob-model", workspace.ID)
 
@@ -119,11 +121,11 @@ func TestAccountModelSettingsAreIsolated(t *testing.T) {
 		cookie *http.Cookie
 		model  string
 	}{
-		{alice, "alice-model"},
-		{bob, "bob-model"},
-		{admin, "admin-model"},
+		{alice, "a"},
+		{bob, "b"},
+		{admin, "c"},
 	} {
-		body := fmt.Sprintf(`{"scope":"personal","location":"project","settings":{"defaultProvider":"zai","defaultModel":%q,"defaultThinkingLevel":"high"}}`, test.model)
+		body := fmt.Sprintf(`{"scope":"personal","location":"global","settings":{"defaultProvider":"local","defaultModel":%q,"defaultThinkingLevel":"high"}}`, test.model)
 		response := accountRequest(s, http.MethodPut, "/api/workspaces/"+workspace.ID+"/settings", body, test.cookie)
 		if response.Code != http.StatusOK {
 			t.Fatalf("save %s model settings: %d %s", test.model, response.Code, response.Body.String())
@@ -134,9 +136,9 @@ func TestAccountModelSettingsAreIsolated(t *testing.T) {
 		cookie *http.Cookie
 		model  string
 	}{
-		{alice, "alice-model"},
-		{bob, "bob-model"},
-		{admin, "admin-model"},
+		{alice, "a"},
+		{bob, "b"},
+		{admin, "c"},
 	} {
 		response := accountRequest(s, http.MethodGet, "/api/workspaces/"+workspace.ID+"/settings", "", test.cookie)
 		if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), `"defaultModel":"`+test.model+`"`) {
@@ -145,15 +147,15 @@ func TestAccountModelSettingsAreIsolated(t *testing.T) {
 	}
 }
 
-func TestAdminModelSettingsFromSharedScopeBecomePersonal(t *testing.T) {
+func TestAdminCannotWriteModelSettingsInSharedScope(t *testing.T) {
 	s, admin := accountServer(t)
 	workspace, err := s.store.OpenWorkspace(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
 	response := accountRequest(s, http.MethodPut, "/api/workspaces/"+workspace.ID+"/settings", `{"scope":"project","settings":{"defaultProvider":"zai","defaultModel":"admin-model"}}`, admin)
-	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), `"defaultModel":"admin-model"`) {
-		t.Fatalf("save admin model settings: %d %s", response.Code, response.Body.String())
+	if response.Code != http.StatusBadRequest {
+		t.Fatalf("shared model patch should be rejected: %d %s", response.Code, response.Body.String())
 	}
 	root, err := s.store.WorkspacePath(workspace.ID)
 	if err != nil {
@@ -173,7 +175,7 @@ func TestRuntimeModelStatusUsesSessionOwnerSettings(t *testing.T) {
 	}
 	alice := addAccount(t, s, admin, "alice-runtime", workspace.ID)
 	session := createAccountSession(t, s, alice, workspace.ID)
-	body := `{"scope":"personal","location":"project","settings":{"defaultProvider":"zai","defaultModel":"alice-model","defaultThinkingLevel":"high"}}`
+	body := `{"scope":"personal","location":"global","settings":{"defaultProvider":"zai","defaultModel":"gpt-5.5","defaultThinkingLevel":"high"}}`
 	if response := accountRequest(s, http.MethodPut, "/api/workspaces/"+workspace.ID+"/settings", body, alice); response.Code != http.StatusOK {
 		t.Fatalf("save model settings: %d %s", response.Code, response.Body.String())
 	}
@@ -185,7 +187,7 @@ func TestRuntimeModelStatusUsesSessionOwnerSettings(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if status.ModelProvider != "zai" || status.Model != "alice-model" || status.ThinkingLevel != "high" {
+	if status.ModelProvider != "zai" || status.Model != "gpt-5.5" || status.ThinkingLevel != "high" {
 		t.Fatalf("unexpected session owner model status: %+v", status)
 	}
 }

@@ -616,7 +616,7 @@ func TestWorkspaceSettingsEndpointReadsAndSavesSettings(t *testing.T) {
 		t.Fatalf("unexpected settings body: %s", getRes.Body.String())
 	}
 
-	body := `{"scope":"project","settings":{"defaultModel":null,"transport":"sse","warnings":{"anthropicExtraUsage":null},"compaction":{"enabled":false}}}`
+	body := `{"scope":"project","settings":{"transport":"sse","warnings":{"anthropicExtraUsage":null},"compaction":{"enabled":false}}}`
 	putReq := httptest.NewRequest(http.MethodPut, "/api/workspaces/"+workspace.ID+"/settings", bytes.NewBufferString(body))
 	putRes := httptest.NewRecorder()
 	server.Handler().ServeHTTP(putRes, putReq)
@@ -627,7 +627,7 @@ func TestWorkspaceSettingsEndpointReadsAndSavesSettings(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(string(saved), "defaultModel") || strings.Contains(string(saved), "warnings") ||
+	if !strings.Contains(string(saved), "defaultModel") || strings.Contains(string(saved), "warnings") ||
 		!strings.Contains(string(saved), `"transport": "sse"`) {
 		t.Fatalf("unexpected saved settings: %s", string(saved))
 	}

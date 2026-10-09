@@ -8,12 +8,13 @@ import (
 )
 
 type WorkspaceSettingsResponse struct {
-	Global          map[string]any `json:"global"`
-	Project         map[string]any `json:"project"`
-	PersonalGlobal  map[string]any `json:"personalGlobal,omitempty"`
-	PersonalProject map[string]any `json:"personalProject,omitempty"`
-	Effective       map[string]any `json:"effective"`
-	Paths           SettingsPaths  `json:"paths"`
+	Global          map[string]any  `json:"global"`
+	Project         map[string]any  `json:"project"`
+	PersonalGlobal  map[string]any  `json:"personalGlobal,omitempty"`
+	PersonalProject map[string]any  `json:"personalProject,omitempty"`
+	Effective       map[string]any  `json:"effective"`
+	Paths           SettingsPaths   `json:"paths"`
+	ModelSelection  *ModelSelection `json:"modelSelection,omitempty"`
 }
 
 type SettingsPaths struct {
@@ -44,7 +45,11 @@ func WorkspaceSettings(root string) (WorkspaceSettingsResponse, error) {
 	}
 	effective := defaultSettings()
 	mergeSettings(effective, global)
-	mergeSettings(effective, project)
+	projectBehavior := cloneSettingsMap(project)
+	for key := range modelSettingKeys {
+		delete(projectBehavior, key)
+	}
+	mergeSettings(effective, projectBehavior)
 	return WorkspaceSettingsResponse{Global: global, Project: project, Effective: effective, Paths: paths}, nil
 }
 
@@ -62,7 +67,6 @@ func WorkspaceSettingsForUser(root, workspaceID, userID string) (WorkspaceSettin
 		return WorkspaceSettingsResponse{}, err
 	}
 	mergeSettings(settings.Effective, personalGlobal)
-	mergeSettings(settings.Effective, personalProject)
 	settings.PersonalGlobal = personalGlobal
 	settings.PersonalProject = personalProject
 	settings.Paths.PersonalGlobal = "database"
