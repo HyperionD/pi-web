@@ -486,6 +486,15 @@ func TestWorkspaceModelsEndpointUsesMockModelsWhenPiDisabled(t *testing.T) {
 
 func TestWorkspaceModelsEndpointUsesNoExtensions(t *testing.T) {
 	root := t.TempDir()
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	modelsPath := filepath.Join(home, ".pi", "agent", "models.json")
+	if err := os.MkdirAll(filepath.Dir(modelsPath), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(modelsPath, []byte(`{"providers":{"zai":{"models":[{"id":"gpt-5.5"}],"apiKey":"hidden-secret"}}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	argsFile := filepath.Join(root, "args.txt")
 	t.Setenv("PI_ARGS_FILE", argsFile)
 	writeFakePi(t, root, `#!/bin/sh
@@ -505,7 +514,7 @@ echo 'zai gpt-5.5 1M 64K yes no' >&2
 	if res.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", res.Code, res.Body.String())
 	}
-	if !strings.Contains(res.Body.String(), `"id":"gpt-5.5"`) {
+	if !strings.Contains(res.Body.String(), `"id":"gpt-5.5"`) || strings.Contains(res.Body.String(), "hidden-secret") {
 		t.Fatalf("unexpected body: %s", res.Body.String())
 	}
 	args, err := os.ReadFile(argsFile)
@@ -540,12 +549,12 @@ exit 137
 	req := httptest.NewRequest(http.MethodGet, "/api/workspaces/"+workspace.ID+"/models", nil)
 	res := httptest.NewRecorder()
 	server.Handler().ServeHTTP(res, req)
-	if res.Code != http.StatusOK {
-		t.Fatalf("expected 200 fallback, got %d: %s", res.Code, res.Body.String())
+	if res.Code != http.StatusBadGateway {
+		t.Fatalf("expected 502, got %d: %s", res.Code, res.Body.String())
 	}
 	body := res.Body.String()
-	if !strings.Contains(body, `"id":"anthropic"`) || !strings.Contains(body, `"id":"claude-test"`) || !strings.Contains(body, `"error"`) {
-		t.Fatalf("unexpected fallback body: %s", body)
+	if strings.Contains(body, `"id":"anthropic"`) || strings.Contains(body, `"id":"claude-test"`) || !strings.Contains(body, `"error"`) {
+		t.Fatalf("unexpected error response: %s", body)
 	}
 }
 

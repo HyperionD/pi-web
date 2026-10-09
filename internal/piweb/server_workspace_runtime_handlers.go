@@ -34,10 +34,24 @@ func (s *Server) workspaceModels(w http.ResponseWriter, r *http.Request) {
 	}
 	models := fallbackWorkspaceModels(root, nil)
 	if s.config.EnablePiExecution {
-		models, err = WorkspaceModels(r.Context(), root)
+		models, err = configuredModels(r.Context(), root)
 		if err != nil {
-			models = fallbackWorkspaceModels(root, err)
+			writeError(w, http.StatusBadGateway, err)
+			return
 		}
+	}
+	if actor := requestActor(r); actor != nil && actor.Role == "admin" {
+		path, pathErr := modelConfigPath()
+		if pathErr != nil {
+			writeError(w, http.StatusInternalServerError, pathErr)
+			return
+		}
+		count := 0
+		for _, provider := range models.Providers {
+			count += len(provider.Models)
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"providers": models.Providers, "path": path, "count": count})
+		return
 	}
 	writeJSON(w, http.StatusOK, models)
 }
