@@ -10,7 +10,7 @@ const settingsGroups = [
     titleKey: "model",
     description: "provider, model, thinking",
     descriptionKey: "modelDescription",
-    paths: ["defaultProvider", "defaultModel", "defaultThinkingLevel"],
+    paths: ["defaultProvider", "defaultModel"],
   },
   {
     title: "Conversation",
@@ -44,6 +44,26 @@ const settingsGroups = [
           </label>
           <small data-i18n="languageHint">Changes apply immediately and are saved on this device.</small>
         </div>
+        <section class="settings-group settings-model-group" aria-label="我的默认模型">
+          <div class="settings-group-head"><div><strong>我的默认模型</strong><small>从 Pi 当前可用模型中选择，适用于所有工作区</small></div></div>
+          <div class="settings-grid">
+            <label class="settings-field"><span>模型</span>
+              <select data-account-model disabled><option value="inherit">使用管理员默认</option></select>
+              <small data-account-model-status aria-live="polite">正在加载 Pi 可用模型…</small>
+            </label>
+            <label class="settings-field"><span>思考级别</span>
+              <select data-setting="defaultThinkingLevel">
+                <option value="inherit">使用管理员默认</option>
+                {settingsFieldByPath.defaultThinkingLevel.values.map((value) => <option value={value}>{value}</option>)}
+              </select><small>账号默认思考级别</small>
+            </label>
+          </div>
+          <button type="button" data-action="apply-session-model">应用到当前会话</button>
+          <button type="button" data-action="reset-account-model">恢复管理员默认</button>
+        </section>
+        <details class="settings-advanced" data-settings-shared-only>
+          <summary>管理员高级设置</summary>
+          <small data-model-catalog-info>Pi 可用模型来自当前运行环境；models.json 可选</small>
         <div class="settings-toolbar">
           <label><span data-i18n="scope">scope</span>
             <select name="scope" data-settings-scope>
@@ -124,7 +144,7 @@ const settingsGroups = [
         </details>
         <div class="settings-groups">
           {settingsGroups.map((group) => (
-            <section class:list={["settings-group", group.titleKey === "model" ? "settings-model-group" : "settings-non-model-group"]} data-settings-shared-only={group.titleKey !== "model" ? true : undefined}>
+            <section class:list={["settings-group", group.titleKey === "model" ? "settings-model-group" : "settings-non-model-group"]} hidden={group.titleKey === "model"} data-settings-shared-only={true}>
               <div class="settings-group-head">
                 <div>
                   <strong data-i18n={group.titleKey}>{group.title}</strong>
@@ -169,7 +189,7 @@ const settingsGroups = [
             </section>
           ))}
         </div>
-
+        </details>
       </div>
       <div class="settings-foot">
         <span data-settings-status>blank fields inherit from effective settings</span>

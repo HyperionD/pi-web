@@ -434,6 +434,8 @@ export const inputMethods = {
     if (action === "close-session-stats") this.closeSessionStats();
     if (action === "compact-session") void this.compactActiveSession?.();
     if (action === "save-settings") this.saveSettingsForm?.(event);
+    if (action === "apply-session-model") void this.applyEffectiveModelToActiveSession?.();
+    if (action === "reset-account-model") this.resetAccountModelPreference?.();
     if (action === "save-auth-provider") this.saveAuthForm?.(event);
     if (action === "logout-auth-provider") this.logoutAuthProvider?.();
     if (action === "start-oauth-login") this.startOAuthLogin?.();

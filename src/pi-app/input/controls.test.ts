@@ -326,19 +326,16 @@ describe("pi-app controls", () => {
     expect(JSON.parse(authCall[1].body)).toEqual({ provider: "anthropic", apiKey: "sk-test" });
     expect(app.querySelector("[data-auth-api-key]").value).toBe("");
 
-    app.querySelector("[data-setting='defaultModel']").value = "custom";
-    app.querySelector("[data-setting='defaultModel']").dispatchEvent(new Event("change"));
-    app.querySelector("[data-custom-setting='defaultModel']").value = "my-model";
+    app.querySelector("[data-account-model]").value = JSON.stringify(["zai", "gpt-5.5"]);
     app.querySelector("[data-setting='compaction.enabled']").value = "false";
     await app.saveSettingsForm(new Event("submit"));
-    const putCall = globalThis.fetch.mock.calls.find(([, options]) => options?.method === "PUT");
-    expect(JSON.parse(putCall[1].body)).toMatchObject({
-      scope: "project",
-      settings: {
-        defaultModel: "my-model",
-        compaction: { enabled: false },
-      },
-    });
+    const putCalls = globalThis.fetch.mock.calls.filter(([, options]) => options?.method === "PUT");
+    expect(putCalls.map(([, options]) => JSON.parse(options.body))).toEqual(expect.arrayContaining([
+      expect.objectContaining({ scope: "project", settings: { compaction: { enabled: false } } }),
+      expect.objectContaining({ scope: "personal", location: "global", settings: {
+        defaultProvider: "zai", defaultModel: "gpt-5.5",
+      } }),
+    ]));
   });
 
   it("lets regular users save model settings in their personal scope", async () => {
@@ -349,7 +346,7 @@ describe("pi-app controls", () => {
       statusText: "OK",
       json: async () => {
         if (String(url).endsWith("/settings") && options.method === "PUT") {
-          return { settings: { global: {}, project: {}, personalGlobal: {}, personalProject: JSON.parse(options.body).settings, effective: JSON.parse(options.body).settings, paths: {} } };
+          return { settings: { global: {}, project: {}, personalGlobal: JSON.parse(options.body).settings, personalProject: {}, effective: JSON.parse(options.body).settings, paths: {} } };
         }
         if (String(url).endsWith("/settings")) {
           return { settings: { global: {}, project: {}, personalGlobal: {}, personalProject: {}, effective: {}, paths: {} } };
@@ -367,14 +364,13 @@ describe("pi-app controls", () => {
     expect(app.querySelector("[data-settings-scope]").value).toBe("personal");
     expect(globalThis.fetch.mock.calls.some(([url]) => String(url).endsWith("/auth/providers"))).toBe(false);
     expect(globalThis.fetch.mock.calls.some(([url]) => String(url).endsWith("/auth/oauth/providers"))).toBe(false);
-    app.querySelector("[data-setting='defaultProvider']").value = "zai";
-    app.querySelector("[data-setting='defaultModel']").value = "gpt-5.5";
+    app.querySelector("[data-account-model]").value = JSON.stringify(["zai", "gpt-5.5"]);
     await app.saveSettingsForm(new Event("submit"));
 
     const putCall = globalThis.fetch.mock.calls.find(([, options]) => options?.method === "PUT");
     expect(JSON.parse(putCall[1].body)).toMatchObject({
       scope: "personal",
-      location: "project",
+      location: "global",
       settings: { defaultProvider: "zai", defaultModel: "gpt-5.5" },
     });
   });
@@ -552,7 +548,7 @@ describe("pi-app controls", () => {
     expect(app.querySelector("[data-workspace-group='w1'] .label").textContent).toBe("demo");
   });
 
-  it("switches the active session model after saving model defaults", async () => {
+  it("only switches the active session when explicitly requested", async () => {
     globalThis.PI_WEB_API_BASE = "http://backend.test";
     globalThis.fetch = vi.fn(async (url, options = {}) => {
       const path = String(url);
@@ -561,7 +557,7 @@ describe("pi-app controls", () => {
       }
       if (path.endsWith("/settings") && options.method === "PUT") {
         const body = JSON.parse(options.body);
-        return { ok: true, json: async () => ({ settings: { global: {}, project: body.settings, effective: { ...body.settings }, paths: {} } }) };
+        return { ok: true, json: async () => ({ settings: { global: {}, project: {}, personalGlobal: body.settings, effective: { ...body.settings }, paths: {} } }) };
       }
       if (path.endsWith("/settings")) {
         return { ok: true, json: async () => ({ settings: { global: {}, project: {}, effective: {}, paths: {} } }) };
@@ -576,13 +572,10 @@ describe("pi-app controls", () => {
     app.dataset.activeSessionId = "s1";
 
     await app.openSettingsModal();
-    const providerSelect = app.querySelector("[data-setting='defaultProvider']");
-    providerSelect.value = "openai-codex";
-    providerSelect.dispatchEvent(new Event("change"));
-    const modelSelect = app.querySelector("[data-setting='defaultModel']");
-    modelSelect.value = "gpt-5.6-luna";
-    modelSelect.dispatchEvent(new Event("change"));
+    app.querySelector("[data-account-model]").value = JSON.stringify(["openai-codex", "gpt-5.6-luna"]);
     await app.saveSettingsForm(new Event("submit"));
+    expect(globalThis.fetch.mock.calls.some(([url]) => String(url).endsWith("/model"))).toBe(false);
+    await app.applyEffectiveModelToActiveSession();
 
     const modelCall = globalThis.fetch.mock.calls.find(([url, options]) => String(url).endsWith("/model") && options?.method === "POST");
     expect(modelCall).toBeTruthy();

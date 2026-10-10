@@ -133,6 +133,12 @@ export function installPiAppFixture() {
             <option value="zh-CN">简体中文</option>
           </select>
           <strong data-i18n="settingsTitle">pi settings</strong>
+          <select data-account-model><option value="inherit">使用管理员默认</option></select>
+          <small data-account-model-status></small>
+          ${settingsSelect("defaultThinkingLevel", ["inherit", "high"])}
+          <button type="button" data-action="apply-session-model">应用到当前会话</button>
+          <button type="button" data-action="reset-account-model">恢复管理员默认</button>
+          <details data-settings-shared-only><summary>管理员高级设置</summary>
           <select name="scope" data-settings-scope>
             <option value="project">project</option>
             <option value="global">global</option>
@@ -143,6 +149,7 @@ export function installPiAppFixture() {
             <option value="global">所有工作区</option>
           </select>
           <span data-settings-path></span>
+          <small data-model-catalog-info></small>
           <section class="app-settings-section">
             <label class="settings-field app-settings-upload-limit">
               <span>单文件上传上限（MiB）</span>
@@ -173,13 +180,13 @@ export function installPiAppFixture() {
           </div>
           ${settingsSelect("defaultProvider", ["inherit", "custom"], true)}
           ${settingsSelect("defaultModel", ["inherit", "custom"], true)}
-          ${settingsSelect("defaultThinkingLevel", ["inherit", "high"])}
           ${settingsSelect("compaction.enabled", ["inherit", "true", "false"])}
           ${settingsSelect("enableSkillCommands", ["inherit", "true", "false"])}
           ${settingsSelect("steeringMode", ["inherit", "all"])}
           ${settingsSelect("followUpMode", ["inherit", "all"])}
           ${settingsSelect("hideThinkingBlock", ["inherit", "true", "false"])}
           ${settingsSelect("warnings.anthropicExtraUsage", ["inherit", "true", "false"])}
+          </details>
           <span data-settings-status></span>
           <button type="submit">save</button>
         </form>

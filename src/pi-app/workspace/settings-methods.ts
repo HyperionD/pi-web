@@ -195,6 +195,7 @@ export const settingsMethods = {
       this.fillFallbackModelControls();
     }
     this.fillSettingsForm();
+    this.fillAccountModelControl();
     errors.push(...[authResult, oauthResult, modelsResult]
       .filter((result) => result.status === "rejected")
       .map((result) => result.reason instanceof Error ? result.reason.message : String(result.reason)));
@@ -278,6 +279,40 @@ export const settingsMethods = {
     this.replaceSelectOptions(modelControl, models.map((model) => model.id));
   },
 
+  fillAccountModelControl() {
+    const select = this.querySelector("[data-account-model]");
+    const status = this.querySelector("[data-account-model-status]");
+    if (!select || !status) return;
+    const options = [new Option("使用管理员默认", "inherit")];
+    for (const provider of this.modelState?.providers || []) {
+      for (const model of provider.models || []) {
+        options.push(new Option(`${provider.id} / ${model.id}`, JSON.stringify([provider.id, model.id])));
+      }
+    }
+    select.replaceChildren(...options);
+    select.disabled = options.length === 1;
+    const personal = this.settingsState?.personalGlobal || {};
+    const chosen = JSON.stringify([personal.defaultProvider, personal.defaultModel]);
+    select.value = [...select.options].some((option) => option.value === chosen) ? chosen : "inherit";
+    select.dataset.loadedValue = select.value;
+    select.dataset.resetPreference = "false";
+    const reset = this.querySelector("[data-action='reset-account-model']");
+    if (reset) reset.disabled = select.disabled || (!personal.defaultProvider && !personal.defaultModel);
+    const warning = this.settingsState?.modelSelection;
+    status.textContent = warning?.catalogError || (warning?.invalidPersonal
+      ? "先前选择的模型当前不可用，已改用默认模型" : `${options.length - 1} 个可用模型`);
+    const catalogInfo = this.querySelector("[data-model-catalog-info]");
+    if (catalogInfo) {
+      catalogInfo.textContent = this.modelState?.path
+        ? `Pi 可用模型：${this.modelState.count} 个 · 自定义配置（可选）：${this.modelState.path}`
+        : "Pi 可用模型来自当前运行环境；models.json 可选";
+    }
+    const thinking = this.querySelector("[data-setting='defaultThinkingLevel']");
+    if (thinking) thinking.value = personal.defaultThinkingLevel || "inherit";
+    const applyButton = this.querySelector("[data-action='apply-session-model']");
+    if (applyButton) applyButton.disabled = select.disabled || !this.dataset.activeSessionId;
+  },
+
   fillFallbackModelControls() {
     const effective = this.settingsState?.effective || {};
     const provider = typeof effective.defaultProvider === "string" ? effective.defaultProvider : undefined;
@@ -316,7 +351,7 @@ export const settingsMethods = {
     const locationWrap = this.querySelector("[data-settings-location-wrap]");
     if (document.body.dataset.accountRole === "user") {
       if (scope) scope.value = "personal";
-      if (location) location.value = "project";
+      if (location) location.value = "global";
     }
     if (scope && document.body.dataset.accountRole === "user") {
       [...scope.options].forEach((option) => { option.disabled = option.value !== "personal"; });
@@ -454,7 +489,11 @@ export const settingsMethods = {
     event?.preventDefault();
     const form = this.querySelector("[data-settings-form]");
     const workspaceId = this.dataset.activeWorkspaceId;
-    if (!form || !this.apiConnected) return;
+    if (!form || !this.apiConnected || this.settingsSavePending) return;
+    this.settingsSavePending = true;
+    const settingsLoadToken = this.workspaceSettingsLoadToken;
+    const isCurrentSave = () => this.dataset.activeWorkspaceId === workspaceId
+      && this.workspaceSettingsLoadToken === settingsLoadToken;
     const scopeValue = form.querySelector("[name='scope']")?.value || "project";
     this.setSettingsStatus("saving…");
     try {
@@ -462,6 +501,7 @@ export const settingsMethods = {
       const scope = settingsScopeSchema.parse(scopeValue);
       const location = form.querySelector("[name='location']")?.value || "project";
       const patch = workspaceId ? parseSettingsPatch(this.settingsPatchFromForm(form)) : {};
+      const accountPatch = workspaceId ? parseSettingsPatch(this.accountModelPatchFromForm(form)) : {};
       let adminPassword = "";
       if (Object.keys(appConfigPatch).length) {
         adminPassword = await this.requestAdminPassword?.();
@@ -476,7 +516,13 @@ export const settingsMethods = {
       const settingsRequest = workspaceId && Object.keys(patch).length
         ? saveWorkspaceSettings(workspaceId, scope, patch, scope === "personal" ? location : undefined)
         : Promise.resolve(undefined);
-      const [appConfigResult, settingsResult] = await Promise.allSettled([appConfigRequest, settingsRequest]);
+      const accountRequest = workspaceId && Object.keys(accountPatch).length
+        ? saveWorkspaceSettings(workspaceId, "personal", accountPatch, "global")
+        : Promise.resolve(undefined);
+      const [appConfigResult, settingsResult, accountResult] = await Promise.allSettled([
+        appConfigRequest, settingsRequest, accountRequest,
+      ]);
+      if (!isCurrentSave()) return;
       const errors = [];
       if (appConfigResult.status === "fulfilled" && appConfigResult.value) {
         try {
@@ -493,22 +539,36 @@ export const settingsMethods = {
       if (settingsResult.status === "fulfilled" && settingsResult.value) {
         try {
           this.settingsState = parseWorkspaceSettings(settingsResult.value.settings);
-          const modelWasSavedToPersonalScope = scope !== "personal"
-            && MODEL_SETTING_PATHS.some((path) => Object.prototype.hasOwnProperty.call(patch, path));
-          if (modelWasSavedToPersonalScope) {
-            form.querySelector("[name='scope']").value = "personal";
-            form.querySelector("[name='location']").value = scope;
-          }
           this.fillSettingsForm();
-          void this.loadRuntimeStatus?.(workspaceId);
-          if ("defaultProvider" in patch || "defaultModel" in patch || "defaultThinkingLevel" in patch) {
-            void this.applyEffectiveModelToActiveSession();
-          }
         } catch (error) {
           errors.push(error instanceof Error ? error.message : String(error));
         }
       } else if (settingsResult.status === "rejected") {
         errors.push(settingsResult.reason instanceof Error ? settingsResult.reason.message : String(settingsResult.reason));
+      }
+      if (accountResult.status === "fulfilled" && accountResult.value) {
+        try {
+          this.settingsState = parseWorkspaceSettings(accountResult.value.settings);
+          this.fillSettingsForm();
+          this.fillAccountModelControl();
+          void this.loadRuntimeStatus?.(workspaceId);
+        } catch (error) {
+          errors.push(error instanceof Error ? error.message : String(error));
+        }
+      } else if (accountResult.status === "rejected") {
+        errors.push(accountResult.reason instanceof Error ? accountResult.reason.message : String(accountResult.reason));
+      }
+      if (settingsResult.status === "fulfilled" && settingsResult.value
+        && accountResult.status === "fulfilled" && accountResult.value) {
+        try {
+          const { settings } = await getWorkspaceSettings(workspaceId);
+          if (!isCurrentSave()) return;
+          this.settingsState = parseWorkspaceSettings(settings);
+          this.fillSettingsForm();
+          this.fillAccountModelControl();
+        } catch (error) {
+          errors.push(error instanceof Error ? error.message : String(error));
+        }
       }
       if (errors.length > 0) {
         this.setSettingsStatus(errors.join("; "), true);
@@ -517,8 +577,12 @@ export const settingsMethods = {
       }
       this.setSettingsStatus("saved");
     } catch (error) {
-      this.setSettingsStatus(error instanceof Error ? error.message : String(error), true);
-      this.setConnection("err");
+      if (isCurrentSave()) {
+        this.setSettingsStatus(error instanceof Error ? error.message : String(error), true);
+        this.setConnection("err");
+      }
+    } finally {
+      this.settingsSavePending = false;
     }
   },
 
@@ -526,19 +590,66 @@ export const settingsMethods = {
     const sessionId = this.dataset.activeSessionId;
     if (!sessionId) return;
     const effective = this.settingsState?.effective || {};
-    const provider = typeof effective.defaultProvider === "string" && effective.defaultProvider !== "inherit"
-      ? effective.defaultProvider
-      : "";
-    const model = typeof effective.defaultModel === "string" && effective.defaultModel !== "inherit"
-      ? effective.defaultModel
-      : "";
-    const thinkingLevel = typeof effective.defaultThinkingLevel === "string" ? effective.defaultThinkingLevel : "";
-    if ((!provider || !model) && !thinkingLevel) return;
-    try {
-      await setSessionModel(sessionId, provider, model, thinkingLevel);
-    } catch {
-      this.setSettingsStatus("模型已保存，但当前会话切换失败：模型不可用", true);
+    const select = this.querySelector("[data-account-model]");
+    if (select?.disabled || !this.modelState?.providers?.length) {
+      this.setSettingsStatus("模型目录不可用", true);
+      return;
     }
+    let provider = effective.defaultProvider || "";
+    let model = effective.defaultModel || "";
+    try {
+      if (select.value !== "inherit") {
+        const pair = JSON.parse(select.value);
+        if (!Array.isArray(pair) || pair.length !== 2 || !this.modelState.providers.some(
+          (entry) => entry.id === pair[0] && entry.models?.some((option) => option.id === pair[1]),
+        )) throw new Error("所选模型不在 Pi 当前可用模型列表中");
+        [provider, model] = pair;
+      }
+      const selectedThinking = this.querySelector("[data-setting='defaultThinkingLevel']")?.value;
+      const thinkingLevel = selectedThinking && selectedThinking !== "inherit"
+        ? selectedThinking : effective.defaultThinkingLevel || "";
+      await setSessionModel(sessionId, provider, model, thinkingLevel);
+      this.setSettingsStatus("已应用到当前会话，不影响账号默认模型");
+    } catch (error) {
+      this.setSettingsStatus(error instanceof Error ? error.message : String(error), true);
+    }
+  },
+
+  resetAccountModelPreference() {
+    const select = this.querySelector("[data-account-model]");
+    if (!select || select.disabled) return;
+    select.value = "inherit";
+    select.dataset.resetPreference = "true";
+  },
+
+  accountModelPatchFromForm(form) {
+    const patch: Record<string, string | null> = {};
+    const selected = form.querySelector("[data-account-model]");
+    const personal = this.settingsState?.personalGlobal || {};
+    if (!selected || selected.disabled) return patch;
+    if (selected.value === "inherit") {
+      const explicitReset = selected.dataset.resetPreference === "true";
+      const changedFromPersonalChoice = selected.dataset.loadedValue !== "inherit";
+      if ((personal.defaultProvider || personal.defaultModel) && (explicitReset || changedFromPersonalChoice)) {
+        patch.defaultProvider = null;
+        patch.defaultModel = null;
+      }
+    } else {
+      const pair = JSON.parse(selected.value);
+      const valid = Array.isArray(pair) && pair.length === 2 && this.modelState?.providers?.some(
+        (provider) => provider.id === pair[0] && provider.models?.some((model) => model.id === pair[1]),
+      );
+      if (!valid) throw new Error("所选模型不在 Pi 当前可用模型列表中");
+      if (personal.defaultProvider !== pair[0] || personal.defaultModel !== pair[1]) {
+        patch.defaultProvider = pair[0];
+        patch.defaultModel = pair[1];
+      }
+    }
+    const thinking = form.querySelector("[data-setting='defaultThinkingLevel']")?.value || "inherit";
+    if ((personal.defaultThinkingLevel || "inherit") !== thinking) {
+      patch.defaultThinkingLevel = thinking === "inherit" ? null : thinking;
+    }
+    return patch;
   },
 
   settingsPatchFromForm(form) {
@@ -551,7 +662,7 @@ export const settingsMethods = {
       if (settingsValueChanged(scopedSettings, effective, path, value)) setPatchValue(patch, path, value);
     };
     for (const field of SETTINGS_FIELDS) {
-      if (scope === "personal" && !isModelSetting(field.path)) continue;
+      if (isModelSetting(field.path) || scope === "personal") continue;
       const control = form.querySelector(`[data-setting='${field.path}']`);
       if (!control) continue;
       addChangedValue(field.path, this.settingValueFromControl(control, field));

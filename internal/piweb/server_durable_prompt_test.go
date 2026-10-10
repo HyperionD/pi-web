@@ -8,6 +8,8 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 )
@@ -149,9 +151,33 @@ func TestCreateSessionUsesDurableControlEventWhenConfigured(t *testing.T) {
 }
 
 func TestSetModelUsesDurableControlEventWhenConfigured(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
 	store := runtimeTestStore()
 	store.sessionFiles["8e7c-44ff"] = "/tmp/8e7c.jsonl"
 	store.sessionCWD["8e7c-44ff"] = "/tmp"
+	session, _, err := store.Session("8e7c-44ff")
+	if err != nil {
+		t.Fatal(err)
+	}
+	root, err := store.WorkspacePath(session.Workspace)
+	if err != nil {
+		t.Fatal(err)
+	}
+	path, err := modelConfigPath()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(`{"providers":{"openai":{"models":[{"id":"gpt"}]}}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	writeFakePi(t, t.TempDir(), "#!/bin/sh\necho 'openai gpt'\n")
+	catalog, err := configuredModels(t.Context(), root)
+	if err != nil || !catalogContains(catalog, "openai", "gpt") {
+		t.Fatalf("test catalog unavailable in %s: %+v %v", root, catalog, err)
+	}
 	events := appendTestStore(t)
 	runtime := newFakePiRuntime()
 	manager := NewRuntimeManagerWithFactory(store, func(context.Context, string, string) (PiRuntime, error) {

@@ -1,4 +1,4 @@
-import{n as D,R as T,ab as V,W as _}from"./index.CF94aKf-.js";import{a as $}from"./zoom.CGyslf7w.js";const B={avif:"image/avif",bmp:"image/bmp",gif:"image/gif",heic:"image/heic",heif:"image/heif",ico:"image/x-icon",jxl:"image/jxl",jpg:"image/jpeg",jpeg:"image/jpeg",png:"image/png",svg:"image/svg+xml",tif:"image/tiff",tiff:"image/tiff",webp:"image/webp"},N=`
+import{n as D,R as T,ab as V,W as _}from"./index.DtW4jJBM.js";import{a as $}from"./zoom.BO9GdX6H.js";const B={avif:"image/avif",bmp:"image/bmp",gif:"image/gif",heic:"image/heic",heif:"image/heif",ico:"image/x-icon",jxl:"image/jxl",jpg:"image/jpeg",jpeg:"image/jpeg",png:"image/png",svg:"image/svg+xml",tif:"image/tiff",tiff:"image/tiff",webp:"image/webp"},N=`
 .image-viewer{position:relative;width:100%;height:100%;overflow:auto;background:var(--file-viewer-render-surface-background,#eef1f4);box-sizing:border-box}
 .image-stage{min-width:100%;min-height:100%;display:flex;align-items:center;justify-content:center;padding:24px;box-sizing:border-box}
 .image-stage img{display:block;width:auto;max-width:none;margin:0 auto;border:0;box-shadow:0 18px 48px rgba(15,23,42,.16);background:#fff;cursor:zoom-in}

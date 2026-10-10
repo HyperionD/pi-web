@@ -34,7 +34,7 @@ func WorkspaceModels(ctx context.Context, root string) (WorkspaceModelsResponse,
 	cmd := exec.CommandContext(ctx, "pi", "--no-extensions", "--list-models")
 	cmd.Dir = root
 	cmd.Env = append(os.Environ(), "PI_SKIP_VERSION_CHECK=1")
-	output, err := cmd.CombinedOutput()
+	output, err := cmd.Output()
 	if err != nil {
 		return WorkspaceModelsResponse{}, err
 	}
