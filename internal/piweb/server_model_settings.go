@@ -14,10 +14,10 @@ func (s *Server) modelSettingsForSession(sessionID string) (ModelStartupSettings
 	if err != nil {
 		return ModelStartupSettings{}, err
 	}
-	if s.accounts == nil {
-		return ModelStartupSettings{}, nil
+	userID := ""
+	if s.accounts != nil {
+		userID, _ = s.accounts.sessionOwnerID(sessionID)
 	}
-	userID, _ := s.accounts.sessionOwnerID(sessionID)
 	settings, err := s.accountWorkspaceSettings(root, session.Workspace, userID)
 	if err != nil {
 		return ModelStartupSettings{}, err
@@ -33,8 +33,14 @@ func (s *Server) modelSettingsForSession(sessionID string) (ModelStartupSettings
 		return selected, nil
 	}
 	last, found, err := reader.LatestSessionModel(s.context(), sessionID)
-	if err != nil || !found {
-		return selected, err
+	if err != nil {
+		return ModelStartupSettings{}, err
+	}
+	if !found {
+		if last.ThinkingLevel != "" {
+			selected.ThinkingLevel = last.ThinkingLevel
+		}
+		return selected, nil
 	}
 	catalog, err := configuredModels(s.context(), root)
 	if err != nil {
@@ -63,6 +69,21 @@ func (s *Server) overlayPersonalRuntimeModel(status RuntimeStatus, root, workspa
 	_, ok := s.accounts.sessionOwnerID(sessionID)
 	if !ok {
 		return status, nil
+	}
+	if reader, ok := s.events.(interface {
+		LatestSessionModel(context.Context, string) (ModelStartupSettings, bool, error)
+	}); ok {
+		last, found, err := reader.LatestSessionModel(s.context(), sessionID)
+		if err != nil {
+			return RuntimeStatus{}, err
+		}
+		if found {
+			status.ModelProvider, status.Model = last.Provider, last.Model
+			if last.ThinkingLevel != "" {
+				status.ThinkingLevel = last.ThinkingLevel
+			}
+			return status, nil
+		}
 	}
 	model, err := s.modelSettingsForSession(sessionID)
 	if err != nil {

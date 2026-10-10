@@ -10,11 +10,10 @@ import (
 
 func setupAccountModelCatalog(t *testing.T, s *Server, root string) {
 	t.Helper()
-	home, err := os.UserHomeDir()
+	path, err := modelConfigPath()
 	if err != nil {
 		t.Fatal(err)
 	}
-	path := filepath.Join(home, ".pi", "agent", "models.json")
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -22,8 +21,16 @@ func setupAccountModelCatalog(t *testing.T, s *Server, root string) {
 	if err := os.WriteFile(path, []byte(data), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	writeFakePi(t, root, "#!/bin/sh\necho 'local a'\necho 'local b'\necho 'local c'\necho 'builtin d'\n")
+	writeFakePi(t, root, "#!/bin/sh\necho 'local a'\necho 'local b'\necho 'local c'\n")
 	s.config.EnablePiExecution = true
+}
+
+func TestPartialLegacyModelPreferenceIsReportedAsInvalid(t *testing.T) {
+	catalog := WorkspaceModelsResponse{Providers: []ModelProvider{{ID: "local", Models: []ModelOption{{ID: "a", Provider: "local"}}}}}
+	selected, invalid := resolveModelSelection(catalog, map[string]any{}, map[string]any{"defaultProvider": "local"})
+	if !invalid || selected.Provider != "local" || selected.Model != "a" {
+		t.Fatalf("partial legacy preference was not reported: %+v invalid=%v", selected, invalid)
+	}
 }
 
 func TestAccountModelChoiceIsGlobalAndIgnoresLegacyProjectOverrides(t *testing.T) {
@@ -76,6 +83,74 @@ func TestAccountModelChoiceIsGlobalAndIgnoresLegacyProjectOverrides(t *testing.T
 	}
 }
 
+func TestAccountCanSelectPiConfiguredOpenAIWithoutModelsJSON(t *testing.T) {
+	s, admin := accountServer(t)
+	root := t.TempDir()
+	workspace, err := s.store.OpenWorkspace(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeFakePi(t, root, "#!/bin/sh\necho 'openai gpt-offline'\n")
+	s.config.EnablePiExecution = true
+	alice := addAccount(t, s, admin, "openai-account", workspace.ID)
+	url := "/api/workspaces/" + workspace.ID + "/settings"
+	response := accountRequest(s, http.MethodPut, url,
+		`{"scope":"personal","location":"global","settings":{"defaultProvider":"openai","defaultModel":"gpt-offline"}}`, alice)
+	if response.Code != http.StatusOK {
+		t.Fatalf("Pi-configured openai model was rejected: %d %s", response.Code, response.Body.String())
+	}
+	var result struct {
+		Settings struct {
+			Effective map[string]any `json:"effective"`
+		} `json:"settings"`
+	}
+	if err := json.Unmarshal(response.Body.Bytes(), &result); err != nil ||
+		result.Settings.Effective["defaultProvider"] != "openai" ||
+		result.Settings.Effective["defaultModel"] != "gpt-offline" {
+		t.Fatalf("account openai selection not effective: %s %v", response.Body.String(), err)
+	}
+}
+
+func TestAccountModelChoiceSurvivesWorkspaceChangeAndServerRestart(t *testing.T) {
+	s, admin := accountServer(t)
+	firstRoot, secondRoot := t.TempDir(), t.TempDir()
+	first, err := s.store.OpenWorkspace(firstRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := s.store.OpenWorkspace(secondRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	setupAccountModelCatalog(t, s, firstRoot)
+	url := "/api/workspaces/" + first.ID + "/settings"
+	if response := accountRequest(s, http.MethodPut, url,
+		`{"scope":"personal","location":"global","settings":{"defaultProvider":"local","defaultModel":"c"}}`, admin); response.Code != 200 {
+		t.Fatalf("save model: %d %s", response.Code, response.Body.String())
+	}
+	checkChoice := func(server *Server, cookie *http.Cookie) {
+		t.Helper()
+		response := accountRequest(server, http.MethodGet, "/api/workspaces/"+second.ID+"/settings", "", cookie)
+		var result struct {
+			Settings struct {
+				Effective map[string]any `json:"effective"`
+			} `json:"settings"`
+		}
+		if response.Code != 200 || json.Unmarshal(response.Body.Bytes(), &result) != nil ||
+			result.Settings.Effective["defaultModel"] != "c" {
+			t.Fatalf("account model was lost: %d %s", response.Code, response.Body.String())
+		}
+	}
+	checkChoice(s, admin)
+	restarted := NewServer(Config{UserManagement: true, EnablePiExecution: true}, s.store, NewBroker())
+	login := accountRequest(restarted, http.MethodPost, "/api/account/login",
+		`{"username":"admin","password":"admin-password"}`, nil)
+	if login.Code != 200 || len(login.Result().Cookies()) == 0 {
+		t.Fatalf("login after restart: %d %s", login.Code, login.Body.String())
+	}
+	checkChoice(restarted, login.Result().Cookies()[0])
+}
+
 func TestRemovedAccountModelFallsBackToConfiguredDefault(t *testing.T) {
 	s, admin := accountServer(t)
 	root := t.TempDir()
@@ -90,13 +165,7 @@ func TestRemovedAccountModelFallsBackToConfiguredDefault(t *testing.T) {
 		`{"scope":"personal","location":"global","settings":{"defaultProvider":"local","defaultModel":"c"}}`, alice); result.Code != 200 {
 		t.Fatalf("save: %s", result.Body.String())
 	}
-	path, err := modelConfigPath()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(path, []byte(`{"providers":{"local":{"models":[{"id":"a"},{"id":"b"}]}}}`), 0o600); err != nil {
-		t.Fatal(err)
-	}
+	writeFakePi(t, t.TempDir(), "#!/bin/sh\necho 'local a'\necho 'local b'\n")
 	result := accountRequest(s, http.MethodGet, url, "", alice)
 	var response struct {
 		Settings struct {
@@ -123,7 +192,7 @@ func TestAccountModelSaveRejectsUnconfiguredOrProjectChoice(t *testing.T) {
 	alice := addAccount(t, s, admin, "alice-model-validate", workspace.ID)
 	url := "/api/workspaces/" + workspace.ID + "/settings"
 	for _, body := range []string{
-		`{"scope":"personal","location":"global","settings":{"defaultProvider":"builtin","defaultModel":"d"}}`,
+		`{"scope":"personal","location":"global","settings":{"defaultProvider":"unknown","defaultModel":"d"}}`,
 		`{"scope":"personal","location":"global","settings":{"defaultModel":"a"}}`,
 		`{"scope":"personal","location":"project","settings":{"defaultProvider":"local","defaultModel":"a"}}`,
 	} {

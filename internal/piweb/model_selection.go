@@ -19,8 +19,9 @@ func modelPair(values map[string]any) (ModelStartupSettings, bool) {
 }
 
 func resolveModelSelection(catalog WorkspaceModelsResponse, global, personal map[string]any) (ModelStartupSettings, bool) {
-	selected, hasPersonal := modelPair(personal)
-	if hasPersonal && catalogContains(catalog, selected.Provider, selected.Model) {
+	selected, complete := modelPair(personal)
+	hasPersonal := selected.Provider != "" || selected.Model != ""
+	if complete && catalogContains(catalog, selected.Provider, selected.Model) {
 		return selected, false
 	}
 	admin, hasAdmin := modelPair(global)

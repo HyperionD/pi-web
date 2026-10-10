@@ -81,6 +81,27 @@ pi-web --host 127.0.0.1 --port 8732 --mock
 
 删除配置文件会恢复默认值。账号、工作区授权和会话归属保存在 `pi-web.db`，不与 Pi 的 `settings.json`、`auth.json` 或浏览器存储混用。
 
+## 离线模型设置
+
+模型候选来自服务器运行环境中的 `pi --no-extensions --list-models`：Pi 已配置且可用的 `openai`、其他内建提供商及自定义模型都会显示。**不要求存在 `models.json`**。如果需要额外配置离线 OpenAI 兼容接口，可选用 Pi 的 `~/.pi/agent/models.json`；设置 `PI_CODING_AGENT_DIR` 时改用该目录下的 `models.json`。例如（将地址、模型 ID 和环境变量替换成实际值）：
+
+```json
+{
+  "providers": {
+    "offline": {
+      "baseUrl": "http://127.0.0.1:8000/v1",
+      "api": "openai-completions",
+      "apiKey": "$OFFLINE_API_KEY",
+      "models": [{ "id": "example-small" }, { "id": "example-large" }]
+    }
+  }
+}
+```
+
+`$OFFLINE_API_KEY` 是 Pi 支持的环境变量引用，不是密钥本身；须在启动 Pi/`pi-web` 的进程环境中提供，也可按 Pi 的认证方式单独配置。只要 `pi --no-extensions --list-models` 能列出模型，Web 就可供账号选择；`models.json` 缺失不会阻止使用已配置的 `openai`。Pi 列表命令失败或没有任何可用模型时会提示错误，不会伪造候选。
+
+每个账号从 Pi 当前可用模型列表选择一个默认模型，偏好存入 SQLite，并在该账号的所有工作区生效；保存默认值不会切换已经运行的会话，需要点击“应用到当前会话”。未设置账号偏好时，优先使用全局 `~/.pi/agent/settings.json` 中有效的 `defaultProvider`/`defaultModel`，否则使用目录中排序最前的模型。旧的项目级模型偏好和工作区 `.pi/settings.json` 中的模型字段不再参与选择，但不会删除；其他非模型设置维持原有行为。管理员可在高级设置查看 Pi 模型数量与可选的自定义配置路径，并编辑应用/非模型设置，普通账号无法管理模型目录或凭据。
+
 ## 从上游同步
 
 项目保持与源项目的代码来源说明；如需同步上游，可临时添加 remote：

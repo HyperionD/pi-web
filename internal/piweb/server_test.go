@@ -321,7 +321,22 @@ func TestDeleteWorkspaceSessionsEndpoint(t *testing.T) {
 	}
 }
 
+func setupSessionCommandModelCatalog(t *testing.T) {
+	t.Helper()
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("PI_CODING_AGENT_DIR", t.TempDir())
+	path, err := modelConfigPath()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(`{"providers":{"local":{"models":[{"id":"a"}]}}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	writeFakePi(t, t.TempDir(), "#!/bin/sh\necho 'local a'\n")
+}
+
 func TestSessionCommandsEndpointUsesCurrentRuntime(t *testing.T) {
+	setupSessionCommandModelCatalog(t)
 	store := NewMockStore()
 	store.sessionFiles["8e7c-44ff"] = "/tmp/session.jsonl"
 	runtime := newFakePiRuntime()
@@ -342,12 +357,14 @@ func TestSessionCommandsEndpointUsesCurrentRuntime(t *testing.T) {
 	if !strings.Contains(response.Body.String(), `"command":"/review"`) {
 		t.Fatalf("unexpected body: %s", response.Body.String())
 	}
-	if len(runtime.sends) != 1 || runtime.sends[0].Type != "get_commands" {
+	if len(runtime.sends) != 3 || runtime.sends[0].Type != "set_model" ||
+		runtime.sends[1].Type != "set_thinking_level" || runtime.sends[2].Type != "get_commands" {
 		t.Fatalf("unexpected runtime calls: %+v", runtime.sends)
 	}
 }
 
 func TestSessionCommandEndpointRejectsMutatingCommandsWhileRunning(t *testing.T) {
+	setupSessionCommandModelCatalog(t)
 	store := NewMockStore()
 	store.sessionFiles["8e7c-44ff"] = "/tmp/session.jsonl"
 	runtime := newFakePiRuntime()
@@ -368,12 +385,14 @@ func TestSessionCommandEndpointRejectsMutatingCommandsWhileRunning(t *testing.T)
 	if response.Code != http.StatusConflict {
 		t.Fatalf("running clone status = %d, want %d", response.Code, http.StatusConflict)
 	}
-	if len(runtime.sends) != 0 {
-		t.Fatalf("running clone sent runtime command: %+v", runtime.sends)
+	if len(runtime.sends) != 2 || runtime.sends[0].Type != "set_model" ||
+		runtime.sends[1].Type != "set_thinking_level" {
+		t.Fatalf("running clone sent unexpected runtime command: %+v", runtime.sends)
 	}
 }
 
 func TestSessionCommandEndpointReloadRestartsCurrentRuntime(t *testing.T) {
+	setupSessionCommandModelCatalog(t)
 	store := NewMockStore()
 	store.sessionFiles["8e7c-44ff"] = "/tmp/session.jsonl"
 	first := newFakePiRuntime()
@@ -399,12 +418,15 @@ func TestSessionCommandEndpointReloadRestartsCurrentRuntime(t *testing.T) {
 	if created != 2 || first.closed != 1 {
 		t.Fatalf("reload runtimes = created %d, first closed %d", created, first.closed)
 	}
-	if len(first.sends) != 0 || len(second.sends) != 0 {
-		t.Fatalf("reload sent unsupported runtime command: first=%+v second=%+v", first.sends, second.sends)
+	if len(first.sends) != 2 || len(second.sends) != 2 || first.sends[0].Type != "set_model" ||
+		second.sends[0].Type != "set_model" || first.sends[1].Type != "set_thinking_level" ||
+		second.sends[1].Type != "set_thinking_level" {
+		t.Fatalf("reload sent unexpected runtime command: first=%+v second=%+v", first.sends, second.sends)
 	}
 }
 
 func TestSessionCommandEndpointAllowlistsRuntimeCommands(t *testing.T) {
+	setupSessionCommandModelCatalog(t)
 	store := NewMockStore()
 	store.sessionFiles["8e7c-44ff"] = "/tmp/session.jsonl"
 	runtime := newFakePiRuntime()
@@ -423,7 +445,9 @@ func TestSessionCommandEndpointAllowlistsRuntimeCommands(t *testing.T) {
 	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), `"text":"copied"`) {
 		t.Fatalf("copy response = %d %s", response.Code, response.Body.String())
 	}
-	if len(runtime.sends) != 1 || runtime.sends[0].Type != "get_last_assistant_text" || runtime.sends[0].ID != "command:copy-1" {
+	if len(runtime.sends) != 3 || runtime.sends[0].Type != "set_model" ||
+		runtime.sends[1].Type != "set_thinking_level" || runtime.sends[2].Type != "get_last_assistant_text" ||
+		runtime.sends[2].ID != "command:copy-1" {
 		t.Fatalf("unexpected runtime calls: %+v", runtime.sends)
 	}
 
@@ -499,8 +523,8 @@ func TestWorkspaceModelsEndpointUsesNoExtensions(t *testing.T) {
 	t.Setenv("PI_ARGS_FILE", argsFile)
 	writeFakePi(t, root, `#!/bin/sh
 echo "$@" > "$PI_ARGS_FILE"
-echo 'provider  model  context  max-out  thinking  images' >&2
-echo 'zai gpt-5.5 1M 64K yes no' >&2
+echo 'provider  model  context  max-out  thinking  images'
+echo 'zai gpt-5.5 1M 64K yes no'
 `)
 	store := NewMockStore()
 	workspace, err := store.OpenWorkspace(root)
@@ -728,8 +752,10 @@ func TestSessionContextUsageEndpointUsesMockWhenPiDisabled(t *testing.T) {
 }
 
 func TestSessionCompactEndpointRequiresDurableEventStore(t *testing.T) {
+	setupSessionCommandModelCatalog(t)
 	root := t.TempDir()
-	writeFakePi(t, root, `#!/bin/sh
+	writeFakePi(t, t.TempDir(), `#!/bin/sh
+if [ "$1" = "--no-extensions" ]; then echo 'local a'; exit 0; fi
 read request
 id=$(printf '%s' "$request" | sed 's/.*"id":"\([^"]*\)".*/\1/')
 printf '%s\n' "{\"id\":\"$id\",\"type\":\"response\",\"command\":\"compact\",\"success\":true,\"data\":{\"tokensBefore\":99,\"estimatedTokensAfter\":22}}"

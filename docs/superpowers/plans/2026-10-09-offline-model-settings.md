@@ -2,9 +2,9 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** 管理员在 Pi 的 `models.json` 定义统一的离线模型目录，账号跨工作区保存各自的默认选择，会话只在目录内临时切换，设置页不再暴露范围概念。
+**Goal:** Pi 当前可用模型（包括已配置的 `openai` 和可选 `models.json` 自定义模型）统一显示，账号跨工作区保存各自的默认选择，会话仅在 Pi 当前可用列表内临时切换，设置页不再暴露范围概念。
 
-**Architecture:** Go 服务端负责读取配置文件、对照 Pi 模型列表及校验模型选择；SQLite 继续存账号偏好，Pi 会话事件继续存会话模型。前端只展示过滤后的模型及账号偏好，把非模型/凭据/应用设置留在管理员高级区。
+**Architecture:** Go 服务端直接使用 Pi `--no-extensions --list-models` 的可用列表并校验模型选择；`models.json` 仅为可选 Pi 配置，不用于过滤。SQLite 继续存账号偏好，Pi 会话事件继续存会话模型；前端只展示 Pi 可用模型及账号偏好，把非模型/凭据/应用设置留在管理员高级区。
 
 **Tech Stack:** Go `net/http`/`testing`/SQLite、Astro/TypeScript、Vitest、Bun；使用仓库已有命令与依赖。
 
@@ -14,13 +14,13 @@
 
 - 离线 Go 单二进制；不增加联网依赖或硬编码密钥；不回传 `models.json` 原始内容、`baseUrl`、`apiKey`。
 - 保留应用配置、非模型 Pi 设置、账号权限和会话数据；原项目级模型偏好不删除但不再覆盖有效模型。
-- 仅管理员配置的 provider/model 组合可选；真实模式失败时不显示伪造回退模型；mock 模式单独保留原有测试数据。
+- 仅 Pi `--list-models` 返回的 provider/model 组合可选，含已配置的内建和自定义模型；真实模式失败时不显示伪造回退模型；mock 模式单独保留测试数据。
 - TDD：每任务先红后绿，跑相关测试并单独提交；不要追踪已有未跟踪的 `public/file-viewer/`。
 - 改动涉及前端后运行 `bun run build:single` 并同步检查 `static/`；最终运行 lint、typecheck、前后端单测。
 
 ## File Map
 
-- `internal/piweb/model_catalog.go`：配置文件路径、非秘密目录解析、CLI 可用性求交集、成员校验；`model_catalog_test.go` 覆盖失败与过滤。
+- `internal/piweb/model_catalog.go`：可选 `models.json` 管理诊断路径、Pi 可用列表与成员校验；`model_catalog_test.go` 覆盖已配置内建模型、可选文件及 Pi 列表失败。
 - `internal/piweb/models.go`、`server_workspace_runtime_handlers.go`：真实模型列表走目录、mock 仍用固定数据；设置 API 校验与返回状态。
 - `internal/piweb/settings.go`、`user_model_settings.go`、`server_model_settings.go`：账号全局默认、继承/失效计算和运行时初始化；旧项目偏好只读保留。
 - `internal/piweb/server_session_status_handlers.go`、`session_projection.go` 及会话事件查询相关文件：切换校验、恢复时使用最新会话模型、状态不覆盖真实会话模型。
@@ -31,42 +31,33 @@
 
 **Files:** Create `internal/piweb/model_catalog.go`, `internal/piweb/model_catalog_test.go`; Modify `internal/piweb/models.go`, `internal/piweb/server_workspace_runtime_handlers.go`, `internal/piweb/server_test.go`.
 
-**Interfaces:** Produces `configuredModels(ctx context.Context, root string) (WorkspaceModelsResponse, error)` and `catalogContains(catalog WorkspaceModelsResponse, provider, model string) bool`; only true for configured+Pi可用的组合。`WorkspaceModels` remains CLI adapter. Model list API in real mode returns HTTP 502 and `{error: ...}` on failure, mock mode keeps deterministic `zai/gpt-5.5`. Admin-only list response includes `path` and `count` for diagnostics; regular users see only model metadata/error. Use `requestActor(r)` to gate path.
+**Interfaces:** Produces `configuredModels(ctx context.Context, root string) (WorkspaceModelsResponse, error)` and `catalogContains(catalog WorkspaceModelsResponse, provider, model string) bool`; membership comes from the entire Pi available list, not file contents. `WorkspaceModels` remains CLI adapter. Real-mode list failure/empty returns HTTP 502; mock mode retains deterministic `zai/gpt-5.5`. Admin-only list response includes optional custom config `path` and available model `count`; regular users see only model metadata/error.
 
-- [ ] **Step 1: Write failing tests.** Use `t.Setenv("HOME", home)` and `writeFakePi(t, root, script)` (see `server_test.go:487`); create `home/.pi/agent/models.json` with `{"providers":{"local":{"api":"openai-completions","apiKey":"secret","baseUrl":"http://127.0.0.1/v1","models":[{"id":"a"},{"id":"b"}]}}}`. Fake CLI outputs `local a`, `local b`, `builtin c`. Assert exact two options and that serialized response contains neither `secret` nor `baseUrl`. Table-test missing file, invalid JSON, duplicate model IDs, empty providers and CLI failure; assert error and no fabricated options. Update the current fallback test (`server_test.go:520`) to expect 502 and no `anthropic` fallback.
-Test core assertions as Go, not string-only matching:
+- [ ] **Step 1: Write failing tests.** In a temporary HOME with no `models.json`, fake Pi outputs `openai gpt-offline` and `local custom`. Assert both appear in `configuredModels`; an optional file with custom providers must not hide other Pi-available models. Assert empty output/CLI failure yields an error without leaking stderr secrets; when Pi exits successfully, stderr containing two whitespace-delimited secret fields must never enter the model list. The model API exposes no path to ordinary users.
 
 ```go
 catalog, err := configuredModels(t.Context(), root)
-if err != nil || len(catalog.Providers) != 1 || len(catalog.Providers[0].Models) != 2 {
-    t.Fatalf("unexpected catalog: %+v, %v", catalog, err)
-}
-if catalogContains(catalog, "builtin", "c") || !catalogContains(catalog, "local", "a") {
-    t.Fatal("catalog whitelist is wrong")
+if err != nil || !catalogContains(catalog, "openai", "gpt-offline") ||
+    !catalogContains(catalog, "local", "custom") {
+    t.Fatalf("Pi available models hidden: %+v %v", catalog, err)
 }
 ```
 
-- [ ] **Step 2: Run red test.** `go test ./internal/piweb -run 'TestConfiguredModels|TestWorkspaceModelsEndpoint' -count=1` → FAIL (catalog not implemented / old fallback).
-- [ ] **Step 3: Implement.** Read `filepath.Join(os.UserHomeDir(), ".pi", "agent", "models.json")` with a typed minimal struct containing only provider/model IDs; reject invalid/empty/duplicate IDs. Call `WorkspaceModels(ctx, root)`; build the intersection by `(provider.ID, model.ID)`, stable-sort using existing `parseListModelsOutput` ordering. Never marshal configuration or include process command output containing potential secrets in client-facing errors. Replace the real-mode fallback branch in `workspaceModels` with explicit 502; do not change mock response.
-Minimal shape for the new parser (complete it with explicit validation/errors and CLI intersection):
+- [ ] **Step 2: Run red test.** `go test ./internal/piweb -run 'TestPiAvailableModelsIncludesConfiguredOpenAIWithoutModelsJSON|TestWorkspaceModelsEndpoint' -count=1` → FAIL on former `models.json`-only whitelist / fake fallback.
+- [ ] **Step 3: Implement.** Use the existing `WorkspaceModels(ctx, root)` CLI adapter as the entire catalog, changing it to parse stdout only (never `CombinedOutput`); reject CLI failure and zero models without fabricated options, and sanitize errors to avoid echoing credentials. Keep `modelConfigPath()` solely for optional admin diagnostics, not candidate filtering; keep mock response independent.
 
 ```go
-type configuredProvider struct {
-    Models []struct { ID string `json:"id"` } `json:"models"`
-}
-type configuredFile struct {
-    Providers map[string]configuredProvider `json:"providers"`
-}
-func catalogContains(catalog WorkspaceModelsResponse, provider, model string) bool {
-    for _, entry := range catalog.Providers {
-        if entry.ID != provider { continue }
-        for _, item := range entry.Models { if item.ID == model { return true } }
-    }
-    return false
+func configuredModels(ctx context.Context, root string) (WorkspaceModelsResponse, error) {
+    models, err := WorkspaceModels(ctx, root)
+    if err != nil { return WorkspaceModelsResponse{}, errors.New("cannot list Pi models") }
+    count := 0
+    for _, provider := range models.Providers { count += len(provider.Models) }
+    if count == 0 { return WorkspaceModelsResponse{}, errors.New("Pi has no available models") }
+    return models, nil
 }
 ```
 
-- [ ] **Step 4: Run green test.** `go test ./internal/piweb -run 'TestConfiguredModels|TestWorkspaceModelsEndpoint' -count=1` → PASS.
+- [ ] **Step 4: Run green test.** `go test ./internal/piweb -run 'TestPiAvailableModels|TestConfiguredModels|TestWorkspaceModelsEndpoint' -count=1` → PASS.
 - [ ] **Step 5: Commit.** `git add internal/piweb/model_catalog* internal/piweb/models.go internal/piweb/server_workspace_runtime_handlers.go internal/piweb/server_test.go && git commit -m "feat(models): expose configured offline catalog"`.
 
 ### Task 2: 账号级偏好与安全写入
@@ -184,9 +175,9 @@ Validate that the parsed pair occurs in `modelState.providers` before sending an
 
 **Interfaces:** No new runtime API; existing published single-binary behavior stays intact.
 
-- [ ] **Step 1: Add failing acceptance/regression checks.** Run full `go test ./...` and `bun run test` to expose old tests expecting project model overrides; ensure tests enforce 3 configured candidates -> exactly 3 visible, different users retain own choices across workspaces and restart. Add the missing assertion to the relevant Task 1/2/4 test file before fixing any failure.
+- [ ] **Step 1: Add failing acceptance/regression checks.** Run full `go test ./...` and `bun run test` to expose old tests expecting project model overrides; ensure tests show all Pi-available candidates including built-in `openai` with no `models.json`, while unavailable pairs are rejected; different users retain choices across workspaces and restart. Add missing assertions before fixes.
 - [ ] **Step 2: Run red check.** Run targeted test for each added assertion and confirm its failure is caused by the missing behavior, not test setup.
-- [ ] **Step 3: Implement minimal fixes and docs.** In `README.md` document `~/.pi/agent/models.json` ownership, supported Pi custom provider format (do not include a real key), `settings.json` admin default, per-account SQLite selection, no project-level model override and failure mode. Update prior tests without weakening authorization or catalog assertions.
+- [ ] **Step 3: Implement minimal fixes and docs.** In `README.md` document Pi `--list-models` as the source of all candidates, optional `~/.pi/agent/models.json` custom provider format (no real key), `settings.json` admin default, per-account SQLite selection, no project-level model override, and Pi list failure mode. Update prior tests without weakening authorization or Pi-list membership assertions.
 README example must contain no real credential:
 
 ```json

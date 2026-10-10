@@ -244,23 +244,30 @@ func (s *SQLiteSessionEventStore) LatestSessionModel(ctx context.Context, sessio
 		return ModelStartupSettings{}, false, err
 	}
 	defer rows.Close()
-	thinkingLevel := ""
+	selected := ModelStartupSettings{}
+	found := false
 	for rows.Next() {
 		var payload []byte
 		if err := rows.Scan(&payload); err != nil {
 			return ModelStartupSettings{}, false, err
 		}
-		var selected ModelStartupSettings
-		if err := json.Unmarshal(payload, &selected); err != nil {
+		var eventModel ModelStartupSettings
+		if err := json.Unmarshal(payload, &eventModel); err != nil {
 			return ModelStartupSettings{}, false, err
 		}
-		if thinkingLevel == "" {
-			thinkingLevel = selected.ThinkingLevel
+		if selected.ThinkingLevel == "" {
+			selected.ThinkingLevel = eventModel.ThinkingLevel
 		}
-		if selected.Provider != "" && selected.Model != "" {
-			selected.ThinkingLevel = thinkingLevel
-			return selected, true, nil
+		if !found && eventModel.Provider != "" && eventModel.Model != "" {
+			selected.Provider, selected.Model = eventModel.Provider, eventModel.Model
+			found = true
+		}
+		if found && selected.ThinkingLevel != "" {
+			break
 		}
 	}
-	return ModelStartupSettings{}, false, rows.Err()
+	if err := rows.Err(); err != nil {
+		return ModelStartupSettings{}, false, err
+	}
+	return selected, found, nil
 }
