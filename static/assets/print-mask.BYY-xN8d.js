@@ -1,4 +1,4 @@
-import{n as J}from"./index.CF94aKf-.js";import{c as O,d as H}from"./printMask.TmO3A3_z.js";const K=`
+import{n as J}from"./index.DtW4jJBM.js";import{c as O,d as H}from"./printMask.TmO3A3_z.js";const K=`
 .fv-print-mask-layer{position:absolute;inset:0;z-index:2147483000;pointer-events:none;}
 .fv-print-mask-canvas{position:absolute;inset:0;z-index:2147483000;pointer-events:none;cursor:default;}
 .fv-print-mask-canvas.is-armed{pointer-events:auto;cursor:crosshair;touch-action:none;}

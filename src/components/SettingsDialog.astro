@@ -45,11 +45,11 @@ const settingsGroups = [
           <small data-i18n="languageHint">Changes apply immediately and are saved on this device.</small>
         </div>
         <section class="settings-group settings-model-group" aria-label="我的默认模型">
-          <div class="settings-group-head"><div><strong>我的默认模型</strong><small>从管理员配置的模型中选择，适用于所有工作区</small></div></div>
+          <div class="settings-group-head"><div><strong>我的默认模型</strong><small>从 Pi 当前可用模型中选择，适用于所有工作区</small></div></div>
           <div class="settings-grid">
             <label class="settings-field"><span>模型</span>
               <select data-account-model disabled><option value="inherit">使用管理员默认</option></select>
-              <small data-account-model-status aria-live="polite">加载模型目录中…</small>
+              <small data-account-model-status aria-live="polite">正在加载 Pi 可用模型…</small>
             </label>
             <label class="settings-field"><span>思考级别</span>
               <select data-setting="defaultThinkingLevel">
@@ -59,10 +59,11 @@ const settingsGroups = [
             </label>
           </div>
           <button type="button" data-action="apply-session-model">应用到当前会话</button>
+          <button type="button" data-action="reset-account-model">恢复管理员默认</button>
         </section>
         <details class="settings-advanced" data-settings-shared-only>
           <summary>管理员高级设置</summary>
-          <small data-model-catalog-info>模型目录由服务器的 models.json 管理</small>
+          <small data-model-catalog-info>Pi 可用模型来自当前运行环境；models.json 可选</small>
         <div class="settings-toolbar">
           <label><span data-i18n="scope">scope</span>
             <select name="scope" data-settings-scope>

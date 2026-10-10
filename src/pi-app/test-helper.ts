@@ -137,6 +137,7 @@ export function installPiAppFixture() {
           <small data-account-model-status></small>
           ${settingsSelect("defaultThinkingLevel", ["inherit", "high"])}
           <button type="button" data-action="apply-session-model">应用到当前会话</button>
+          <button type="button" data-action="reset-account-model">恢复管理员默认</button>
           <details data-settings-shared-only><summary>管理员高级设置</summary>
           <select name="scope" data-settings-scope>
             <option value="project">project</option>
